@@ -195,7 +195,8 @@ mod tests {
         assert!(
             env!("CARGO_PKG_VERSION").starts_with(&format!("{}.", VERSION)),
             "Cargo.toml's {} and VERSION's {} are the same release",
-            env!("CARGO_PKG_VERSION")
+            env!("CARGO_PKG_VERSION"),
+            VERSION
         );
     }
 }

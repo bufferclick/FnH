@@ -34,6 +34,9 @@ concurrency:
 env:
   # Test runs never reach the telemetry server: no live-count ping, no uploads (docs/telemetry.md).
   HORIZON_TELEMETRY_URL: "off"
+  # Readable in a comment, and complete: `tee` holds its last block in a buffer that a killed
+  # build never writes.
+  CARGO_TERM_COLOR: never
 
 jobs:
   windows:
@@ -58,15 +61,46 @@ jobs:
           shared-key: nolauncher-windows
       - name: The version this build is
         run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+      - name: Room on the drives
+        run: |
+          df -h
+          echo "free space in the workspace's drive, in MB: $(df -m . | tail -1 | awk '{print $4}')"
+
       - name: Tests
-        run: cargo test --release
+        run: |
+          if cargo test --release > cargo-test.log 2>&1; then
+            exit 0
+          fi
+          echo "::error::cargo test failed; cargo-test.log has $(wc -l < cargo-test.log) lines"
+          grep -E "^(error|thread|test .* \.\.\. FAILED)" -A8 cargo-test.log | head -n 80 > errors.txt || true
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            [ "$n" -gt 10 ] && break
+            echo "::error::$(printf '%s' "$line" | cut -c1-350)"
+          done < errors.txt
+          exit 1
+
       - name: Build
         env:
           # The C runtime linked in: without it the .exe asks for VCRUNTIME140.dll, which only the
           # Visual C++ redistributable installs — a computer that has never played Minecraft has
           # no reason to have one.
           RUSTFLAGS: -C target-feature=+crt-static
-        run: cargo build --release
+        run: |
+          if cargo build --release > cargo-build.log 2>&1; then
+            exit 0
+          fi
+          echo "::error::cargo build failed; cargo-build.log has $(wc -l < cargo-build.log) lines"
+          grep -E "^(error|warning)" -A8 cargo-build.log | head -n 80 > errors.txt || true
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            [ "$n" -gt 10 ] && break
+            echo "::error::$(printf '%s' "$line" | cut -c1-350)"
+          done < errors.txt
+          exit 1
+
       - name: The version is the file's, and only the system's libraries are linked
         run: |
           set -euo pipefail
@@ -102,6 +136,24 @@ jobs:
           name: NLH-${{ env.VERSION }}
           path: nolauncher/dist/NLH.zip
           if-no-files-found: error
+      - name: What failed, as a comment the failure can be read from
+        # The runner's raw log is not reachable from every place a failure is read, and a commit
+        # comment is.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          body=""
+          for f in cargo-test.log cargo-build.log; do
+            [ -f "$f" ] || continue
+            body+="### $f: $(wc -l < "$f") lines, $(du -h "$f" | cut -f1); the last 400"$'\n\n```\n'"$(tail -n 400 "$f")"$'\n```\n\n'
+          done
+          body+=$'### disk\n\n```\n'"$(df -h | tail -4)"$'\n```\n'
+          [ -n "$body" ] || body="No cargo log was written: a step before cargo failed."
+          printf '%s' "$body" > comment.md
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
+
       - name: Publish nlh-v${{ env.VERSION }}
         if: github.ref == 'refs/heads/main'
         env:
