@@ -128,6 +128,23 @@ jobs:
           name: NLH-${{ env.VERSION }}
           path: nolauncher/dist/NLH.zip
           if-no-files-found: error
+      - name: What failed, as a comment the failure can be read from
+        # The runner's raw log is not reachable from every place a failure is read, and a commit
+        # comment is. The last lines of whoever failed are copied there when the job does.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          body=""
+          for f in cargo-test.log cargo-build.log; do
+            [ -f "$f" ] || continue
+            body+="### $f: the last 300 lines"$'\n\n```\n'"$(tail -n 300 "$f")"$'\n```\n\n'
+          done
+          [ -n "$body" ] || body="No cargo log was written: a step before cargo failed."
+          printf '%s' "$body" > comment.md
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
+
       - name: Publish nlh-v${{ env.VERSION }}
         if: github.ref == 'refs/heads/main'
         env:
