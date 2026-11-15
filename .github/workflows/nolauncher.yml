@@ -59,14 +59,40 @@ jobs:
       - name: The version this build is
         run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
       - name: Tests
-        run: cargo test --release
+        run: |
+          set -o pipefail
+          if cargo test --release 2>&1 | tee cargo-test.log; then
+            exit 0
+          fi
+          # A log is not always reachable from where a failure is read; what the compiler said is
+          # repeated as annotations, which are (a step may carry ten).
+          grep -E "^(error|thread '.*' panicked|test .* FAILED)" -A6 cargo-test.log | head -n 200 > errors.txt || true
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            [ "$n" -gt 10 ] && break
+            echo "::error::$(printf '%s' "$line" | cut -c1-360)"
+          done < errors.txt
+          exit 1
       - name: Build
         env:
           # The C runtime linked in: without it the .exe asks for VCRUNTIME140.dll, which only the
           # Visual C++ redistributable installs — a computer that has never played Minecraft has
           # no reason to have one.
           RUSTFLAGS: -C target-feature=+crt-static
-        run: cargo build --release
+        run: |
+          set -o pipefail
+          if cargo build --release 2>&1 | tee cargo-build.log; then
+            exit 0
+          fi
+          grep -E "^(error|warning)" -A6 cargo-build.log | head -n 200 > errors.txt || true
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            [ "$n" -gt 10 ] && break
+            echo "::error::$(printf '%s' "$line" | cut -c1-360)"
+          done < errors.txt
+          exit 1
       - name: The version is the file's, and only the system's libraries are linked
         run: |
           set -euo pipefail
