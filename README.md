@@ -61,6 +61,7 @@
 
 <p align="center">
   <b>No launcher: unzip NLH.zip, double-click the .exe, sign in with Microsoft, and Horizon starts.</b><br>
+  <a href="https://github.com/bufferclick/NoLauncherHorizon/releases"><b>Download NLH.zip</b></a><br>
   <sub>This fork's build: the launcher's window, pages and settings are gone. The browser opens on
   Microsoft's sign-in, the game's files still come from your own Minecraft, and a start with nothing
   left to do opens no browser at all. <a href="nolauncher/README.md">How it works, and how its
