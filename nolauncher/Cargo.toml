@@ -2,7 +2,7 @@
 # NoLauncherHorizon: Horizon's launcher, stripped to nothing but the double-click. The version
 # here and nolauncher/VERSION move together (a test checks it): v1.0, then v1.1 per update.
 name = "horizon-nolauncher"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
 description = "NoLauncherHorizon: Horizon with no launcher. Double-click, sign in with Microsoft, play."
@@ -18,7 +18,9 @@ name = "NoLauncherHorizon"
 path = "src/main.rs"
 
 [dependencies]
-horizon-launcher = { path = "../launcher" }
+# `xbox-sign-in`: Microsoft's own Xbox Live client, so the sign-in needs no Azure app of anyone's
+# making (launcher/Cargo.toml's note; account::XBOX_CLIENT_ID).
+horizon-launcher = { path = "../launcher", features = ["xbox-sign-in"] }
 
 [target.'cfg(windows)'.build-dependencies]
 # The icon and version in the .exe (build.rs).

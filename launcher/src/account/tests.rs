@@ -19,6 +19,10 @@ struct Mock {
     launcher_login_refused: Option<u16>,
     /// Mojang's session server refuses `join` (the token was revoked since it was renewed).
     join_refused: bool,
+    /// Which app's sign-in this mock answers for: its ticket form and scopes differ.
+    flow: Flow,
+    /// Refuses the bare ticket form, leaving `t=` as the only one it takes: as some clients need.
+    bare_ticket_refused: bool,
     /// Every request: method, path and body.
     log: Vec<(String, String, String)>,
 }
@@ -43,7 +47,18 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
                 json!({"user_code": "ABCD-EFGH", "device_code": "dev-1", "verification_uri": "https://www.microsoft.com/link", "expires_in": 900, "interval": 1}),
             )
         }
-        ("POST", "/ms/token") => match form("grant_type").as_deref() {
+        // Live Connect: the same device code, asked for with the response type named, answered
+        // with the numbers as text (its own shape) and the code typed at microsoft.com/link.
+        ("POST", "/live/oauth20_connect.srf") => {
+            assert_eq!(form("client_id").as_deref(), Some(XBOX_CLIENT_ID));
+            assert_eq!(form("scope").as_deref(), Some(XBOX_SCOPE));
+            assert_eq!(form("response_type").as_deref(), Some("device_code"));
+            reply(
+                200,
+                json!({"user_code": "ABCD-EFGH", "device_code": "dev-1", "verification_uri": "https://www.microsoft.com/link", "expires_in": "900", "interval": "1", "message": "To sign in, use a web browser to open the page https://www.microsoft.com/link and enter the code ABCD-EFGH to authenticate."}),
+            )
+        }
+        ("POST", "/ms/token" | "/live/oauth20_token.srf") => match form("grant_type").as_deref() {
             Some("urn:ietf:params:oauth:grant-type:device_code") if mock.pending > 0 => {
                 mock.pending -= 1;
                 reply(400, json!({"error": "authorization_pending"}))
@@ -56,6 +71,10 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
                 )
             }
             Some("refresh_token") if form("refresh_token").as_deref() == Some("ms-refresh-1") => {
+                // Live Connect refuses a refresh that does not name the scope it was given.
+                if mock.flow == Flow::Live {
+                    assert_eq!(form("scope").as_deref(), Some(XBOX_SCOPE));
+                }
                 reply(
                     200,
                     json!({"access_token": "ms-access-2", "refresh_token": "ms-refresh-2"}),
@@ -65,10 +84,24 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
         },
         ("POST", "/xbl") => {
             let v: Value = serde_json::from_str(body).unwrap();
-            assert!(v["Properties"]["RpsTicket"]
-                .as_str()
-                .unwrap()
-                .starts_with("d=ms-access-"));
+            let ticket = v["Properties"]["RpsTicket"].as_str().unwrap();
+            match mock.flow {
+                // An Azure app's token takes the prefix; Microsoft's own client's goes bare.
+                Flow::V2 => assert!(ticket.starts_with("d=ms-access-"), "{ticket}"),
+                Flow::Live => {
+                    let wanted = if mock.bare_ticket_refused {
+                        "t=ms-access-1"
+                    } else {
+                        "ms-access-1"
+                    };
+                    if ticket != wanted {
+                        return reply(
+                            400,
+                            json!({"Identity": "0", "XErr": 400, "Message": "Bad RpsTicket"}),
+                        );
+                    }
+                }
+            }
             assert_eq!(v["RelyingParty"], "http://auth.xboxlive.com");
             reply(
                 200,
@@ -204,6 +237,8 @@ fn serve(mock: Arc<Mutex<Mock>>) -> Endpoints {
         xbox_user: format!("{base}/xbl"),
         xsts: format!("{base}/xsts"),
         minecraft: format!("{base}/mc"),
+        flow: Flow::V2,
+        live: format!("{base}/live"),
     }
 }
 
@@ -266,6 +301,78 @@ fn the_whole_chain() {
         ]
     );
     assert!(!format!("{secrets:?}").contains("mc-token"));
+}
+
+/// Microsoft's own client's sign-in, end to end: Live Connect's device code (asked for with the
+/// response type named and answered with the numbers as text), its token, the bare ticket at Xbox
+/// Live, and the same XSTS, Minecraft, ownership and profile chain as an Azure app's.
+#[test]
+fn microsofts_own_client_signs_in_through_live_connect() {
+    let (m, mut ep) = mock(|m| {
+        m.flow = Flow::Live;
+        m.pending = 1;
+    });
+    ep.flow = Flow::Live;
+    let code = device_code(&ep, XBOX_CLIENT_ID).unwrap();
+    assert_eq!(code.user_code, "ABCD-EFGH");
+    assert_eq!(code.verification_uri, "https://www.microsoft.com/link");
+    // "expires_in": "900" and "interval": "1" came as text, and are read as numbers.
+    assert_eq!(code.interval, 1);
+    assert!(code.expires_at >= now() + 800, "{code:?}");
+    let ms = wait_for_sign_in(&ep, XBOX_CLIENT_ID, &code, &|| false).unwrap();
+    let (account, secrets) = finish_sign_in(&ep, ms).unwrap();
+    assert_eq!(account.name, "Notch");
+    assert_eq!(secrets.minecraft_token, "mc-token");
+    let paths: Vec<String> = m
+        .lock()
+        .unwrap()
+        .log
+        .iter()
+        .map(|(_, p, _)| p.clone())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "/live/oauth20_connect.srf",
+            "/live/oauth20_token.srf",
+            "/live/oauth20_token.srf",
+            "/xbl",
+            "/xsts",
+            "/mc/launcher/login",
+            "/mc/entitlements/mcstore",
+            "/mc/minecraft/profile"
+        ]
+    );
+}
+
+/// The ticket goes to Xbox Live in whichever form it takes: where the bare one is refused, the
+/// `t=` one is tried and the sign-in carries on (launchers differ on which their client needs).
+#[test]
+fn xbox_live_takes_the_ticket_in_whichever_form_it_wants() {
+    let (m, mut ep) = mock(|m| {
+        m.flow = Flow::Live;
+        m.bare_ticket_refused = true;
+    });
+    ep.flow = Flow::Live;
+    let ms = MsTokens {
+        access: "ms-access-1".into(),
+        refresh: "r".into(),
+    };
+    let (account, _) = finish_sign_in(&ep, ms).unwrap();
+    assert_eq!(account.name, "Notch");
+    let asked: Vec<String> = m
+        .lock()
+        .unwrap()
+        .log
+        .iter()
+        .filter(|(_, p, _)| p == "/xbl")
+        .map(|(_, _, body)| {
+            let v: Value = serde_json::from_str(body).unwrap();
+            v["Properties"]["RpsTicket"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    // Bare first (refused), then the ticket form that was taken.
+    assert_eq!(asked, ["ms-access-1", "t=ms-access-1"]);
 }
 
 #[test]
@@ -338,6 +445,8 @@ fn offline() -> Endpoints {
         xbox_user: "http://127.0.0.1:9/xbl".into(),
         xsts: "http://127.0.0.1:9/xsts".into(),
         minecraft: "http://127.0.0.1:9/mc".into(),
+        flow: Flow::V2,
+        live: "http://127.0.0.1:9/live".into(),
     }
 }
 
@@ -1158,6 +1267,59 @@ fn client_id_is_configuration() {
         Some("00000000-1111-2222-3333-444444444444")
     );
     std::env::remove_var("HORIZON_MSA_CLIENT_ID");
+}
+
+/// Which app signs in decides where the code and the token come from, the scope asked for, and
+/// the ticket that reaches Xbox Live; the prefix is the one difference in the chain after them.
+#[test]
+fn the_app_that_signs_in_decides_the_endpoints_the_scope_and_the_ticket() {
+    let azure = offline();
+    assert_eq!(azure.device_code_url(), "http://127.0.0.1:9/ms/devicecode");
+    assert_eq!(azure.token_url(), "http://127.0.0.1:9/ms/token");
+    assert_eq!(azure.scope(), SCOPE);
+    assert_eq!(azure.rps_tickets("token"), ["d=token"]);
+
+    let live = Endpoints {
+        flow: Flow::Live,
+        ..offline()
+    };
+    assert_eq!(
+        live.device_code_url(),
+        "http://127.0.0.1:9/live/oauth20_connect.srf"
+    );
+    assert_eq!(
+        live.token_url(),
+        "http://127.0.0.1:9/live/oauth20_token.srf"
+    );
+    assert_eq!(live.scope(), XBOX_SCOPE);
+    // In this order: the first one Xbox Live accepts is the one that was right.
+    assert_eq!(live.rps_tickets("token"), ["token", "t=token", "d=token"]);
+}
+
+/// The client ID says which flow it is, however it was configured.
+#[test]
+fn microsofts_own_client_is_the_live_connect_one() {
+    assert_eq!(Flow::of(XBOX_CLIENT_ID), Flow::Live);
+    assert_eq!(Flow::of("00000000-1111-2222-3333-444444444444"), Flow::V2);
+    assert_eq!(Flow::of(""), Flow::V2);
+}
+
+/// Live Connect sends its numbers as text and the v2 endpoint as numbers: both are read, and
+/// anything else is not a number.
+#[test]
+fn the_services_numbers_are_read_however_they_are_sent() {
+    assert_eq!(number(&json!({"expires_in": 900}), "expires_in"), Some(900));
+    assert_eq!(
+        number(&json!({"expires_in": "900"}), "expires_in"),
+        Some(900)
+    );
+    assert_eq!(
+        number(&json!({"expires_in": " 15 "}), "expires_in"),
+        Some(15)
+    );
+    assert_eq!(number(&json!({}), "expires_in"), None);
+    assert_eq!(number(&json!({"expires_in": true}), "expires_in"), None);
+    assert_eq!(number(&json!({"expires_in": "soon"}), "expires_in"), None);
 }
 
 #[test]
@@ -2469,6 +2631,8 @@ fn splitscreen_stops_renewing_other_accounts_once_out_of_time() {
         xbox_user: url.clone(),
         xsts: url.clone(),
         minecraft: url,
+        flow: Flow::V2,
+        live: "http://127.0.0.1:9/live".into(),
     };
     let store = MemoryStore::default();
     let mut accounts = signed_in(&store, &secrets("mc-token", true));

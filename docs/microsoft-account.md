@@ -41,6 +41,27 @@ no Microsoft sign-in"); release builds have it.
 Never use another application's client ID (the official launcher's or another launcher's). The same
 holds the other way: forks and derived launchers may not use Horizon's (docs/forking.md#microsoft-sign-in-in-a-fork).
 
+### This fork: Microsoft's own Xbox Live client (NoLauncherHorizon)
+
+NoLauncherHorizon (`nolauncher/`) is a zip a player unzips and double-clicks: there is no step where
+anyone registers an app. Its builds carry the `xbox-sign-in` feature (`launcher/Cargo.toml`), so
+with no `HORIZON_MSA_CLIENT_ID` they sign in the way the official Minecraft Launcher does:
+
+- the public Live Connect client `00000000402b5328` (`account::XBOX_CLIENT_ID`) on
+  `https://login.live.com` (`oauth20_connect.srf`, `oauth20_token.srf`), scope
+  `service::user.auth.xboxlive.com::MBI_SSL`, `response_type=device_code`;
+- its token reaches Xbox Live as `RpsTicket`: bare first, then `t=<token>`, then `d=<token>`,
+  whichever Xbox Live takes (builds differ on which the client needs);
+- everything after that is the chain below — XSTS, the Minecraft services, the owner gate, the
+  keychain, the session file.
+
+That is a deliberate departure from the paragraph above, for this fork and its players: it is
+Microsoft's own client rather than another launcher's, it needs no registration at all, and the cost
+is that Microsoft can change or withdraw it. Where it fails at the Xbox or Minecraft step, an Azure
+app of the fork's own (above) is the fix and needs no rebuild — the run-time
+`HORIZON_MSA_CLIENT_ID` wins over the built-in client, and with it the v2 device-code flow and the
+`d=` ticket come back.
+
 ## Flow (launcher)
 
 All requests use HTTPS and JSON except the two OAuth calls (form-encoded):

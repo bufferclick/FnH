@@ -3,7 +3,7 @@
 
 use crate::page::Page;
 use crate::{game, host, sign_in, Options};
-use horizon_launcher::{account, backend, data_location, proxy};
+use horizon_launcher::{backend, data_location, proxy};
 
 /// The whole start. 0 when the game played, 1 when it did not (the page and the log say why).
 pub fn run(options: Options) -> i32 {
@@ -31,10 +31,6 @@ pub fn run(options: Options) -> i32 {
 fn start(options: &Options, page: &Page, log: &host::Log) -> Result<(), String> {
     // The player's proxy, for every download: the same setting the launcher reads.
     proxy::announce(backend::Settings::load().proxy);
-    // Without the game's public client there is no sign-in to do, and nothing to play.
-    if account::client_id().is_none() {
-        return Err(account::NOT_CONFIGURED.to_string());
-    }
     sign_in::ensure(page, log)?;
     let instance = game::instance(log);
     let tag = game::tag(options, &instance, page, log)?;

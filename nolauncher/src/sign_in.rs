@@ -6,11 +6,13 @@
 //! reaches the player differs: there is no window to print it in, so it goes on the clipboard and
 //! on the page, and the browser opens on Microsoft's own sign-in.
 //!
-//! Nothing here needs an Azure registration of your own: the code comes from the public client
-//! Horizon's builds already sign in with, so "Microsoft account" is the whole requirement.
+//! Nothing here needs an Azure registration of your own: this build signs in with Microsoft's own
+//! Xbox Live client (`account::XBOX_CLIENT_ID`, the one the official launcher uses), so
+//! "Microsoft account" is the whole requirement. Set `HORIZON_MSA_CLIENT_ID` to an Azure app of
+//! your own and that one is used instead.
 
 use crate::host;
-use crate::page::Page;
+use crate::page::{self, Page};
 use horizon_launcher::account::{self, SignIn, SignInState};
 use std::time::Duration;
 
@@ -21,9 +23,6 @@ const POLL: Duration = Duration::from_millis(200);
 /// does: the browser opens, the code waits on the clipboard and on the page, and this returns
 /// once the account is saved. A computer that signed in already asks nothing.
 pub fn ensure(page: &Page, log: &host::Log) -> Result<(), String> {
-    if account::client_id().is_none() {
-        return Err(account::NOT_CONFIGURED.to_string());
-    }
     let accounts = account::Accounts::load();
     if !accounts.accounts.is_empty() && accounts.has_owner(account::store()) {
         log.line("Signed in already.");
@@ -45,7 +44,10 @@ pub fn ensure(page: &Page, log: &host::Log) -> Result<(), String> {
                 page.sign_in(&user_code, &link);
                 if !opened {
                     opened = true;
-                    log.line(&format!("Signing in at {link} with the code {user_code}."));
+                    // Microsoft's page takes the code in its address, so the player lands on it
+                    // with nothing to type; the page behind shows the code all the same.
+                    let open = page::open_url(&link, &user_code);
+                    log.line(&format!("Signing in at {open} with the code {user_code}."));
                     if !host::copy(&user_code) {
                         log.line("The code could not be put on the clipboard; it is on the page.");
                     }
@@ -53,11 +55,11 @@ pub fn ensure(page: &Page, log: &host::Log) -> Result<(), String> {
                     // page in front: the player signs in and the tab behind says how far it got.
                     match page.show() {
                         Ok(()) => {
-                            if let Err(e) = host::open(&link) {
-                                log.line(&format!("{e} Open {link} in a browser yourself."));
+                            if let Err(e) = host::open(&open) {
+                                log.line(&format!("{e} Open {open} in a browser yourself."));
                             }
                         }
-                        Err(e) => log.line(&format!("{e} Open {link} in a browser yourself.")),
+                        Err(e) => log.line(&format!("{e} Open {open} in a browser yourself.")),
                     }
                 }
             }
