@@ -2,6 +2,9 @@
 
 <p align="center"><img src="icons/nlh-256.png" width="96" alt="NoLauncherHorizon's icon: Horizon's horizon line with a play mark on it"></p>
 
+**[Download NLH.zip](https://github.com/bufferclick/NoLauncherHorizon/releases)** — unzip it and
+double-click `NoLauncherHorizon.exe` (Windows x64).
+
 Horizon with the launcher stripped out. One `.exe`, double-clicked:
 
 1. your browser opens on Microsoft's sign-in, the code already on your clipboard and on the page

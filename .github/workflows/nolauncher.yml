@@ -6,9 +6,10 @@ name: nolauncher
 #
 # The version is nolauncher/VERSION (v1.0 first, one tenth per update: v1.1 … v1.9, then v1.10)
 # and the release is tagged from it: nlh-v1.0. A tag that is already published is left alone, so
-# a push that changes nothing a player would notice publishes nothing; bumping VERSION publishes,
-# and a release is never marked latest — the game's own releases stay the repository's latest.
-# A branch's run only builds: the zip waits as the run's artifact.
+# a push that changes nothing a player would notice publishes nothing; bumping VERSION publishes.
+# The release is created with --latest=false, so it never takes the latest slot from a game
+# release (it holds it only where it is the sole release, as in a fork). A branch's run only
+# builds: the zip waits as the run's artifact.
 #
 #   gh workflow run nolauncher --ref <branch>
 
