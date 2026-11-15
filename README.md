@@ -57,6 +57,16 @@
   <sub>Against Java Edition with Sodium, Lithium, FerriteCore and ImmediatelyFast on a Ryzen 7 9800X3D with an RTX 5080: the title screen in about 3 seconds instead of 11, and 31 to 38 percent more frames per second across render distances.</sub>
 </p>
 
+<h2 align="center">NoLauncherHorizon</h2>
+
+<p align="center">
+  <b>No launcher: unzip NLH.zip, double-click the .exe, sign in with Microsoft, and Horizon starts.</b><br>
+  <sub>This fork's build: the launcher's window, pages and settings are gone. The browser opens on
+  Microsoft's sign-in, the game's files still come from your own Minecraft, and a start with nothing
+  left to do opens no browser at all. <a href="nolauncher/README.md">How it works, and how its
+  versions go</a>.</sub>
+</p>
+
 <h2 align="center">Made by the Horizon Team</h2>
 
 <table align="center">

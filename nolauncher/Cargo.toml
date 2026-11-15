@@ -1,0 +1,59 @@
+[package]
+# NoLauncherHorizon: Horizon's launcher, stripped to nothing but the double-click. The version
+# here and nolauncher/VERSION move together (a test checks it): v1.0, then v1.1 per update.
+name = "horizon-nolauncher"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+description = "NoLauncherHorizon: Horizon with no launcher. Double-click, sign in with Microsoft, play."
+publish = false
+
+# A workspace of its own, so the launcher's workspace and its lock file are untouched: this one
+# only builds the bootstrap, which uses the launcher's own core (account, installs, preparation,
+# the game's command) through `horizon-launcher`'s library.
+[workspace]
+
+[[bin]]
+name = "NoLauncherHorizon"
+path = "src/main.rs"
+
+[dependencies]
+horizon-launcher = { path = "../launcher" }
+
+[target.'cfg(windows)'.build-dependencies]
+# The icon and version in the .exe (build.rs).
+winresource = "0.1"
+
+# The same fixes the launcher's workspace applies (launcher/Cargo.toml): this binary links the
+# launcher's GPUI code, so wgpu-hal, naga and libmimalloc-sys must be the same copies — Intel's
+# Windows drivers crash on the released wgpu-hal's descriptor pool, shader packs need naga's
+# GLSL fixes, and the released libmimalloc-sys dies before main on CPUs without POPCNT.
+[patch.crates-io]
+wgpu-hal = { path = "../third_party/wgpu-hal" }
+naga = { path = "../third_party/naga" }
+libmimalloc-sys = { path = "../third_party/libmimalloc-sys" }
+
+# Line tables keep file:line in backtraces; as in the launcher's workspace.
+[profile.dev]
+debug = "line-tables-only"
+
+# A small, fast executable: the shapes are the launcher's own (launcher/Cargo.toml).
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
+# The native mod API's generator parses the game's sources on every build; unoptimized it costs
+# seconds of each one (launcher/Cargo.toml has the same entries).
+[profile.dev.package.horizon-mod-api-gen]
+opt-level = 3
+[profile.dev.package.syn]
+opt-level = 3
+[profile.dev.package.proc-macro2]
+opt-level = 3
+[profile.release.package.horizon-mod-api-gen]
+opt-level = 3
+[profile.release.package.syn]
+opt-level = 3
+[profile.release.package.proc-macro2]
+opt-level = 3

@@ -35,3 +35,8 @@
 
 # Release-only compiled original exporter bundle.
 /exporters/
+
+# NoLauncherHorizon builds in its own Cargo workspace (nolauncher/): its output, and the zip
+# NLH.zip is made from.
+/nolauncher/target/
+/nolauncher/dist/
