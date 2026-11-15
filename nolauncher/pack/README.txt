@@ -3,10 +3,14 @@ NoLauncherHorizon v@VERSION@
 
 Horizon, with no launcher.
 
-Double-click NoLauncherHorizon.exe. Your browser opens on Microsoft's sign-in: the code is
-already on your clipboard, paste it with Ctrl+V and sign in. The tab behind it shows what is
-happening — the newest Horizon build being fetched, the game's files being prepared from your
-own Minecraft — and then Horizon starts by itself.
+Double-click NoLauncherHorizon.exe. Your browser opens on Microsoft's sign-in page with the code
+already filled in: sign in there. The tab behind it has the code, a Copy button and a QR code for
+a phone, in case you need them, and it shows what is happening — the newest Horizon build being
+fetched, the game's files being prepared from your own Minecraft — and then Horizon starts by
+itself.
+
+Signing in needs no account of yours beyond Microsoft's: there is no app to register and nothing
+to configure.
 
 There is nothing to install and nothing to set up. The first start takes a few minutes on a
 computer that has never played Horizon (it downloads a build and prepares the game's files);

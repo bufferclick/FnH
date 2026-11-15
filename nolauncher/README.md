@@ -7,8 +7,8 @@ double-click `NoLauncherHorizon.exe` (Windows x64).
 
 Horizon with the launcher stripped out. One `.exe`, double-clicked:
 
-1. your browser opens on Microsoft's sign-in, the code already on your clipboard and on the page
-   the program opens beside it;
+1. your browser opens on Microsoft's sign-in page with the code already filled in, and the tab the
+   program opened behind it shows the code, a Copy button and a QR code for a phone;
 2. you sign in — a Microsoft account that owns Minecraft: Java Edition, as any launcher needs;
 3. the page turns into the progress: the newest Horizon build is downloaded if this computer has
    no copy of it, and the game's files are prepared from your own Minecraft exactly as the
@@ -20,9 +20,17 @@ your browser is the program's only screen, and a start on a computer that is alr
 and prepared opens no browser at all — it goes straight into the game.
 
 It is not a second launcher: it is `horizon-launcher`'s own library (`account`, `backend`,
-`instances`, `launch`) with the window replaced by the order below. No Azure registration of your
-own is involved, and nothing is sent anywhere (unlike the launcher, it does not even ping the
-play counter): the sign-in is the same public client Horizon's builds already use.
+`instances`, `launch`) with the window replaced by the order below. Nothing is sent anywhere (unlike
+the launcher, it does not even ping the play counter).
+
+**The sign-in needs no registration from you, or from this fork's maintainers.** This build asks
+Microsoft for the code as Microsoft's own Xbox Live client does — the public client the official
+Minecraft Launcher signs in with, on `login.live.com` (`account::XBOX_CLIENT_ID`, and the
+`xbox-sign-in` feature in `launcher/Cargo.toml`) — so "has a Microsoft account that owns Minecraft"
+is the whole requirement. Everything after the code is the launcher's own chain. If you would
+rather sign in with an Azure app of your own (the route `docs/microsoft-account.md` describes, and
+the one Mojang approves apps for), set `HORIZON_MSA_CLIENT_ID` to its client ID before starting:
+the variable wins over the built-in client, with no rebuild.
 
 ## What it shares, and where it keeps things
 

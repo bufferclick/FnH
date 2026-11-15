@@ -1,6 +1,7 @@
 //! The one thing the player sees: a local HTML page in their browser, rewritten as the work
-//! moves on. It says what to type on Microsoft's page, then how far the install and the
-//! preparation are, then that Horizon is starting; a failing start says why and where the log is.
+//! moves on. It says what to type on Microsoft's page — the code, a QR code of that page and a
+//! button that copies the code — then how far the install and the preparation are, then that
+//! Horizon is starting; a failing start says why and where the log is.
 //!
 //! It is a file, not a window: no framework, no launcher, nothing to click. The page reloads
 //! itself once a second (`<meta http-equiv="refresh">`), so the tab the sign-in opened becomes
@@ -236,16 +237,7 @@ pub fn render(shown: &Shown, footer: &str) -> String {
         ),
         Shown::SignIn { code, link } => (
             "Sign in with Microsoft".to_owned(),
-            format!(
-                "<p class=\"note\">Enter this code on the page that opened:</p>\
-                 <p class=\"code\">{code}</p>\
-                 <p class=\"note\">It is on your clipboard too: paste it with Ctrl+V. This page \
-                 follows the sign-in and turns into the progress by itself.</p>\
-                 <p><a class=\"button\" href=\"{link}\" target=\"_blank\" rel=\"noreferrer\">\
-                 Open Microsoft sign-in</a></p>",
-                code = escape(code),
-                link = escape(link),
-            ),
+            sign_in_body(code, link),
         ),
         Shown::Step {
             title,
@@ -278,16 +270,70 @@ pub fn render(shown: &Shown, footer: &str) -> String {
             ),
         ),
     };
-    format!(
+    let mut html = format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
          {refresh}\n<title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n<main>\n\
          <p class=\"brand\">NoLauncher<span>Horizon</span></p>\n<h1>{title}</h1>\n{body}\n\
-         <p class=\"stamp\">{footer}</p>\n</main>\n</body>\n</html>\n",
+         <p class=\"stamp\">{footer}</p>\n</main>\n",
         title = escape(&title),
         css = CSS,
         footer = escape(footer),
-    )
+    );
+    // The script has braces of its own, so it is appended rather than formatted.
+    html.push_str(SCRIPT);
+    html.push_str("\n</body>\n</html>\n");
+    html
+}
+
+/// The sign-in page: the code, a button that copies it, the QR code of Microsoft's page and the
+/// address itself — nothing else, and no clicking needed to start (the browser is already there).
+fn sign_in_body(code: &str, link: &str) -> String {
+    let mut body = format!(
+        "<p class=\"note\">Enter this code on Microsoft's page:</p>\
+         <p class=\"row\"><span class=\"code\">{code}</span>\
+         <button class=\"copy\" type=\"button\" data-code=\"{code}\" \
+         onclick=\"copyCode(this)\">Copy</button></p>",
+        code = escape(code),
+    );
+    if let Some(drawing) = crate::qr::for_link(link) {
+        body.push_str("<p class=\"qr\">");
+        body.push_str(drawing);
+        body.push_str("</p>");
+    }
+    body.push_str(&format!(
+        "<p class=\"note\">Open <a href=\"{open}\" target=\"_blank\" rel=\"noreferrer\">\
+         {link}</a> or scan the QR and enter the code above if needed.</p>\
+         <p class=\"wait\">Waiting for you to finish signing in…</p>",
+        open = escape(&open_url(link, code)),
+        link = escape(link),
+    ));
+    body
+}
+
+/// The address the sign-in opens on: Microsoft's link page takes the code in the address
+/// (`?otc=`), so the player signs in without typing it. Any other verification page gets the
+/// address as it is.
+pub fn open_url(link: &str, code: &str) -> String {
+    if code.is_empty() || !crate::qr::is_link_page(link) {
+        return link.to_owned();
+    }
+    let separator = if link.contains('?') { '&' } else { '?' };
+    format!("{link}{separator}otc={}", encode(code))
+}
+
+/// `text` with everything but letters, digits, dashes and stops percent-encoded: a code is eight
+/// of those, and anything a service sends stays safe in an address.
+fn encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'.' || byte == b'_' {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// `text` with the characters HTML reads as markup (a log line, an error, the version).
@@ -306,28 +352,58 @@ pub fn escape(text: &str) -> String {
     out
 }
 
-/// The look: Horizon's own night, its violet and its mono code, in one short style.
+/// The look: plain. One column in the middle of the window, Horizon's night behind it, the code
+/// in the player's own mono, and the QR code on the white a camera can read.
 const CSS: &str = "\
 :root{color-scheme:dark}\
 *{box-sizing:border-box}\
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#111318;\
-color:#ecedf3;font:16px/1.55 \"Segoe UI\",system-ui,sans-serif;padding:24px}\
-main{width:min(560px,100%);padding:36px 40px;border:1px solid #262a35;border-radius:18px;\
-background:#16181f}\
-.brand{margin:0 0 26px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;\
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16181f;\
+color:#ecedf3;font:16px/1.5 system-ui,\"Segoe UI\",sans-serif;padding:28px}\
+main{width:min(420px,100%);text-align:center}\
+.brand{margin:0 0 22px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;\
 color:#8b8f9e}\
 .brand span{color:#9a86ff}\
-h1{margin:0 0 12px;font-size:22px;font-weight:600}\
-.note{margin:0 0 16px;color:#b7bcc9}\
-.code{display:inline-block;margin:0 0 16px;padding:14px 20px;border-radius:12px;\
-border:1px solid #2c3142;background:#1e2130;color:#fff;letter-spacing:.14em;\
-font:600 32px/1.2 ui-monospace,Consolas,monospace}\
-.bar{height:8px;margin:0 0 18px;border-radius:999px;background:#22262f;overflow:hidden}\
+h1{margin:0 0 20px;font-size:21px;font-weight:600}\
+.note{margin:0 0 14px;color:#b7bcc9}\
+.note a{color:#c9bcff}\
+.row{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 0 18px}\
+.code{padding:10px 16px;border-radius:10px;border:1px solid #2c3142;background:#1e2130;\
+color:#fff;letter-spacing:.12em;font:600 30px/1.15 ui-monospace,Consolas,monospace}\
+.copy{padding:8px 12px;border-radius:8px;border:1px solid #343a4b;background:#232733;\
+color:#ecedf3;font:500 13px/1 system-ui,\"Segoe UI\",sans-serif;cursor:pointer}\
+.qr{margin:0 0 18px}\
+.qr svg{width:168px;height:168px;border-radius:6px}\
+.wait{margin:6px 0 0;color:#6f7484;font-size:13px}\
+.bar{height:6px;margin:0 0 16px;border-radius:999px;background:#22262f;overflow:hidden}\
 .bar i{display:block;height:100%;border-radius:999px;background:#9a86ff}\
-.button{display:inline-block;padding:11px 18px;border-radius:10px;background:#9a86ff;\
-color:#16181f;font-weight:600;text-decoration:none}\
 .danger{color:#ff9a8a}\
-.stamp{margin:26px 0 0;font-size:12px;color:#6f7484;word-break:break-word}";
+.stamp{margin:24px 0 0;font-size:12px;color:#6f7484;word-break:break-word}";
+
+/// The page's only script: the Copy button. The code is on the clipboard already (the program put
+/// it there); this is for a player who pasted something else in between, and it works on a
+/// `file://` page by falling back to a selected text area when the clipboard API is not allowed.
+const SCRIPT: &str = r#"<script>
+function copyCode(button) {
+  var code = button.getAttribute('data-code');
+  var copied = function () {
+    button.textContent = 'Copied';
+    setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+  };
+  var fallback = function () {
+    var area = document.createElement('textarea');
+    area.value = code;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); copied(); } catch (e) {}
+    document.body.removeChild(area);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(copied, fallback);
+  } else {
+    fallback();
+  }
+}
+</script>"#;
 
 #[cfg(test)]
 mod tests {
@@ -345,9 +421,89 @@ mod tests {
             link: "https://www.microsoft.com/link".into(),
         });
         assert!(html.contains("ABCD-1234"), "{html}");
-        assert!(html.contains("href=\"https://www.microsoft.com/link\""));
+        // The address carries the code, so signing in needs no typing at all.
+        assert!(
+            html.contains("href=\"https://www.microsoft.com/link?otc=ABCD-1234\""),
+            "{html}"
+        );
         // The tab reloads while the player is on Microsoft's page: it becomes the progress.
         assert!(html.contains("http-equiv=\"refresh\""));
+    }
+
+    /// The sign-in page is the code, a button that copies it, the QR code of Microsoft's page and
+    /// that address — as plain as that.
+    #[test]
+    fn the_sign_in_page_is_the_code_the_qr_and_nothing_else() {
+        let html = page(&Shown::SignIn {
+            code: "72J7EFQU".into(),
+            link: "https://www.microsoft.com/link".into(),
+        });
+        assert!(html.contains("data-code=\"72J7EFQU\""), "{html}");
+        assert!(html.contains("onclick=\"copyCode(this)\""), "{html}");
+        assert!(html.contains("function copyCode("), "{html}");
+        let qr = crate::qr::for_link("https://www.microsoft.com/link").unwrap();
+        assert!(html.contains(qr), "the QR code is not on the page");
+        assert!(
+            html.contains("https://www.microsoft.com/link</a>"),
+            "{html}"
+        );
+    }
+
+    /// The address the browser is sent to carries the code; one that is not the link page keeps
+    /// its own address, and so does a code-less page.
+    #[test]
+    fn the_link_page_is_opened_with_the_code_in_it() {
+        assert_eq!(
+            super::open_url("https://www.microsoft.com/link", "72J7EFQU"),
+            "https://www.microsoft.com/link?otc=72J7EFQU"
+        );
+        assert_eq!(
+            super::open_url("https://www.microsoft.com/link/", "72J7EFQU"),
+            "https://www.microsoft.com/link/?otc=72J7EFQU"
+        );
+        assert_eq!(
+            super::open_url("https://www.microsoft.com/link?a=1", "72J7EFQU"),
+            "https://www.microsoft.com/link?a=1&otc=72J7EFQU"
+        );
+        // Another page, and a page with no code, are left alone.
+        assert_eq!(
+            super::open_url("https://microsoft.com/devicelogin", "72J7EFQU"),
+            "https://microsoft.com/devicelogin"
+        );
+        assert_eq!(
+            super::open_url("https://www.microsoft.com/link", ""),
+            "https://www.microsoft.com/link"
+        );
+    }
+
+    /// A page with no QR code (any address but the link page) still says where to type the code.
+    #[test]
+    fn another_verification_page_shows_its_address_and_no_qr() {
+        let html = page(&Shown::SignIn {
+            code: "ABCDEFGH".into(),
+            link: "https://microsoft.com/devicelogin".into(),
+        });
+        assert!(
+            html.contains("href=\"https://microsoft.com/devicelogin\""),
+            "{html}"
+        );
+        assert!(!html.contains("<svg"), "{html}");
+        // And the code stays on the page: it is what the player types there.
+        assert!(html.contains("ABCDEFGH"), "{html}");
+    }
+
+    /// A code is escaped like anything else, and encoded in the address it is put in.
+    #[test]
+    fn the_code_is_encoded_where_it_goes_into_an_address() {
+        assert_eq!(super::encode("72J7EFQU"), "72J7EFQU");
+        assert_eq!(super::encode("ABCD-1234"), "ABCD-1234");
+        assert_eq!(super::encode("a b&c"), "a%20b%26c");
+        let html = page(&Shown::SignIn {
+            code: "<b>".into(),
+            link: "https://www.microsoft.com/link".into(),
+        });
+        assert!(!html.contains("data-code=\"<b>\""), "{html}");
+        assert!(html.contains("otc=%3Cb%3E"), "{html}");
     }
 
     #[test]

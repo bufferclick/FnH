@@ -7,6 +7,14 @@ description = "Downloads, prepares and starts Horizon builds"
 
 [workspace]
 
+[features]
+# Sign-in with Microsoft's own Xbox Live client on Live Connect (account::XBOX_CLIENT_ID) when
+# no Azure app of the build's own is configured: "Microsoft account" is then the whole
+# requirement, with nothing to register and no client ID to set. NoLauncherHorizon builds with
+# it; the launcher itself does not, so it keeps saying sign-in is not configured until its
+# Azure app is named (docs/microsoft-account.md).
+xbox-sign-in = []
+
 [dependencies]
 # The catalog and mod-owned trait injections share their generation rules.
 horizon-mod-api-gen = { path = "../crates/horizon-mod-api-gen" }

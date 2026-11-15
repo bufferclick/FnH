@@ -11,7 +11,10 @@
 //! The game binary itself, its harnesses and the servers don't go through the launcher's gate.
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
-//! build time, or at run time to override it. Without one, sign-in says it is not configured.
+//! build time, or at run time to override it. Without one, sign-in says it is not configured —
+//! unless the build carries the `xbox-sign-in` feature: then it signs in with Microsoft's own Xbox
+//! Live client ([`XBOX_CLIENT_ID`]), on Live Connect, the way the official launcher does, and
+//! "Microsoft account" is the whole requirement.
 pub mod session;
 
 use serde_json::{json, Value};
@@ -24,6 +27,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.playhorizon.launcher";
 const SCOPE: &str = "XboxLive.signin offline_access";
+/// Microsoft's own Xbox Live client, the one the official Minecraft Launcher signs in with. It
+/// lives on Live Connect (`login.live.com`), not in an Azure tenant, so it needs no registration
+/// of anyone's own: a build with the `xbox-sign-in` feature offers Microsoft sign-in with nothing
+/// to set up. An Azure app of one's own, approved by Mojang for the Minecraft services, is the
+/// sanctioned route; `HORIZON_MSA_CLIENT_ID` switches back to one.
+pub const XBOX_CLIENT_ID: &str = "00000000402b5328";
+/// The scope that client asks for: a ticket for `user.auth.xboxlive.com`, the first step of the
+/// Xbox Live chain (`XboxLive.signin` is the Azure apps' equivalent, and takes `offline_access`
+/// beside it because the v2 endpoint asks for a refresh token).
+const XBOX_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
+/// Live Connect: where that client's device codes and tokens come from.
+const LIVE: &str = "https://login.live.com";
+/// The consumers' OAuth 2.0 v2 endpoint, where an Azure app's do.
+const AZURE: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0";
 pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft sign-in (HORIZON_MSA_CLIENT_ID), so it can't start the game.";
 /// What every Play says while no account in the launcher owns the game.
 pub const NEEDS_OWNER: &str =
@@ -37,14 +54,52 @@ const SIGN_IN_AGAIN: &str = "Your Microsoft sign-in expired. Sign in again.";
 /// The Minecraft token is renewed when it has less than this left.
 const RENEW_BEFORE: u64 = 3600;
 
-/// The configured Azure app, if any: the run-time variable wins over the build-time one, and an
-/// empty value means none.
+/// The app the sign-in uses, if any: the run-time variable wins over the build-time one, an empty
+/// value means none at all, and a build carrying no app of its own signs in with Microsoft's Xbox
+/// Live client where it has the `xbox-sign-in` feature.
 pub fn client_id() -> Option<String> {
-    std::env::var("HORIZON_MSA_CLIENT_ID")
+    match std::env::var("HORIZON_MSA_CLIENT_ID")
         .ok()
         .or_else(|| option_env!("HORIZON_MSA_CLIENT_ID").map(str::to_owned))
-        .map(|id| id.trim().to_owned())
-        .filter(|id| !id.is_empty())
+    {
+        // Named — even empty, which turns sign-in off for this run rather than on with a default.
+        Some(id) => Some(id.trim().to_owned()).filter(|id| !id.is_empty()),
+        // Nothing named: whatever this build brings itself.
+        None => built_in_client_id(),
+    }
+}
+
+#[cfg(feature = "xbox-sign-in")]
+fn built_in_client_id() -> Option<String> {
+    Some(XBOX_CLIENT_ID.to_owned())
+}
+
+#[cfg(not(feature = "xbox-sign-in"))]
+fn built_in_client_id() -> Option<String> {
+    None
+}
+
+/// Which Microsoft app signs in, and so where its device codes and tokens come from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Flow {
+    /// An Azure app registration's OAuth 2.0 v2 device code (`HORIZON_MSA_CLIENT_ID`); its token
+    /// reaches Xbox Live as `d=<token>`.
+    #[default]
+    V2,
+    /// Microsoft's own Xbox Live client on Live Connect, which needs no registration at all.
+    Live,
+}
+
+impl Flow {
+    /// The flow `client_id` belongs to: Microsoft's Xbox client is the Live Connect one, any
+    /// other (an Azure app registration) the v2 one.
+    pub fn of(client_id: &str) -> Self {
+        if client_id == XBOX_CLIENT_ID {
+            Self::Live
+        } else {
+            Self::V2
+        }
+    }
 }
 
 /// Where the requests go: the real services, or a mock in tests.
@@ -56,21 +111,71 @@ pub struct Endpoints {
     pub xsts: String,
     /// api.minecraftservices.com.
     pub minecraft: String,
+    /// Which app signs in, and so which of the two Microsoft endpoints is asked.
+    pub flow: Flow,
+    /// Live Connect's own base: Microsoft's Xbox client's device code and token are under it.
+    pub live: String,
 }
 
 impl Endpoints {
     pub fn live() -> Self {
         // Development builds only: `HORIZON_MSA_MICROSOFT_ENDPOINT` points the device-code and
-        // token requests at a local mock, to see and screenshot the sign-in panel.
-        let microsoft = std::env::var("HORIZON_MSA_MICROSOFT_ENDPOINT")
+        // token requests at a local mock, to see and screenshot the sign-in panel. A mock speaks
+        // the v2 shapes; the real services follow the app that signs in.
+        let mock = std::env::var("HORIZON_MSA_MICROSOFT_ENDPOINT")
             .ok()
-            .filter(|_| cfg!(debug_assertions))
-            .unwrap_or_else(|| "https://login.microsoftonline.com/consumers/oauth2/v2.0".into());
+            .filter(|_| cfg!(debug_assertions));
+        let flow = match mock {
+            Some(_) => Flow::V2,
+            None => Flow::of(&client_id().unwrap_or_default()),
+        };
         Self {
-            microsoft,
+            microsoft: mock.unwrap_or_else(|| AZURE.to_owned()),
             xbox_user: "https://user.auth.xboxlive.com/user/authenticate".into(),
             xsts: "https://xsts.auth.xboxlive.com/xsts/authorize".into(),
             minecraft: "https://api.minecraftservices.com".into(),
+            flow,
+            live: LIVE.into(),
+        }
+    }
+
+    /// Where the device code is asked for: the v2 endpoint, or Live Connect's connect page.
+    pub fn device_code_url(&self) -> String {
+        match self.flow {
+            Flow::V2 => format!("{}/devicecode", self.microsoft),
+            Flow::Live => format!("{}/oauth20_connect.srf", self.live),
+        }
+    }
+
+    /// Where the token is polled for, and later refreshed: beside the device code.
+    pub fn token_url(&self) -> String {
+        match self.flow {
+            Flow::V2 => format!("{}/token", self.microsoft),
+            Flow::Live => format!("{}/oauth20_token.srf", self.live),
+        }
+    }
+
+    /// The scopes asked for: Xbox Live's sign-in for an Azure app, Xbox Live's ticket scope for
+    /// Microsoft's own client (Live Connect asks for a service, and wants it again on refresh).
+    pub fn scope(&self) -> &'static str {
+        match self.flow {
+            Flow::V2 => SCOPE,
+            Flow::Live => XBOX_SCOPE,
+        }
+    }
+
+    /// The forms this flow's Microsoft token may take as Xbox Live's `RpsTicket`. An Azure app's
+    /// token is `d=<token>`; Microsoft's own client's token is used bare by most launchers and as
+    /// `t=<token>` by others (and `d=<token>` works for some), so they are tried in turn and
+    /// whichever Xbox Live accepts — the first one — is the right one.
+    fn rps_tickets(&self, access: &str) -> Vec<String> {
+        match self.flow {
+            Flow::V2 => vec![format!("d={access}")],
+            Flow::Live => vec![
+                access.to_owned(),
+                format!("t={access}"),
+                format!("d={access}"),
+            ],
         }
     }
 }
@@ -209,9 +314,14 @@ pub enum Poll {
 }
 
 pub fn device_code(ep: &Endpoints, client_id: &str) -> Result<DeviceCode, String> {
+    // The v2 endpoint takes the scopes alone; Live Connect's wants the response type named too.
+    let mut fields: Vec<(&str, &str)> = vec![("client_id", client_id), ("scope", ep.scope())];
+    if ep.flow == Flow::Live {
+        fields.push(("response_type", "device_code"));
+    }
     let (status, v) = send(
-        request_to("POST", &format!("{}/devicecode", ep.microsoft)),
-        Some(Body::Form(vec![("client_id", client_id), ("scope", SCOPE)])),
+        request_to("POST", &ep.device_code_url()),
+        Some(Body::Form(fields)),
         "Microsoft",
     )?;
     match (
@@ -223,21 +333,22 @@ pub fn device_code(ep: &Endpoints, client_id: &str) -> Result<DeviceCode, String
             user_code,
             verification_uri: str_field(&v, "verification_uri")
                 .unwrap_or_else(|| "https://www.microsoft.com/link".into()),
-            interval: v
-                .get("interval")
-                .and_then(Value::as_u64)
-                .unwrap_or(5)
-                .clamp(1, 60),
+            interval: number(&v, "interval").unwrap_or(5).clamp(1, 60),
             // The service's numbers, bounded: Instant + a huge interval panics the sign-in thread.
-            expires_at: now().saturating_add(
-                v.get("expires_in")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(900)
-                    .min(3600),
-            ),
+            expires_at: now().saturating_add(number(&v, "expires_in").unwrap_or(900).min(3600)),
             device_code,
         }),
         _ => Err(oauth_error(&v)),
+    }
+}
+
+/// A number a service sent, as a number or as the text of one: Live Connect answers
+/// `"expires_in": "900"`, the v2 endpoint `"expires_in": 900`.
+fn number(v: &Value, key: &str) -> Option<u64> {
+    match v.get(key)? {
+        Value::Number(n) => n.as_u64(),
+        Value::String(text) => text.trim().parse().ok(),
+        _ => None,
     }
 }
 
@@ -259,7 +370,7 @@ fn oauth_error(v: &Value) -> String {
 /// One poll of the token endpoint while the player signs in.
 pub fn poll(ep: &Endpoints, client_id: &str, code: &DeviceCode) -> Result<Poll, String> {
     let (status, v) = send(
-        request_to("POST", &format!("{}/token", ep.microsoft)),
+        request_to("POST", &ep.token_url()),
         Some(Body::Form(vec![
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ("client_id", client_id),
@@ -316,12 +427,13 @@ pub fn wait_for_sign_in(
 
 fn refresh_ms(ep: &Endpoints, client_id: &str, refresh: &str) -> Result<MsTokens, String> {
     let (status, v) = send(
-        request_to("POST", &format!("{}/token", ep.microsoft)),
+        request_to("POST", &ep.token_url()),
         Some(Body::Form(vec![
             ("grant_type", "refresh_token"),
             ("client_id", client_id),
             ("refresh_token", refresh),
-            ("scope", SCOPE),
+            // Live Connect refuses a refresh that does not name the scope it was given.
+            ("scope", ep.scope()),
         ])),
         "Microsoft",
     )?;
@@ -354,22 +466,31 @@ fn minecraft_login(
     progress: &dyn Fn(session::Phase),
 ) -> Result<Minecraft, String> {
     progress(session::Phase::Xbox);
-    let (status, xbl) = send(
-        request_to("POST", &ep.xbox_user),
-        Some(Body::Json(json!({
-            "Properties": {
-                "AuthMethod": "RPS",
-                "SiteName": "user.auth.xboxlive.com",
-                "RpsTicket": format!("d={ms_access}"),
-            },
-            "RelyingParty": "http://auth.xboxlive.com",
-            "TokenType": "JWT",
-        }))),
-        "Xbox Live",
-    )?;
-    let xbl_token = str_field(&xbl, "Token")
-        .filter(|_| status == 200)
-        .ok_or("Xbox Live refused the sign-in.")?;
+    // The ticket the Microsoft token has to take (`rps_tickets`): everything but an Azure app's
+    // is one form of several, and Xbox Live accepting one of them is the answer.
+    let mut xbl_token: Option<String> = None;
+    for ticket in ep.rps_tickets(ms_access) {
+        let (status, xbl) = send(
+            request_to("POST", &ep.xbox_user),
+            Some(Body::Json(json!({
+                "Properties": {
+                    "AuthMethod": "RPS",
+                    "SiteName": "user.auth.xboxlive.com",
+                    "RpsTicket": ticket,
+                },
+                "RelyingParty": "http://auth.xboxlive.com",
+                "TokenType": "JWT",
+            }))),
+            "Xbox Live",
+        )?;
+        if let Some(token) = str_field(&xbl, "Token").filter(|_| status == 200) {
+            xbl_token = Some(token);
+            break;
+        }
+    }
+    let Some(xbl_token) = xbl_token else {
+        return Err("Xbox Live refused the sign-in.".into());
+    };
     let (status, xsts) = send(
         request_to("POST", &ep.xsts),
         Some(Body::Json(json!({

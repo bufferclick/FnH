@@ -20,6 +20,7 @@ mod boot;
 mod game;
 mod host;
 mod page;
+mod qr;
 mod sign_in;
 
 use std::ffi::OsString;
