@@ -1,0 +1,119 @@
+name: nolauncher
+# Builds NoLauncherHorizon (nolauncher/): Horizon with the launcher stripped out, one .exe that a
+# player unzips from NLH.zip and double-clicks. Windows x64 only — the only platform it exists
+# for — on a Windows runner, so the icon and the version resource in the .exe are the real
+# Windows ones, not a cross-build's guess.
+#
+# The version is nolauncher/VERSION (v1.0 first, one tenth per update: v1.1 … v1.9, then v1.10)
+# and the release is tagged from it: nlh-v1.0. A tag that is already published is left alone, so
+# a push that changes nothing a player would notice publishes nothing; bumping VERSION publishes,
+# and a release is never marked latest — the game's own releases stay the repository's latest.
+# A branch's run only builds: the zip waits as the run's artifact.
+#
+#   gh workflow run nolauncher --ref <branch>
+
+on:
+  push:
+    branches: [main, 'nolauncher-*']
+    paths:
+      # Everything the .exe is built from: this crate, and the launcher's library it drives.
+      - 'nolauncher/**'
+      - 'launcher/**'
+      - 'crates/**'
+      - 'third_party/**'
+      - '.github/workflows/nolauncher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nolauncher-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Test runs never reach the telemetry server: no live-count ping, no uploads (docs/telemetry.md).
+  HORIZON_TELEMETRY_URL: "off"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: nolauncher
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          clean: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: nolauncher
+          shared-key: nolauncher-windows
+      - name: The version this build is
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+      - name: Tests
+        run: cargo test --release
+      - name: Build
+        env:
+          # The C runtime linked in: without it the .exe asks for VCRUNTIME140.dll, which only the
+          # Visual C++ redistributable installs — a computer that has never played Minecraft has
+          # no reason to have one.
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release
+      - name: The version is the file's, and only the system's libraries are linked
+        run: |
+          set -euo pipefail
+          out=$(./target/release/NoLauncherHorizon.exe --version)
+          echo "$out"
+          [[ "$out" == "NoLauncherHorizon v$VERSION" ]] || { echo "::error::expected NoLauncherHorizon v$VERSION"; exit 1; }
+          python ../tools/check_pe_arch.py x64 ./target/release/NoLauncherHorizon.exe
+          python ../tools/check_imports.py ./target/release/NoLauncherHorizon.exe
+      - name: A double-click opens no console
+        # A GUI-subsystem image (2): the whole point of the launcher being gone.
+        run: |
+          set -euo pipefail
+          python -c "
+          import struct, sys
+          data = open(sys.argv[1], 'rb').read()
+          pe = struct.unpack_from('<I', data, 0x3C)[0]
+          optional = pe + 24
+          subsystem = struct.unpack_from('<H', data, optional + 68)[0]
+          print('subsystem', subsystem)
+          raise SystemExit(0 if subsystem == 2 else 1)
+          " target/release/NoLauncherHorizon.exe
+      - name: Package NLH.zip
+        run: |
+          set -euo pipefail
+          rm -rf dist && mkdir -p dist/NLH
+          cp target/release/NoLauncherHorizon.exe dist/NLH/
+          sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/NLH/README.txt
+          cd dist
+          powershell -NoProfile -Command "Compress-Archive -Path 'NLH/*' -DestinationPath 'NLH.zip' -Force"
+          ls -l NLH.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NLH-${{ env.VERSION }}
+          path: nolauncher/dist/NLH.zip
+          if-no-files-found: error
+      - name: Publish nlh-v${{ env.VERSION }}
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="nlh-v$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::notice::$tag is published already: nothing to do (bump nolauncher/VERSION)"
+            exit 0
+          fi
+          gh release create "$tag" dist/NLH.zip \
+            --title "NoLauncherHorizon v$VERSION" \
+            --latest=false \
+            --notes "Horizon with the launcher stripped out. Unzip NLH.zip and double-click NoLauncherHorizon.exe: your browser opens on Microsoft's sign-in, the game's files come from your own Minecraft the way the launcher takes them, and Horizon starts. How it works and its versioning: [nolauncher/README.md](https://github.com/${{ github.repository }}/blob/main/nolauncher/README.md)."

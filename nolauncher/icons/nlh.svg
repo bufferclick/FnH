@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>NoLauncherHorizon</title>
+  <desc>Horizon's horizon line with a play mark on it: the game, no launcher in the way.</desc>
+  <clipPath id="tile"><rect width="64" height="64" rx="14"/></clipPath>
+  <g clip-path="url(#tile)">
+    <rect width="64" height="64" fill="#16181f"/>
+    <rect y="28" width="64" height="4" fill="#9a86ff"/>
+    <polygon points="25,17 43,30 43,34 25,47" fill="#ecedf3"/>
+  </g>
+</svg>
