@@ -5,87 +5,85 @@
 **[Download FH.zip](https://github.com/bufferclick/NoLauncherHorizon/releases)** — unzip it and
 double-click `FH.exe` (Windows x64).
 
-Your Horizon instances, one page. Double-click it and your browser opens on a page drawn like
-**JLac**'s window (the Prism Launcher fork this one is modelled on): the bar across the top with
-the mark and the signed-in account, the instances down the left in a darker pane, the chosen one
-on the right with one lime **Launch** button.
+Your Horizon instances, one window. It is a native application, not a page in a browser: it draws
+its own window with the toolkit the Horizon launcher is built on, and every control in it is
+JLac's — the Prism Launcher fork this product is modelled on — down to its palette, its 30-pixel
+controls, its 3-pixel corners and its lime highlight with black text on it.
 
-1. Press Launch on an instance.
-2. If this computer has no signed-in Microsoft account that owns Minecraft: Java Edition, the page
-   shows the sign-in's code (in the clipboard, with a Copy button, and as a QR code for a phone)
-   and Microsoft's own page opens once with the code already filled in.
-3. The page shows the work: the build the instance plays is installed if this computer has no
-   copy, and its resources are prepared from your own Minecraft exactly as the launcher's Play
-   does (Mojang's own files are only downloaded when no install has them).
-4. Horizon starts in that instance, and the tab says so: close it whenever you like.
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ▣  My Horizon            Minecraft 1.21.4 · Fabric 0.16.9   bufferclick  ▾  ▶ Play │
+├────────────────────┬─────────────────────────────────────────────────────────┤
+│ INSTANCES      3   │ Overview   Mods   Worlds   Logs                          │
+│ ┌────────────────┐ │                                                          │
+│ │ M  My Horizon  │ │ My Horizon                                               │
+│ │ H  Horizon      │ │ Minecraft 1.21.4 · Fabric 0.16.9                         │
+│ │ V  Vanilla 1.21 │ │ Plays   Minecraft 1.21.4 · Fabric 0.16.9                 │
+│ └────────────────┘ │ Build   Fabric 0.16.9 (managed)                          │
+│ +  New instance    │ Last played   3 h 12 min played                          │
+├────────────────────┴─────────────────────────────────────────────────────────┤
+│ ● Ready · 3 instances · Fabric n Horizon v1.3                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
-Instances that play **Minecraft: Java Edition** are listed too, with their button off — FH starts
-Horizon instances, and Minecraft ones (Fabric included) are next. Nothing is created, renamed or
-deleted here: FH shows the instances the Horizon launcher has and starts one.
+## What it does
+
+1. **Play.** The chosen instance starts. If this computer has no signed-in Microsoft account that
+   owns Minecraft: Java Edition, the window shows the sign-in's code (in the window, on the
+   clipboard, and Microsoft's own page opens once with it filled in). The build the instance plays
+   is installed when there is no copy, its resources are prepared from your own Minecraft exactly
+   as the launcher's Play does, and the game starts **with its session file**, so joining a server
+   does not ask you to sign in again.
+2. **New instance.** A Horizon instance of its own, or a Minecraft: Java Edition one — vanilla, or
+   with **Fabric**. `instances::create_java` makes it and `loaders::choose` gives it Fabric's
+   loader for that Minecraft version (the list comes from Fabric's own service on the first Play).
+3. **Overview** — what the instance plays, its build, when it was last played, its game folder,
+   and the button that opens it in Explorer.
+4. **Mods** — every `.jar` in the instance's `mods/`, by name and size, and a button that opens
+   the folder; modpacks put their jars there and FH lists them.
+5. **Worlds** — the instance's `saves/`: name, mode, the version that saved it, its size and when
+   it was last opened, read through the launcher's own `worlds` module.
+6. **Logs** — the end of the instance's `logs/latest.log`, and its folder.
+7. **Accounts** — every Microsoft account on this computer, the one Play uses, and a sign-in that
+   can be started from the window at any time.
+
+Nothing is downloaded behind your back and nothing is written to an instance that the launcher
+would not write itself: the work is `horizon-launcher`'s own code, called in the order its Play
+calls it, and a log line is written for every step.
 
 ## Why it looks like this
 
-The window is a page, not a toolkit: `ui.rs` draws HTML with JLac's own palette (window `#313131`,
-base `#222222`, alternate `#2a2a2a`, the lime highlight `#96db59` with black text on it, teal
-links), `server.rs` answers the browser on loopback, and `job.rs` does the launch. There is no
-webview, no framework and no dependency that is not already in the launcher's own tree.
+The window is GPUI — the same `gpui-fast` 0.1.13 the Horizon launcher draws with — and `look.rs`
+is JLac's palette written out as constants (`DarkTheme.cpp`: window `#313131`, base `#222222`,
+alternate `#2a2a2a`, buttons `#303030`, rules `#1b1b1b`, borders `#3c3c3c`, ink `#ffffff`, muted
+`#a6a6a6`, the highlight `#96db59` with black text on it, links `#2fa3c6`). `app.rs` is the
+window: a 76-pixel toolbar, a 260-pixel instance pane, a 40-pixel page strip with the accent
+underline under the open page, a 30-pixel status bar, and dialogs on a dimmed backdrop — JLac's
+own layout, not an imitation of it.
 
-The page's addresses carry a word made fresh every run (`?k=…`), and the server listens only on
-`127.0.0.1` and refuses anything without it — so a page on the internet cannot ask FH to start a
-game.
+There is no webview, no embedded browser and no HTTP server: FH is one `.exe` with one window.
 
 ## What it shares, and where it keeps things
 
 The data folder is the launcher's own — on Windows `%APPDATA%\horizon-launcher`, overridden by
 `HORIZON_LAUNCHER_HOME` — so instances, builds, worlds, options and the sign-in are the same ones
-a launcher installed beside it uses, and Minecraft files are taken from the same places. `fh/`
-inside it holds only this program's own file:
-
-| | |
-|---|---|
-| `fh/fh.log` | every start and launch, with the second they came in at: the only place a failure is explained in full |
-
-The instance you press Launch on is the one that starts (its folder, its `pre-launch` and
-wrapper), and its play time is saved the way the launcher saves it.
-
-## Options
-
-```
-FH [options]
-
-  --version, -V    Print the version and stop
-  --help, -h       Print this and stop
-```
-
-FH closes itself when the page has not been asked for anything for half an hour and no launch is
-waiting on a game.
-
-## Versions
-
-`fh/VERSION` is the one place a version lives (`build.rs` puts it in the .exe and in `--version`,
-`fh/Cargo.toml` must agree — a test checks it), and the release workflow tags the build from it:
-`fh-v1.2`, `fh-v1.3`, …
-
-One tenth per update, the same rule as NoLauncherHorizon: **v1.2** first, then v1.3 … v1.9, then
-**v1.10**, never v2.0.
+the launcher uses. `fh/fh.log` in it is this window's log: a double-clicked `.exe` has no console,
+so every step is written there, including the game's command line.
 
 ## Building it
 
-```
+```sh
 cd fh
-cargo build --release          # target/release/FH.exe
-cargo test --release           # the page, the server, the rows, the version
-python3 icons/make_icon.py     # icons/fh.ico from icons/fh.svg (--png 256 to look at it)
+cargo build --release      # FH.exe
+cargo test                 # the look, the log, the launch, and the window's helpers
 ```
 
-`.github/workflows/fh.yml` builds it on Windows, checks `--version`, wraps the .exe and
-`pack/README.txt` into `FH.zip`, uploads it as an artifact and — on `main` — publishes it as the
-release `fh-v<VERSION>` (never marked latest: the game's own releases stay the repository's
-latest).
+Windows x64 only, which is the only platform this product exists for. `.github/workflows/fh.yml`
+builds and tests it on a Windows runner, publishes `FH.zip` as the release `fh-v<fh/VERSION>`, and
+checks that the `.exe` is a GUI-subsystem image linking only system libraries.
 
-`fh/` is its own Cargo workspace so the launcher's workspace and lock file are untouched; it
-repeats the launcher's `[patch.crates-io]` entries for wgpu-hal, naga and libmimalloc-sys,
-because it links the launcher's code and those copies are the ones Horizon ships with.
+## Versioning
 
-MIT, like Horizon. Not an official Minecraft product; not approved by or associated with Mojang or
-Microsoft. Drawn after JLac, Buffer's Prism Launcher fork.
+`fh/VERSION` holds the version — v1.3, and one tenth per update (v1.4 … v1.9, then v1.10). It is
+the release tag (`fh-v1.3`), the `.exe`'s version resource, and `FH --version`; a test checks that
+`Cargo.toml` agrees with it.

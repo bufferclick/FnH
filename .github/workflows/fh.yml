@@ -1,17 +1,18 @@
 name: fh
-# Builds Fabric n Horizon (fh/): a JLac-styled page over the Horizon launcher's instances, one
-# .exe that a player unzips from FH.zip and double-clicks. Windows x64 only — the only platform it
-# exists for — on a Windows runner, so the icon and the version resource in the .exe are the real
-# Windows ones, not a cross-build's guess.
+# Builds Fabric n Horizon (fh/): JLac's window over the Horizon launcher's instances, one .exe that
+# a player unzips from FH.zip and double-clicks. Windows x64 only — the only platform it exists
+# for — on a Windows runner, so the icon and the version resource in the .exe are the real Windows
+# ones, not a cross-build's guess.
 #
-# The version is fh/VERSION (v1.2 first, one tenth per update: v1.3 … v1.9, then v1.10) and the
-# release is tagged from it: fh-v1.2. A tag that is already published is left alone, so a push
-# that changes nothing a player would notice publishes nothing; bumping VERSION publishes. The
-# release is created with --latest=false, so it never takes the latest slot from a game release
-# (it holds it only where it is the sole release, as in a fork). A branch's run only builds: the
-# zip waits as the run's artifact.
+# The version is fh/VERSION (v1.3 first, one tenth per update: v1.4 … v1.9, then v1.10) and the
+# release is tagged from it: fh-v1.3. A tag that is already published is left alone, so a push that
+# changes nothing a player would notice publishes nothing; bumping VERSION publishes.
 #
-#   gh workflow run fh --ref <branch>
+# The release is created with --latest and is dated by its own upload, so FH is the newest entry —
+# at the bottom of the Releases page, which lists them newest first — and GitHub's "Latest" badge
+# is on it. The NLH releases are `--latest=false`: NLH has no release of its own after v1.1.
+#
+# A branch's run only builds: the zip waits as the run's artifact.
 
 on:
   push:
@@ -177,5 +178,5 @@ jobs:
           fi
           gh release create "$tag" dist/FH.zip \
             --title "Fabric n Horizon v$VERSION" \
-            --latest=false \
-            --notes "Your Horizon instances, one page. Unzip FH.zip and double-click FH.exe: your browser opens on a page that lists the Horizon instances this computer has, and Launch signs you in with Microsoft if it has to, gets the build and the game's files, and starts the game. Minecraft: Java Edition instances are listed with their button off — they are next. How it works and its versioning: [fh/README.md](https://github.com/${{ github.repository }}/blob/main/fh/README.md)."
+            --latest \
+            --notes "Your Horizon instances, one native window. Unzip FH.zip and double-click FH.exe: a JLac-styled window lists the Horizon instances this computer has, with Overview, Mods, Worlds and Logs for each, and New instance makes a Horizon one or a Minecraft: Java Edition one — vanilla or Fabric. Play signs you in with Microsoft when it has to, gets the build and the game's files, and starts the game with its session file, so joining a server is signed in. The sign-in, the instances and the worlds are the launcher's own. How it works and its versioning: [fh/README.md](https://github.com/${{ github.repository }}/blob/main/fh/README.md)."
