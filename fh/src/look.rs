@@ -93,6 +93,7 @@ pub fn play_button(id: impl Into<SharedString>, label: impl Into<SharedString>) 
 /// A small plate of text: what a row says under its name, or the account on the right of the bar.
 pub fn chip(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
+    let label: SharedString = label.into();
     div()
         .id(id)
         .flex()

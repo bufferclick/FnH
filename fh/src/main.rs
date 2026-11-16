@@ -17,7 +17,7 @@ mod job;
 mod log;
 mod look;
 
-use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 
 /// The version this build is: `fh/VERSION` through `build.rs`, the same string the release is
 /// tagged with.

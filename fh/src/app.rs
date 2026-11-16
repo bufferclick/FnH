@@ -13,7 +13,10 @@ use crate::log;
 use crate::look::{
     self, button, c, chip, colour_of, dot, heading, initial, play_button, quiet, short_path, Kind,
 };
-use gpui::{div, prelude::*, px, AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Window};
+use gpui::{
+    div, prelude::*, px, AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Stateful,
+    Window,
+};
 use horizon_launcher::account::Accounts;
 use horizon_launcher::instances::{self as inst, Instance, Kind as InstanceKind};
 use horizon_launcher::minecraft_versions::{self, Versions};
@@ -803,7 +806,7 @@ impl Fh {
         card.child(div().flex().items_center().justify_between().gap(px(12.)).child(create).when_some(message, |row, message| row.child(message)))
     }
 
-    fn version_list(&mut self, cx: &mut Context<Self>) -> Div {
+    fn version_list(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let mut list = div()
             .id("versions")
             .flex()
