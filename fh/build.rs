@@ -1,4 +1,4 @@
-//! Fabric n Horizon's Windows resources: the icon (`icons/fh.ico`, drawn by
+//! FNH's Windows resources: the icon (`icons/fh.ico`, drawn by
 //! `icons/make_icon.py` from `icons/fh.svg`) and the version Explorer shows, both from `VERSION`
 //! so the .exe, `--version` and the release tag (`fh-v1.2`) cannot drift apart.
 //!
@@ -9,7 +9,7 @@ fn main() {
         .map(|text| text.trim().to_owned())
         .unwrap_or_default();
     if version.is_empty() {
-        panic!("{dir}/VERSION is empty: it holds the release, such as 1.2");
+        panic!("{dir}/VERSION is empty: it holds the release, such as 1.4");
     }
     println!("cargo:rustc-env=FH_VERSION={version}");
     println!("cargo:rerun-if-changed={dir}/VERSION");
@@ -26,8 +26,8 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut resource = winresource::WindowsResource::new();
         resource.set_icon(&ico);
-        resource.set("ProductName", "Fabric n Horizon");
-        resource.set("FileDescription", "Fabric n Horizon: your Horizon instances, one page");
+        resource.set("ProductName", "FNH");
+        resource.set("FileDescription", "FNH: your Horizon and Fabric instances, one window");
         resource.set("OriginalFilename", "FH.exe");
         resource.set("FileVersion", &version);
         resource.set("ProductVersion", &version);

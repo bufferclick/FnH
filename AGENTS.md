@@ -111,7 +111,8 @@ Game workspace (root `Cargo.toml`); `launcher/` and `crates/horizon-telemetry-se
 | `horizon-dualsense`, `horizon-threads`, `horizon-release-sign`, `horizon-bots`, `xtask` | DualSense output, thread priorities, signed release checksums, load-test bots, repo tasks |
 | `launcher/` | GPUI launcher: `main.rs` (UI), `backend.rs` (installs, updates), `cli.rs`, `mcp.rs`, `*_page.rs` |
 | `nolauncher/` | NoLauncherHorizon: the launcher's library with no window at all (its own Cargo workspace); a Windows .exe published as NLH.zip, [nolauncher/README.md](nolauncher/README.md) |
-| `fh/` | Fabric n Horizon: a JLac-styled GPUI window (`app.rs`, `look.rs`, `job.rs`, `log.rs`) over the launcher's own instances, with Fabric (its own Cargo workspace); a Windows .exe published as FH.zip, [fh/README.md](fh/README.md) |
+| `fh/` | FNH (Fabric n Horizon): a JLac-styled GPUI window (`app.rs`, `look.rs`, `job.rs`, `log.rs`) over the launcher's own instances, with Fabric (its own Cargo workspace); a Windows .exe published as `fnh-<version>.zip` on `fnh-v<version>`, [fh/README.md](fh/README.md) |
+| `site/` | fnh.is-cool.dev: the static page (`index.html`, `styles.css`), published by GitHub Pages from this folder, [site/README.md](site/README.md) |
 
 Other top-level folders: `tools/` (harnesses and dev scripts), `tests/` (Python unit tests: `python3 -m
 unittest discover -s tests`), `mods/horizon/src/test/java/dev/horizonlab/parity/` (Java oracles),

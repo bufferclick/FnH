@@ -1,4 +1,4 @@
-//! Fabric n Horizon: your Horizon and Fabric instances in one native window, drawn the way JLac
+//! FNH (Fabric n Horizon): your Horizon and Fabric instances in one native window, drawn the way JLac
 //! draws its own — Prism Launcher's layout in JLac's dark theme, in a real window, with nothing in
 //! a browser but the sign-in Microsoft makes you finish there.
 //!
@@ -7,8 +7,8 @@
 //! `instances` and `launch` for the folders and wrappers); the look is `look.rs` (JLac's palette);
 //! and `log.rs` is the log file a double-clicked .exe has instead of a terminal.
 //!
-//! Versioning (fh/VERSION, the tag the release workflow publishes): v1.3 first, then one tenth
-//! per update.
+//! Versioning (fh/VERSION, the tag the release workflow publishes, and the name of the zip):
+//! v1.4 first, then one tenth per update.
 
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
@@ -24,7 +24,7 @@ use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, Win
 pub const VERSION: &str = env!("FH_VERSION");
 
 const HELP: &str = "\
-Fabric n Horizon: your Horizon and Fabric instances, one window.
+FNH (Fabric n Horizon): your Horizon and Fabric instances, one window.
 
 Double-click it and the window opens on your instances. Pick one and press Play: it signs you in
 with Microsoft if it has to (the code is in the window and on the clipboard), installs the build
@@ -51,12 +51,12 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                say(&format!("Fabric n Horizon v{VERSION}"));
+                say(&format!("FNH v{VERSION}"));
                 return;
             }
             other => {
                 say(&format!("{other} is not an option of this program."));
-                say("See FH --help.");
+                say("See FH.exe --help.");
                 std::process::exit(2);
             }
         }
@@ -76,7 +76,7 @@ fn run() -> i32 {
     let problem = horizon_launcher::data_location::startup();
     let dir = horizon_launcher::backend::data_dir().join("fh");
     log::start(dir.join("fh.log"));
-    log::line(&format!("Fabric n Horizon v{VERSION}."));
+    log::line(&format!("FNH v{VERSION}."));
     if let Some(problem) = problem {
         log::line(&problem);
     }
@@ -89,10 +89,10 @@ fn run() -> i32 {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(900.), px(560.))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Fabric n Horizon".into()),
+                    title: Some("FNH".into()),
                     ..Default::default()
                 }),
-                app_id: Some("fabric-n-horizon".into()),
+                app_id: Some("fnh".into()),
                 ..Default::default()
             },
             |window, cx| cx.new(|cx| app::Fh::new(window, cx)),

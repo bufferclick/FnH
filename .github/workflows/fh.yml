@@ -1,16 +1,16 @@
 name: fh
-# Builds Fabric n Horizon (fh/): JLac's window over the Horizon launcher's instances, one .exe that
-# a player unzips from FH.zip and double-clicks. Windows x64 only — the only platform it exists
+# Builds FNH (fh/): JLac's window over the Horizon launcher's instances, one .exe that a player
+# unzips from fnh-<version>.zip and double-clicks. Windows x64 only — the only platform it exists
 # for — on a Windows runner, so the icon and the version resource in the .exe are the real Windows
 # ones, not a cross-build's guess.
 #
-# The version is fh/VERSION (v1.3 first, one tenth per update: v1.4 … v1.9, then v1.10) and the
-# release is tagged from it: fh-v1.3. A tag that is already published is left alone, so a push that
-# changes nothing a player would notice publishes nothing; bumping VERSION publishes.
+# The version is fh/VERSION (v1.4 first, one tenth per update: v1.5 … v1.9, then v1.10). The
+# release is tagged fnh-v<version> and its download is named fnh-<version>.zip, so what a player
+# saves is `fnh-1.4.zip`, not `FH.zip`. A tag that is already published is left alone, so a push
+# that changes nothing a player would notice publishes nothing; bumping VERSION publishes.
 #
-# The release is created with --latest and is dated by its own upload, so FH is the newest entry —
-# at the bottom of the Releases page, which lists them newest first — and GitHub's "Latest" badge
-# is on it. The NLH releases are `--latest=false`: NLH has no release of its own after v1.1.
+# The release is created with --latest, so the newest FNH is the Latest release and the download
+# the website's button asks for (`releases/latest`).
 #
 # A branch's run only builds: the zip waits as the run's artifact.
 
@@ -117,7 +117,7 @@ jobs:
           set -euo pipefail
           out=$(./target/release/FH.exe --version)
           echo "$out"
-          [[ "$out" == "Fabric n Horizon v$VERSION" ]] || { echo "::error::expected Fabric n Horizon v$VERSION"; exit 1; }
+          [[ "$out" == "FNH v$VERSION" ]] || { echo "::error::expected FNH v$VERSION"; exit 1; }
           python ../tools/check_pe_arch.py x64 ./target/release/FH.exe
           python ../tools/check_imports.py ./target/release/FH.exe
       - name: A double-click opens no console
@@ -133,19 +133,19 @@ jobs:
           print('subsystem', subsystem)
           raise SystemExit(0 if subsystem == 2 else 1)
           " target/release/FH.exe
-      - name: Package FH.zip
+      - name: Package fnh-${{ env.VERSION }}.zip
         run: |
           set -euo pipefail
-          rm -rf dist && mkdir -p dist/FH
-          cp target/release/FH.exe dist/FH/
-          sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/FH/README.txt
+          rm -rf dist && mkdir -p dist/fnh
+          cp target/release/FH.exe dist/fnh/
+          sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/fnh/README.txt
           cd dist
-          powershell -NoProfile -Command "Compress-Archive -Path 'FH/*' -DestinationPath 'FH.zip' -Force"
-          ls -l FH.zip
+          powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'fnh-$VERSION.zip' -Force"
+          ls -l "fnh-$VERSION.zip"
       - uses: actions/upload-artifact@v7
         with:
-          name: FH-${{ env.VERSION }}
-          path: fh/dist/FH.zip
+          name: FNH-${{ env.VERSION }}
+          path: fh/dist/fnh-${{ env.VERSION }}.zip
           if-no-files-found: error
       - name: What failed, as a comment the failure can be read from
         # The runner's raw log is not reachable from every place a failure is read, and a commit
@@ -165,18 +165,18 @@ jobs:
           printf '%s' "$body" > comment.md
           gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
 
-      - name: Publish fh-v${{ env.VERSION }}
+      - name: Publish fnh-v${{ env.VERSION }}
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="fh-v$VERSION"
+          tag="fnh-v$VERSION"
           if gh release view "$tag" > /dev/null 2>&1; then
             echo "::notice::$tag is published already: nothing to do (bump fh/VERSION)"
             exit 0
           fi
-          gh release create "$tag" dist/FH.zip \
-            --title "Fabric n Horizon v$VERSION" \
+          gh release create "$tag" "dist/fnh-$VERSION.zip" \
+            --title "FNH v$VERSION" \
             --latest \
-            --notes "Your Horizon instances, one native window. Unzip FH.zip and double-click FH.exe: a JLac-styled window lists the Horizon instances this computer has, with Overview, Mods, Worlds and Logs for each, and New instance makes a Horizon one or a Minecraft: Java Edition one — vanilla or Fabric. Play signs you in with Microsoft when it has to, gets the build and the game's files, and starts the game with its session file, so joining a server is signed in. The sign-in, the instances and the worlds are the launcher's own. How it works and its versioning: [fh/README.md](https://github.com/${{ github.repository }}/blob/main/fh/README.md)."
+            --notes "FNH (Fabric n Horizon) for Windows x64. Download \`fnh-$VERSION.zip\`, unzip it, and double-click \`FH.exe\`. It lists the Horizon launcher's instances with Overview, Mods, Worlds and Logs for each, makes new Horizon and Minecraft: Java Edition instances (vanilla or Fabric), and starts the game signed in. Requires Windows 10 or 11 on x64. [fnh.is-cool.dev](https://fnh.is-cool.dev) · [How it works](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"

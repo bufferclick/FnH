@@ -628,7 +628,7 @@ impl Fh {
             None => (
                 c(look::DIM),
                 format!(
-                    "Ready · {} instances · Fabric n Horizon v{}",
+                    "Ready · {} instances · FNH v{}",
                     self.instances.len(),
                     crate::VERSION
                 ),
