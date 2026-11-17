@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FNH — Fabric n Horizon</title>
+<meta name="description" content="FNH is a Windows app for the Horizon launcher's instances: Play, mods, worlds and logs in one window, with Fabric support.">
+<link rel="canonical" href="https://fnh.is-cool.dev/">
+<meta property="og:title" content="FNH — Fabric n Horizon">
+<meta property="og:description" content="A Windows app for the Horizon launcher's instances, with Fabric support.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://fnh.is-cool.dev/">
+<meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="site/assets/icon.png" type="image/png">
+<link rel="stylesheet" href="site/styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="/">
+      <img src="site/assets/icon.png" width="24" height="24" alt="">
+      <span>FNH</span>
+    </a>
+    <nav>
+      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="https://github.com/bufferclick/fnh">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <h1>FNH</h1>
+    <p class="lede">Fabric n Horizon. A Windows app for the instances in your Horizon launcher: start one,
+      read its mods, worlds and log, or make a new Minecraft: Java Edition instance with Fabric.</p>
+
+    <p class="actions">
+      <a class="button" id="download" href="https://github.com/bufferclick/fnh/releases/latest" rel="noopener">
+        Download for Windows
+      </a>
+      <a class="button quiet" href="https://github.com/bufferclick/fnh" rel="noopener">View on GitHub</a>
+    </p>
+    <p class="meta" id="release">Windows 10 or 11 · x64 · MIT licence</p>
+  </section>
+
+  <section id="what">
+    <h2>What it is</h2>
+    <p>FNH is a single program, not an installer and not a web page. Unzip it, double-click it, and a
+      window opens on the instances the Horizon launcher already has.</p>
+    <p>It shares the launcher's data folder and the launcher's own code, so builds, worlds, options and the
+      Microsoft sign-in are the ones you already have. The two can be installed side by side, and FNH
+      writes nothing to an instance the launcher would not write itself.</p>
+  </section>
+
+  <section id="features">
+    <h2>Features</h2>
+    <dl class="features">
+      <div>
+        <dt>Instance list</dt>
+        <dd>Every Horizon instance, with its icon, what it plays and the build it is kept on. The selected
+          one is the one Play starts.</dd>
+      </div>
+      <div>
+        <dt>Overview, Mods, Worlds, Logs</dt>
+        <dd>What the instance plays, the jars in its <code>mods</code>, its saves with mode, version and size,
+          and the end of its <code>latest.log</code>. Each page opens its folder in Explorer.</dd>
+      </div>
+      <div>
+        <dt>New instances</dt>
+        <dd>A Horizon instance of its own, or a Minecraft: Java Edition one — vanilla, or with Fabric.
+          The loader version is chosen on the first start.</dd>
+      </div>
+      <div>
+        <dt>Microsoft sign-in</dt>
+        <dd>The device-code flow in the window: the code goes on your clipboard and Microsoft's page opens
+          with it filled in. No app registration, nothing to configure.</dd>
+      </div>
+      <div>
+        <dt>Signed in when you join a server</dt>
+        <dd>The game is started with a read-once session file, the same hand-off the launcher's Play makes,
+          so servers do not ask you to sign in again.</dd>
+      </div>
+      <div>
+        <dt>A log of every step</dt>
+        <dd>Each launch writes what it did — including the game's command line — to
+          <code>%APPDATA%\horizon-launcher\fh\fh.log</code>.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <ol class="steps">
+      <li><span>Download the zip from <a id="download-link" href="https://github.com/bufferclick/fnh/releases/latest" rel="noopener">Releases</a>.</span></li>
+      <li><span>Unzip it anywhere you can write to — <code>%LOCALAPPDATA%\FNH</code>, your desktop, a USB stick.</span></li>
+      <li><span>Double-click <code>FH.exe</code>.</span></li>
+    </ol>
+    <p class="note">Nothing else is needed: no .NET, no Visual C++ redistributable, no Java until a Minecraft:
+      Java Edition instance needs it, and FNH offers to fetch one then.</p>
+  </section>
+
+  <section id="requirements">
+    <h2>Requirements</h2>
+    <table class="spec">
+      <tbody>
+        <tr><th scope="row">System</th><td>Windows 10 or Windows 11, x64</td></tr>
+        <tr><th scope="row">Download</th><td><span id="size">fnh zip</span>, no installer</td></tr>
+        <tr><th scope="row">Storage</th><td>Around 40 MB for the app; instances and games take what they take</td></tr>
+        <tr><th scope="row">Licence</th><td>MIT</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<footer class="bottom">
+  <div class="wrap">
+    <p class="links">
+      <a href="https://github.com/bufferclick/fnh">github.com/bufferclick/fnh</a>
+      <a href="https://github.com/bufferclick/fnh/releases">Releases</a>
+      <a href="https://github.com/bufferclick/fnh/blob/main/fh/README.md">Documentation</a>
+      <a href="https://github.com/bufferclick/fnh/blob/main/LICENSE">Licence</a>
+    </p>
+    <p class="legal">FNH is not an official Minecraft product and is not approved by or associated with Mojang
+      or Microsoft. Horizon is made by the Horizon Team; FNH is a front end for it, styled after JLac.</p>
+  </div>
+</footer>
+
+<script>
+// The download is whatever the newest release attaches: `fnh-<version>.zip`. Asked of GitHub rather
+// than hard-coded, so publishing a release is all a new version needs — and if the API is slow or
+// rate-limited, the buttons keep pointing at the releases page.
+(function () {
+  var repo = "bufferclick/fnh";
+  var button = document.getElementById("download");
+  var link = document.getElementById("download-link");
+  var meta = document.getElementById("release");
+  var size = document.getElementById("size");
+
+  function megabytes(bytes) {
+    return (bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "") + " MB";
+  }
+
+  fetch("https://api.github.com/repos/" + repo + "/releases/latest", {
+    headers: { Accept: "application/vnd.github+json" }
+  })
+    .then(function (response) {
+      if (!response.ok) throw new Error(response.status);
+      return response.json();
+    })
+    .then(function (release) {
+      var asset = (release.assets || []).filter(function (a) {
+        return /^fnh-.*\.zip$/i.test(a.name);
+      })[0];
+      if (!asset) return;
+      button.href = asset.browser_download_url;
+      link.href = asset.browser_download_url;
+      link.textContent = asset.name;
+      meta.textContent = asset.name + " · " + megabytes(asset.size) + " · Windows 10 or 11 · x64 · MIT licence";
+      size.textContent = asset.name + " (" + megabytes(asset.size) + ")";
+    })
+    .catch(function () { /* the releases page is the fallback the markup already links to */ });
+})();
+</script>
+
+</body>
+</html>
