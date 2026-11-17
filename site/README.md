@@ -5,16 +5,21 @@ step, no framework, no JavaScript beyond the one request that fills the download
 
 ## Publishing it
 
-The site is served from the `fnh` repository's GitHub Pages, with `CNAME` holding
-`fnh.is-cool.dev`:
+Pages' *Deploy from a branch* source only offers the repository root or `/docs` — and `docs/` here
+is the Horizon launcher's own documentation — so the site is deployed by
+`.github/workflows/site.yml` instead:
 
-1. **Settings → Pages → Source: Deploy from a branch**, branch `main`, folder `/site`. (Or use
-   *GitHub Actions* and publish this folder — `CNAME` must reach the deployed output either way.)
-2. In the domain's DNS, point `fnh.is-cool.dev` at GitHub Pages:
+1. **Settings → Pages → Source: GitHub Actions.** (That replaces the branch/folder dropdown with
+   "GitHub Actions"; there is no folder to pick.)
+2. In the domain's DNS, point `fnh.is-cool.dev` at Pages:
    `CNAME  fnh  bufferclick.github.io` — or, for the apex, the four `A` records GitHub lists under
    *Settings → Pages → Custom domain*.
 3. **Settings → Pages → Custom domain: `fnh.is-cool.dev`**, then *Enforce HTTPS* once the
    certificate is issued.
+
+Every push that touches `site/` (or **Actions → site → Run workflow** by hand) uploads this folder
+as the Pages artifact and deploys it. `CNAME` is part of that upload, which is what keeps the
+domain on every deploy — the file is not optional.
 
 `https://fnh.is-cool.dev/` then serves `index.html` directly. The `CNAME` file is what keeps the
 domain on redeploy, so leave it in place.
