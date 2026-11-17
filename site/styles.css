@@ -79,7 +79,11 @@ code {
   letter-spacing: 0.02em;
 }
 
-.wordmark img { border-radius: 5px; }
+.wordmark img {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
 
 .top nav { display: flex; gap: 1.25rem; font-size: 0.9rem; color: var(--muted); }
 .top nav a:hover { color: var(--ink); }
@@ -87,6 +91,19 @@ code {
 /* Hero */
 
 .hero { padding: 4.5rem 0 3rem; }
+
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 1.05rem;
+}
+
+.hero-mark {
+  display: block;
+  flex: none;
+  width: clamp(3rem, 6.2vw, 3.75rem);
+  height: clamp(3rem, 6.2vw, 3.75rem);
+}
 
 .hero h1 {
   margin: 0;

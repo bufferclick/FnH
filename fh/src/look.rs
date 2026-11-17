@@ -26,7 +26,12 @@ pub const ACCENT_HOVER: u32 = 0x8ad04a;
 pub const ON_ACCENT: u32 = 0x101010;
 pub const LINK: u32 = 0x2fa3c6;
 pub const DANGER: u32 = 0xe0715f;
-pub const TILE: u32 = 0x0b0b0b;
+
+/// FNH's own mark (`icons/fh.svg`): a light rounded tile, deep-navy F and H, and a black n.
+pub const MARK_TILE: u32 = 0xf8f9fc;
+pub const MARK_RING: u32 = 0xd8dae5;
+pub const MARK_NAVY: u32 = 0x131254;
+pub const MARK_INK: u32 = 0x000000;
 
 /// The three kinds of control JLac draws: the accent button, a grey one, and one with no plate.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -109,6 +114,50 @@ pub fn chip(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stat
         .cursor_pointer()
         .hover(|style| style.bg(c(BUTTON_HOVER)))
         .child(label)
+}
+
+/// FNH's own mark (`icons/fh.svg`): F and H in deep navy with a lowercase n tucked under the F's
+/// arm, set on a light rounded tile so both colours read cleanly against JLac's dark panes.
+pub fn brand_mark(size: f32) -> Div {
+    let cell = ((size * 0.625) / 9.).floor().max(1.);
+    let span = cell * 9.;
+    let radius = (size * (14. / 64.)).round().max(3.);
+    let bar = |x: f32, y: f32, w: f32, h: f32, hex: u32| {
+        div()
+            .absolute()
+            .left(px(x * cell))
+            .top(px(y * cell))
+            .w(px(w * cell))
+            .h(px(h * cell))
+            .bg(c(hex))
+    };
+    let glyph = div()
+        .relative()
+        .flex_none()
+        .size(px(span))
+        // F: stem, top arm, middle arm.
+        .child(bar(0., 0., 1., 9., MARK_NAVY))
+        .child(bar(1., 0., 4., 1., MARK_NAVY))
+        .child(bar(1., 3., 2., 1., MARK_NAVY))
+        // n: left leg, arch, right leg.
+        .child(bar(2., 5., 1., 4., MARK_INK))
+        .child(bar(3., 5., 1., 1., MARK_INK))
+        .child(bar(4., 5., 1., 4., MARK_INK))
+        // H: left stem, crossbar, right stem.
+        .child(bar(6., 0., 1., 9., MARK_NAVY))
+        .child(bar(7., 4., 1., 1., MARK_NAVY))
+        .child(bar(8., 0., 1., 9., MARK_NAVY));
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(size))
+        .rounded(px(radius))
+        .bg(c(MARK_TILE))
+        .border_1()
+        .border_color(c(MARK_RING))
+        .child(glyph)
 }
 
 /// A row's picture: the instance's letter in white on the colour it has, 3-pixel corners — the

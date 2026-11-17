@@ -1,6 +1,6 @@
 # FNH — Fabric n Horizon
 
-<p align="center"><img src="icons/fh-256.png" width="88" alt="FNH's icon: a white F and H on a black rounded tile"></p>
+<p align="center"><img src="icons/fh-256.png" width="88" height="88" alt="FNH's icon: a deep-navy F and H with a black n on a light rounded tile"></p>
 
 **[Download fnh-1.4.zip](https://github.com/bufferclick/fnh/releases/latest)** — unzip it and
 double-click `FH.exe` (Windows 10/11, x64). **Website: [fnh.is-cool.dev](https://fnh.is-cool.dev).**
@@ -22,7 +22,7 @@ palette, its 30-pixel controls, its 3-pixel corners and its lime highlight with 
 │ └────────────────┘ │ Build          Fabric 0.16.9 (managed)                      │
 │ +  New instance    │ Last played    3 h 12 min played                            │
 ├────────────────────┴─────────────────────────────────────────────────────────────┤
-│ ● Ready · 3 instances · FNH v1.4                                                 │
+│ ● Ready · 3 instances                                                 ▣ FNH v1.4 │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 

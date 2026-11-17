@@ -1,4 +1,4 @@
-<p align="center"><img src="fh/icons/fh-256.png" width="88" alt="FNH's icon"></p>
+<p align="center"><img src="fh/icons/fh-256.png" width="88" height="88" alt="FNH's icon: a deep-navy F and H with a black n on a light rounded tile"></p>
 
 <h1 align="center">FNH</h1>
 

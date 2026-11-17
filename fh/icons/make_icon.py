@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Draws Fabric n Horizon's icon (fh/icons/fh.svg) and writes fh.ico.
 
-No image library is involved: the SVG's shapes (the black tile and the F and H of its mark) are
-rasterised here with 4x4 supersampling, and the frames are written as the .ico container Windows
-reads: 32-bit BMP frames up to 64 pixels, PNG frames above (what Explorer and the task bar take for
-the large sizes). The tile and the lettering follow JLac's own mark: white on black, no colour.
+No image library is involved: the rounded porcelain tile and its hairline ring are rasterised with
+4x4 supersampling, while the 9x9 FnH pixel monogram (deep-navy F and H with a black lowercase n
+tucked under the F's arm) is snapped to an integer cell size at every icon resolution so stems and
+counters stay razor-sharp down to 16x16. Frames are written as the .ico container Windows reads:
+32-bit BMP frames up to 64 pixels, PNG frames above (what Explorer and the task bar take for the
+large sizes).
 
     python3 fh/icons/make_icon.py            # writes fh/icons/fh.ico
     python3 fh/icons/make_icon.py --png 256  # also writes fh-256.png, to look at it
@@ -15,70 +17,120 @@ import pathlib
 import struct
 import zlib
 
-# The icon in the SVG's 64-unit square: the tile's rounding, and the F and H drawn from bars.
-TILE = (0.0, 0.0, 64.0, 64.0)
-RADIUS = 14.0
-# F: stem, top arm, middle arm. H: left stem, right stem, crossbar.
-BARS = [
-    (12.0, 18.0, 18.0, 46.0),
-    (12.0, 18.0, 32.0, 24.0),
-    (12.0, 29.0, 28.0, 35.0),
-    (38.0, 18.0, 44.0, 46.0),
-    (50.0, 18.0, 56.0, 46.0),
-    (38.0, 29.0, 56.0, 35.0),
-]
+# The 9x9 FnH monogram: `F` is painted in NAVY (#131254, used for both F and H), `n` in INK (#000000).
+GRID = (
+    "FFFFF.F.F",
+    "F.....F.F",
+    "F.....F.F",
+    "FFF...F.F",
+    "F.....FFF",
+    "F.nnn.F.F",
+    "F.n.n.F.F",
+    "F.n.n.F.F",
+    "F.n.n.F.F",
+)
 
-NIGHT = (0x0B, 0x0B, 0x0B)
-MARK = (0xFF, 0xFF, 0xFF)
+NAVY = (0x13, 0x12, 0x54)
+INK = (0x00, 0x00, 0x00)
+TILE_TOP = (0xFF, 0xFF, 0xFF)
+TILE_BOTTOM = (0xF6, 0xF7, 0xFB)
+TILE_RING = (0xD8, 0xDA, 0xE5)
+
+RADIUS_RATIO = 14.0 / 64.0
+RING_RATIO = 0.85 / 64.0
+
+# Integer pixel cell per icon size so every bar and gap of the 9x9 mark stays exact.
+CELL_SIZES = {
+    16: 1,
+    20: 1,
+    24: 2,
+    32: 2,
+    40: 3,
+    48: 3,
+    64: 4,
+    128: 9,
+    256: 18,
+}
 
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 SUPERSAMPLE = 4
 
 
-def inside_tile(x, y):
-    left, top, right, bottom = TILE
-    if not (left <= x <= right and top <= y <= bottom):
-        return False
-    # The rounded corners: a circle of RADIUS at each corner of the tile.
-    cx = min(max(x, left + RADIUS), right - RADIUS)
-    cy = min(max(y, top + RADIUS), bottom - RADIUS)
-    return (x - cx) ** 2 + (y - cy) ** 2 <= RADIUS * RADIUS
+def cell_for(size):
+    """The integer pixel side of one cell in the 9x9 mark for a frame of `size`."""
+    return CELL_SIZES.get(size, max(1, round(size * (18.0 / 256.0))))
 
 
-def inside_mark(x, y):
-    """Whether (x, y) is in the lettering: inside one of its bars."""
-    return any(left <= x <= right and top <= y <= bottom for left, top, right, bottom in BARS)
+def tile_distance(x, y, size, radius):
+    """Signed distance to the rounded square [0, size]^2 (negative inside, positive outside)."""
+    cx = min(max(x, radius), size - radius)
+    cy = min(max(y, radius), size - radius)
+    dx = x - cx
+    dy = y - cy
+    if dx == 0.0 and dy == 0.0:
+        return -min(x, size - x, y, size - y)
+    return (dx * dx + dy * dy) ** 0.5 - radius
 
 
-def pixel(px, py, size):
-    """One pixel's RGBA, from the 64-unit shapes scaled to `size`."""
-    unit = 64.0 / size
-    red = green = blue = alpha = 0.0
-    for sy in range(SUPERSAMPLE):
-        for sx in range(SUPERSAMPLE):
-            x = (px + (sx + 0.5) / SUPERSAMPLE) * unit
-            y = (py + (sy + 0.5) / SUPERSAMPLE) * unit
-            if not inside_tile(x, y):
-                continue
-            colour = MARK if inside_mark(x, y) else NIGHT
-            red += colour[0]
-            green += colour[1]
-            blue += colour[2]
-            alpha += 1.0
-    samples = SUPERSAMPLE * SUPERSAMPLE
-    if alpha == 0.0:
-        return (0, 0, 0, 0)
+def plate_colour(t):
+    """Vertical porcelain tint from TILE_TOP (t=0) to TILE_BOTTOM (t=1)."""
     return (
-        round(red / alpha),
-        round(green / alpha),
-        round(blue / alpha),
-        round(255 * alpha / samples),
+        TILE_TOP[0] + (TILE_BOTTOM[0] - TILE_TOP[0]) * t,
+        TILE_TOP[1] + (TILE_BOTTOM[1] - TILE_TOP[1]) * t,
+        TILE_TOP[2] + (TILE_BOTTOM[2] - TILE_TOP[2]) * t,
     )
 
 
 def frame(size):
     """The RGBA pixels of `size` square, top row first."""
-    return [[pixel(x, y, size) for x in range(size)] for y in range(size)]
+    radius = size * RADIUS_RATIO
+    ring = max(0.9, size * RING_RATIO)
+    cell = cell_for(size)
+    span = cell * 9
+    origin = (size - span) // 2
+    samples = SUPERSAMPLE * SUPERSAMPLE
+
+    rows = []
+    for py in range(size):
+        mark_row = GRID[(py - origin) // cell] if origin <= py < origin + span else None
+        row = []
+        for px in range(size):
+            if mark_row is not None and origin <= px < origin + span:
+                glyph = mark_row[(px - origin) // cell]
+                if glyph == "F":
+                    row.append((*NAVY, 255))
+                    continue
+                if glyph == "n":
+                    row.append((*INK, 255))
+                    continue
+
+            red = green = blue = alpha = 0.0
+            for sy in range(SUPERSAMPLE):
+                y = py + (sy + 0.5) / SUPERSAMPLE
+                fill = plate_colour(y / size)
+                for sx in range(SUPERSAMPLE):
+                    x = px + (sx + 0.5) / SUPERSAMPLE
+                    dist = tile_distance(x, y, size, radius)
+                    if dist > 0.0:
+                        continue
+                    colour = TILE_RING if dist > -ring else fill
+                    red += colour[0]
+                    green += colour[1]
+                    blue += colour[2]
+                    alpha += 1.0
+            if alpha == 0.0:
+                row.append((0, 0, 0, 0))
+            else:
+                row.append(
+                    (
+                        round(red / alpha),
+                        round(green / alpha),
+                        round(blue / alpha),
+                        round(255 * alpha / samples),
+                    )
+                )
+        rows.append(row)
+    return rows
 
 
 def bmp_frame(pixels):
