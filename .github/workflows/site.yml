@@ -1,0 +1,61 @@
+name: site
+# Publishes site/ — fnh.is-cool.dev — to GitHub Pages.
+#
+# Pages' "Deploy from a branch" source only offers the repository root or `/docs`, and this
+# repository's `docs/` is the Horizon launcher's own documentation, so the site is deployed from
+# this folder instead: Settings → Pages → Source: **GitHub Actions**, which is what this workflow
+# is for. `site/CNAME` travels with the artifact, so the custom domain survives every deploy.
+#
+# Only the site's own files start it: a push that touches nothing in `site/` publishes nothing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Until Pages is switched on (Settings → Pages → Source: GitHub Actions) this step fails, and
+      # that is a setting, not a fault: the run says so once and stops instead of going red in
+      # everyone's face. With Pages on, it configures the deployment and the site goes out.
+      - id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+      - name: GitHub Pages is not enabled
+        if: steps.pages.outcome == 'failure'
+        run: |
+          echo "::notice::GitHub Pages is off for this repository. Settings → Pages → Source: GitHub Actions, then run this workflow again (Actions → site → Run workflow)."
+      - name: The page and its files
+        if: steps.pages.outcome == 'success'
+        run: |
+          set -euo pipefail
+          test -f site/index.html
+          test -f site/CNAME
+          echo "publishing $(du -sh site | cut -f1) from site/, domain $(cat site/CNAME)"
+      - if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        if: steps.pages.outcome == 'success'
+        uses: actions/deploy-pages@v4
