@@ -1,7 +1,8 @@
 # fnh.is-cool.dev
 
-The site is these three files and the icon: `index.html`, `styles.css`, `assets/icon.png`. No build
-step, no framework, no JavaScript beyond the one request that fills the download button in.
+The site is these files and the icon: `index.html`, `styles.css`, `assets/icon.svg`, and
+`assets/icon.png`. No build step, no framework, no JavaScript beyond the one request that fills the
+download button in.
 
 ## Publishing it
 

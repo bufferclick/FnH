@@ -204,7 +204,7 @@ impl Fh {
                 colour_of(&instance.id, instance.icon.as_ref()),
                 44.,
             ),
-            None => look::tile("?", c(look::ALT), 44.),
+            None => look::brand_mark(44.),
         };
         let account = self
             .signed_in()
@@ -621,18 +621,13 @@ impl Fh {
     /// The bottom bar: what the launch is doing, how far it got, and how to dismiss it.
     fn status_bar(&mut self, cx: &mut Context<Self>) -> Div {
         let status = job::status();
+        let count = self.instances.len();
+        let noun = if count == 1 { "instance" } else { "instances" };
         let (colour, text) = match &status {
             Some(status) if status.failed => (c(look::DANGER), status.line.clone()),
             Some(status) if status.busy => (c(look::ACCENT), format!("{} — {}", status.title, status.line)),
             Some(status) => (c(look::DIM), status.line.clone()),
-            None => (
-                c(look::DIM),
-                format!(
-                    "Ready · {} instances · FNH v{}",
-                    self.instances.len(),
-                    crate::VERSION
-                ),
-            ),
+            None => (c(look::DIM), format!("Ready · {count} {noun}")),
         };
         let bar = status.as_ref().and_then(|status| status.fraction).map(progress);
         let dismiss = status
@@ -646,6 +641,13 @@ impl Fh {
                     }))
                     .into_any_element()
             });
+        let brand = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .child(look::brand_mark(17.))
+            .child(quiet(11., format!("FNH v{}", crate::VERSION)));
         div()
             .flex()
             .flex_none()
@@ -668,6 +670,7 @@ impl Fh {
             )
             .when_some(bar, |row, bar| row.child(bar))
             .when_some(dismiss, |row, dismiss| row.child(dismiss))
+            .child(brand)
     }
 
     /// Asks Mojang for the Minecraft versions once, for the new-instance dialog.

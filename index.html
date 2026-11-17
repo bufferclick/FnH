@@ -10,9 +10,12 @@
 <meta property="og:description" content="A Windows app for the Horizon launcher's instances, with Fabric support.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://fnh.is-cool.dev/">
+<meta property="og:image" content="https://fnh.is-cool.dev/site/assets/icon.png">
 <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
-<link rel="icon" href="site/assets/icon.png" type="image/png">
+<link rel="icon" href="site/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="site/assets/icon.png" sizes="256x256" type="image/png">
+<link rel="apple-touch-icon" href="site/assets/icon.png">
 <link rel="stylesheet" href="site/styles.css">
 </head>
 <body>
@@ -20,7 +23,7 @@
 <header class="top">
   <div class="wrap">
     <a class="wordmark" href="/">
-      <img src="site/assets/icon.png" width="24" height="24" alt="">
+      <img src="site/assets/icon.svg" width="26" height="26" alt="">
       <span>FNH</span>
     </a>
     <nav>
@@ -34,7 +37,10 @@
 <main class="wrap">
 
   <section class="hero">
-    <h1>FNH</h1>
+    <div class="hero-brand">
+      <img class="hero-mark" src="site/assets/icon.svg" width="64" height="64" alt="FNH logo">
+      <h1>FNH</h1>
+    </div>
     <p class="lede">Fabric n Horizon. A Windows app for the instances in your Horizon launcher: start one,
       read its mods, worlds and log, or make a new Minecraft: Java Edition instance with Fabric.</p>
 
