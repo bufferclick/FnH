@@ -1,42 +1,35 @@
 FNH v@VERSION@
 ==============
 
-Fabric n Horizon: your Horizon and Minecraft: Java Edition instances, one window.
+Fabric n Horizon — your Fabric, Minecraft: Java Edition and Horizon instances in a native
+Windows 11 launcher.
 
-Unzip this folder anywhere you can write to and double-click FH.exe. A window opens: the bar
-across the top with the chosen instance's mark, its name and one lime Play; the instances down the
-left in a darker pane; the instance's own pages on the right (Overview, Mods, Worlds, Logs); and a
-status bar along the bottom that says what is happening.
+Unzip this folder anywhere you can write to and double-click FH.exe. No installer, no Java setup
+up front, and no background service are required.
 
-Press Play. If it has to, FNH signs you in with Microsoft: the code appears in the window, goes on
-your clipboard, and Microsoft's page opens once with it already filled in. It installs the build
-the instance plays when this computer has none, takes the game's files from your own Minecraft the
-way the launcher does, and starts the game signed in, so joining a server works first time.
+Quick guide:
 
-New instance makes another: a Horizon instance of its own, or a Minecraft: Java Edition one —
-vanilla, or with Fabric (its loader version comes with the first Play). The Mods page lists the
-jars in the instance's mods folder, Worlds its saves, and Logs the end of its latest log.
+  - Click "Add Instance..." (or press Ctrl+N) to create a Fabric, Vanilla or Horizon instance.
+  - Select an instance and click "Launch" (or double-click it) to play, and "Kill" (Ctrl+K) to
+    stop a running game.
+  - Click "Edit..." (Ctrl+I) to view Minecraft Log, manage Fabric Loader in Version, toggle mods
+    in Mods, browse Worlds, or adjust memory, JVM flags and window size in Settings.
+  - Click "Accounts" in the top-right toolbar to add or switch Microsoft accounts.
+  - Click "Settings..." to switch between Windows 11 (System), Windows 11 Light and Windows 11
+    Dark, pick an accent colour, or change instance sorting.
+  - Hold Ctrl + Shift + Alt while clicking "Add Instance..." to wipe all FNH data (instances,
+    accounts, saves, mods, caches, settings and logs) and relaunch FNH as a brand-new install.
 
-It uses exactly the instances the Horizon launcher has — the same folder, the same worlds and
-options, the same sign-in — so FNH and the launcher can live side by side.
+Where files live on Windows:
 
-Signing in needs no account of yours beyond Microsoft's: there is no app to register and nothing
-to configure.
-
-Windows 10 or 11 on x64. Nothing else to install.
-
-Where things are (Windows):
-
-  %APPDATA%\horizon-launcher\fh\fh.log                what happened, line by line
-
-  %APPDATA%\horizon-launcher\instances.json           the instances (shared with the launcher)
-  %APPDATA%\horizon-launcher\horizon                  your worlds and options
-
-If a launch does not start, the status bar says why and the log says more.
+  %APPDATA%\horizon-launcher\fh\ui.cfg        window theme and layout preferences
+  %APPDATA%\horizon-launcher\fh\fh.log        launcher log
+  %APPDATA%\horizon-launcher\instances.json   instance metadata
+  %APPDATA%\horizon\instances\                per-instance game folders, mods and saves
 
 Website:  https://fnh.is-cool.dev
 Source:   https://github.com/bufferclick/fnh
 Options:  FH.exe --version --help
 
 MIT licence. Not an official Minecraft product; not approved by or associated with Mojang or
-Microsoft. Horizon is made by the Horizon Team; FNH is Buffer's window over it, styled after JLac.
+Microsoft. Horizon is made by the Horizon Team; FNH is styled after JLac's Windows 11 interface.

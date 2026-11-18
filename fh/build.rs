@@ -1,6 +1,6 @@
 //! FNH's Windows resources: the icon (`icons/fh.ico`, drawn by
 //! `icons/make_icon.py` from `icons/fh.svg`) and the version Explorer shows, both from `VERSION`
-//! so the .exe, `--version` and the release tag (`fh-v1.2`) cannot drift apart.
+//! so the .exe, `--version` and the release tag (`fnh-v1.5`) cannot drift apart.
 //!
 //! `VERSION` also becomes `FH_VERSION`, which `main.rs` reads: one place to bump an update.
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
         .map(|text| text.trim().to_owned())
         .unwrap_or_default();
     if version.is_empty() {
-        panic!("{dir}/VERSION is empty: it holds the release, such as 1.4");
+        panic!("{dir}/VERSION is empty: it holds the release, such as 1.5");
     }
     println!("cargo:rustc-env=FH_VERSION={version}");
     println!("cargo:rerun-if-changed={dir}/VERSION");

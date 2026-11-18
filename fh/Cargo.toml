@@ -1,11 +1,11 @@
 [package]
-# Fabric n Horizon: JLac's window over Horizon's instances. The version here and fh/VERSION move
-# together (a test checks it): v1.4 first, then one tenth per update.
+# Fabric n Horizon: JLac's Windows 11 window over Horizon's instances. The version here and
+# fh/VERSION move together (a test checks it): v1.4 first, then one tenth per update.
 name = "horizon-fh"
-version = "1.4.0"
+version = "1.5.0"
 edition = "2021"
 license = "MIT"
-description = "FNH: a JLac-styled window over your Horizon instances, with Fabric."
+description = "FNH: JLac's Windows 11 interface over your Horizon and Fabric instances."
 publish = false
 
 # A workspace of its own, so the launcher's workspace and its lock file are untouched: this crate
