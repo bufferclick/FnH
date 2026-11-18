@@ -35,6 +35,15 @@ pub fn start(path: PathBuf) {
     let _ = PATH.set(path);
 }
 
+/// Flushes and closes the open log file handle so a factory reset can delete `fh/` on Windows.
+pub fn close() {
+    if let Ok(mut open) = FILE.lock() {
+        if let Some(mut file) = open.take() {
+            let _ = file.flush();
+        }
+    }
+}
+
 /// Where the log is.
 pub fn path() -> &'static Path {
     PATH.get().map(PathBuf::as_path).unwrap_or(Path::new("fh.log"))

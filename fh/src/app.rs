@@ -1,1310 +1,2793 @@
-//! The window, drawn the way JLac draws its own: the bar across the top with the chosen
-//! instance's mark, its name and one lime Play; the instance list down the left in a darker pane;
-//! the instance's own pages on the right (Overview, Mods, Worlds, Logs); a status bar along the
-//! bottom; and dialogs over all of it for a new instance, the accounts and a sign-in.
+//! JLac's `MainWindow` built natively for FNH in the Windows 11 (WinUI 3 / `QWindows11Style`)
+//! theme: top `mainToolBar` (`Add Instance...`, `Folders`, `Settings...`, `Help`, `Update...`, and
+//! right-aligned `Accounts`), central grouped `InstanceView`, right-docked `WideBar`
+//! `instanceToolBar` (icon, instance title, `Launch`, `Kill`, `Edit...`, `Change Group...`,
+//! `Folder`, `Copy...`, `Delete`), live task strip, and bottom `QStatusBar` with instance summary
+//! and `"Total playtime: ..."`.
 //!
-//! Everything here is the launcher's data, read live: `instances::list` for the rows, the
-//! instance's own folders for its mods, worlds and log, `account::Accounts` for who plays. The
-//! window never writes an instance's files itself — Play, install and preparation are
-//! `job.rs`'s, on its own thread.
+//! Holding `Ctrl + Shift + Alt` while clicking `Add Instance...` wipes all launcher data (every
+//! instance, world, mod, account, cache, preference and log) and immediately relaunches `FH.exe`
+//! to a clean fresh-install state.
 
-use crate::job;
-use crate::log;
+use crate::icons::icon;
+use crate::job::Status;
 use crate::look::{
-    self, button, c, chip, colour_of, dot, heading, initial, play_button, quiet, short_path, Kind,
+    self, hsep, instance_icon, menu_item, menu_sep, progress_bar, push_button, tool_button, vsep,
+    wide_action, ButtonKind, Theme, ICON_PALETTE, UI_FONT,
 };
+use crate::prefs::{Prefs, SortMode};
+use crate::{job, log, reset};
 use gpui::{
-    div, prelude::*, px, AnyElement, ClickEvent, Context, Div, FontWeight, SharedString, Stateful,
-    Window,
+    div, prelude::*, px, AnyElement, ClickEvent, ClipboardItem, Context, Div, FocusHandle,
+    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Render, SharedString, Stateful,
+    Subscription, Window,
 };
-use horizon_launcher::account::Accounts;
-use horizon_launcher::instances::{self as inst, Instance, Kind as InstanceKind};
-use horizon_launcher::minecraft_versions::{self, Versions};
-use horizon_launcher::worlds;
-use horizon_launcher::loaders;
-use std::time::Duration;
+use horizon_launcher::account::{self, Accounts};
+use horizon_launcher::backend;
+use horizon_launcher::instances::{self as inst, Icon, Instance, Kind as InstanceKind};
+use horizon_launcher::java;
+use horizon_launcher::loaders::{self, Kind as LoaderKind, Listed, Loader};
+use horizon_launcher::minecraft_versions::{self, Kind as McKind, Versions};
+use horizon_launcher::worlds::{self, World};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, UNIX_EPOCH};
 
-/// The instance's page the window shows.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Overview,
-    Mods,
-    Worlds,
-    Logs,
+pub(crate) const SITE_URL: &str = "https://fnh.is-cool.dev";
+pub(crate) const REPO_URL: &str = "https://github.com/bufferclick/fnh";
+pub(crate) const RELEASES_URL: &str = "https://github.com/bufferclick/fnh/releases/latest";
+
+/// Popup menu currently open over `MainWindow`.
+#[derive(Clone, PartialEq)]
+pub(crate) enum Menu {
+    Folders,
+    Help,
+    Accounts,
+    Instance { id: String, x: f32, y: f32 },
 }
 
-impl Tab {
-    const ALL: [Tab; 4] = [Tab::Overview, Tab::Mods, Tab::Worlds, Tab::Logs];
-
-    fn label(self) -> &'static str {
-        match self {
-            Tab::Overview => "Overview",
-            Tab::Mods => "Mods",
-            Tab::Worlds => "Worlds",
-            Tab::Logs => "Logs",
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Tab::Overview => "tab-overview",
-            Tab::Mods => "tab-mods",
-            Tab::Worlds => "tab-worlds",
-            Tab::Logs => "tab-logs",
-        }
-    }
-}
-
-/// What is open over the window.
+/// Active modal dialog over `MainWindow`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Dialog {
-    NewInstance,
+pub(crate) enum Dialog {
+    AddInstance,
+    EditInstance,
+    Settings,
     Accounts,
     SignIn,
+    FabricVersions,
+    LauncherLog,
+    Rename,
+    ChangeGroup,
+    CopyInstance,
+    ConfirmDelete,
+    About,
 }
 
-/// What a new instance plays: Horizon, plain Minecraft, or Minecraft with Fabric.
+/// Sidebar tab in `Add Instance...` (`NewInstanceDialog`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Plan {
+pub(crate) enum NewKind {
+    Custom,
     Horizon,
-    Vanilla,
+}
+
+/// Loader choice for a new Minecraft: Java Edition instance.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NewLoader {
     Fabric,
+    Vanilla,
 }
 
-impl Plan {
-    const ALL: [Plan; 3] = [Plan::Horizon, Plan::Vanilla, Plan::Fabric];
+/// Sidebar page inside `Edit...` (`InstanceWindow`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditPage {
+    Log,
+    Version,
+    Mods,
+    Worlds,
+    Settings,
+}
 
-    fn label(self) -> &'static str {
-        match self {
-            Plan::Horizon => "Horizon",
-            Plan::Vanilla => "Vanilla",
-            Plan::Fabric => "Fabric",
+/// Sidebar page inside `Settings...`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingsPage {
+    Ui,
+    Minecraft,
+    Launcher,
+}
+
+/// Which `text_box` currently receives typed characters and clipboard paste.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Field {
+    NewName,
+    NewGroup,
+    NewVersionFilter,
+    ModFilter,
+    EditName,
+    EditGroup,
+    EditMemory,
+    EditJvmArgs,
+    EditWinW,
+    EditWinH,
+    EditPreLaunch,
+    EditWrapper,
+    PromptText,
+    FabricMcVersion,
+}
+
+/// One mod file inside an instance's `mods/` directory.
+#[derive(Clone)]
+pub(crate) struct ModEntry {
+    pub file_name: String,
+    pub display: String,
+    pub path: PathBuf,
+    pub enabled: bool,
+    pub size: u64,
+}
+
+/// Async result slot shared with short metadata-loading threads.
+type AsyncSlot<T> = Arc<Mutex<Option<Result<T, String>>>>;
+
+/// State of the `Add Instance...` dialog.
+pub(crate) struct NewInstanceForm {
+    pub kind: NewKind,
+    pub name: String,
+    pub name_touched: bool,
+    pub group: String,
+    pub colour_idx: usize,
+    pub mc_version: String,
+    pub filter: String,
+    pub show_releases: bool,
+    pub show_snapshots: bool,
+    pub show_betas: bool,
+    pub show_alphas: bool,
+    pub loader: NewLoader,
+    pub fabric_version: Option<String>,
+    pub creating: bool,
+    pub error: Option<String>,
+}
+
+impl Default for NewInstanceForm {
+    fn default() -> Self {
+        Self {
+            kind: NewKind::Custom,
+            name: String::new(),
+            name_touched: false,
+            group: String::new(),
+            colour_idx: 0,
+            mc_version: String::new(),
+            filter: String::new(),
+            show_releases: true,
+            show_snapshots: false,
+            show_betas: false,
+            show_alphas: false,
+            loader: NewLoader::Fabric,
+            fabric_version: None,
+            creating: false,
+            error: None,
         }
     }
+}
 
-    fn id(self) -> &'static str {
-        match self {
-            Plan::Horizon => "plan-horizon",
-            Plan::Vanilla => "plan-vanilla",
-            Plan::Fabric => "plan-fabric",
-        }
+/// State of the `Edit...` (`InstanceWindow`) dialog.
+#[derive(Default)]
+pub(crate) struct EditState {
+    pub instance_id: String,
+    pub page: EditPage,
+    pub mods: Vec<ModEntry>,
+    pub selected_mod: Option<String>,
+    pub mod_filter: String,
+    pub worlds: Vec<World>,
+    pub selected_world: Option<String>,
+    pub log_lines: Vec<String>,
+    pub name: String,
+    pub group: String,
+    pub memory_mb: String,
+    pub jvm_args: String,
+    pub win_w: String,
+    pub win_h: String,
+    pub pre_launch: String,
+    pub wrapper: String,
+    pub working: bool,
+    pub notice: Option<(String, bool)>,
+}
+
+impl Default for EditPage {
+    fn default() -> Self {
+        Self::Version
     }
 }
 
-/// Mojang's version list as the new-instance dialog has it.
-enum List {
-    NotAsked,
-    Loading,
-    Ready(Versions),
-    Failed(String),
+/// State of the `Fabric Versions` dialog (`Help -> Fabric Versions...` or `Change Version...`).
+#[derive(Default)]
+pub(crate) struct FabricDialogState {
+    pub mc_version: String,
+    pub target_instance: Option<String>,
+    pub versions: Vec<Listed>,
+    pub selected: Option<String>,
+    pub loading: bool,
+    pub error: Option<String>,
 }
 
-/// The window's whole state.
+/// The FNH Windows 11 launcher view.
 pub struct Fh {
-    tab: Tab,
-    instances: Vec<Instance>,
-    chosen: Option<String>,
-    dialog: Option<Dialog>,
-    plan: Plan,
-    /// The Minecraft version the dialog makes, when one was picked.
-    mc: Option<String>,
-    versions: List,
-    accounts: Accounts,
-    /// A line under a dialog's controls: what the last action said.
-    message: Option<String>,
-    creating: bool,
-    /// Whether a launch was running at the last tick, so the window reloads once when it ends.
+    pub(crate) focus: FocusHandle,
+    _appearance: Subscription,
+    pub(crate) prefs: Prefs,
+    pub(crate) instances: Vec<Instance>,
+    pub(crate) selected_id: Option<String>,
+    pub(crate) accounts: Accounts,
+    pub(crate) selected_account: Option<String>,
+    pub(crate) menu: Option<Menu>,
+    pub(crate) dialog: Option<Dialog>,
+    pub(crate) field: Option<Field>,
+    pub(crate) status: Status,
+    pub(crate) notice: Option<(String, bool)>,
+    last_code_seen: String,
     was_busy: bool,
+
+    // Dialog states.
+    pub(crate) new_form: NewInstanceForm,
+    pub(crate) edit: EditState,
+    pub(crate) settings_page: SettingsPage,
+    pub(crate) runtimes: Vec<java::Runtime>,
+    pub(crate) fabric_dlg: FabricDialogState,
+    pub(crate) launcher_log: Vec<String>,
+    pub(crate) prompt_target: String,
+    pub(crate) prompt_text: String,
+    pub(crate) prompt_error: Option<String>,
+
+    // Metadata caches and background channels.
+    pub(crate) mc_versions: Option<Versions>,
+    pub(crate) mc_loading: bool,
+    pub(crate) mc_error: Option<String>,
+    mc_slot: AsyncSlot<Versions>,
+    fabric_slot: AsyncSlot<(String, Vec<Listed>)>,
+    create_slot: AsyncSlot<Instance>,
+    loader_slot: AsyncSlot<Instance>,
 }
 
 impl Fh {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let instances = inst::list();
-        let chosen = instances
-            .iter()
-            .find(|instance| instance.kind != InstanceKind::Default)
-            .or_else(|| instances.first())
-            .map(|instance| instance.id.clone());
-        let view = Self {
-            tab: Tab::Overview,
-            instances,
-            chosen,
-            dialog: None,
-            plan: Plan::Fabric,
-            mc: None,
-            versions: List::NotAsked,
-            accounts: Accounts::load(),
-            message: None,
-            creating: false,
-            was_busy: false,
-        };
-        view.tick_forever(cx);
-        view
-    }
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
+        let appearance = cx.observe_window_appearance(window, |_, _, cx| cx.notify());
 
-    /// Looks at the launch four times a second while the window is open: the status bar follows the
-    /// step it is on, a sign-in's code appears as Microsoft gives it, and the instance list is read
-    /// again when a launch ends (its play time changed).
-    fn tick_forever(&self, cx: &mut Context<Self>) {
+        let prefs = Prefs::load();
+        let instances = load_visible_instances(prefs.sort);
+        let saved_pick = backend::Settings::load().instance;
+        let selected_id = saved_pick
+            .filter(|id| instances.iter().any(|inst| &inst.id == id))
+            .or_else(|| instances.first().map(|inst| inst.id.clone()));
+        let accounts = Accounts::load();
+        let selected_account = accounts
+            .selected()
+            .map(|a| a.uuid.clone())
+            .or_else(|| accounts.accounts.first().map(|a| a.uuid.clone()));
+
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()
-                .timer(Duration::from_millis(250))
+                .timer(Duration::from_millis(100))
                 .await;
-            if this
-                .update(cx, |this, cx| {
-                    let busy = job::busy();
-                    if this.was_busy && !busy {
-                        this.instances = inst::list();
-                    }
-                    this.was_busy = busy;
-                    cx.notify();
-                })
-                .is_err()
-            {
+            if this.update(cx, |this, cx| this.tick(cx)).is_err() {
                 break;
             }
         })
         .detach();
-    }
 
-    fn current(&self) -> Option<&Instance> {
-        let chosen = self.chosen.as_deref()?;
-        self.instances
-            .iter()
-            .find(|instance| instance.id == chosen)
-            .or_else(|| self.instances.first())
-    }
-
-    fn choose(&mut self, id: String, cx: &mut Context<Self>) {
-        if let Err(e) = inst::select(&id) {
-            log::line(&format!("Could not make {id} the one Play starts: {e}"));
+        Self {
+            focus,
+            _appearance: appearance,
+            prefs,
+            instances,
+            selected_id,
+            accounts,
+            selected_account,
+            menu: None,
+            dialog: None,
+            field: None,
+            status: job::status().unwrap_or_default(),
+            notice: None,
+            last_code_seen: String::new(),
+            was_busy: false,
+            new_form: NewInstanceForm::default(),
+            edit: EditState::default(),
+            settings_page: SettingsPage::Ui,
+            runtimes: Vec::new(),
+            fabric_dlg: FabricDialogState::default(),
+            launcher_log: Vec::new(),
+            prompt_target: String::new(),
+            prompt_text: String::new(),
+            prompt_error: None,
+            mc_versions: None,
+            mc_loading: false,
+            mc_error: None,
+            mc_slot: Arc::new(Mutex::new(None)),
+            fabric_slot: Arc::new(Mutex::new(None)),
+            create_slot: Arc::new(Mutex::new(None)),
+            loader_slot: Arc::new(Mutex::new(None)),
         }
-        self.chosen = Some(id);
-        self.tab = Tab::Overview;
+    }
+
+    /// Periodic poll for launch status, Microsoft device-code prompts and metadata fetches.
+    fn tick(&mut self, cx: &mut Context<Self>) {
+        let mut dirty = false;
+
+        let next = job::status().unwrap_or_default();
+        if next != self.status {
+            if let Some((code, _)) = next.code.as_ref() {
+                if code != &self.last_code_seen {
+                    self.last_code_seen = code.clone();
+                    let _ = log::copy(code);
+                    cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+                    self.dialog = Some(Dialog::SignIn);
+                    self.menu = None;
+                }
+            } else {
+                self.last_code_seen.clear();
+            }
+            if self.was_busy && !next.busy {
+                self.reload_instances();
+                self.reload_accounts();
+                if self.dialog == Some(Dialog::SignIn) && !next.failed {
+                    self.dialog = None;
+                    if let Some(acc) = self.accounts.selected() {
+                        self.say(format!("Signed in as {}.", acc.name), false);
+                    }
+                } else if next.done && !next.line.is_empty() {
+                    self.say(next.line.clone(), false);
+                }
+                if self.dialog == Some(Dialog::EditInstance)
+                    && self.edit.page == EditPage::Log
+                {
+                    self.reload_edit_log();
+                }
+            }
+            self.was_busy = next.busy;
+            self.status = next;
+            dirty = true;
+        }
+
+        if let Some(outcome) = take_slot(&self.mc_slot) {
+            self.mc_loading = false;
+            match outcome {
+                Ok(list) => {
+                    if self.new_form.mc_version.is_empty() {
+                        let pick = list.latest_release.clone();
+                        self.pick_new_mc_version(&pick);
+                    }
+                    if self.fabric_dlg.mc_version.is_empty() {
+                        self.fabric_dlg.mc_version = list.latest_release.clone();
+                        if self.dialog == Some(Dialog::FabricVersions) {
+                            self.fetch_fabric_versions();
+                        }
+                    }
+                    self.mc_versions = Some(list);
+                    self.mc_error = None;
+                }
+                Err(err) => self.mc_error = Some(err),
+            }
+            dirty = true;
+        }
+
+        if let Some(outcome) = take_slot(&self.fabric_slot) {
+            self.fabric_dlg.loading = false;
+            match outcome {
+                Ok((mc, list)) => {
+                    if mc == self.fabric_dlg.mc_version {
+                        self.fabric_dlg.selected = list
+                            .iter()
+                            .find(|l| l.stable)
+                            .or_else(|| list.first())
+                            .map(|l| l.version.clone());
+                        self.fabric_dlg.versions = list;
+                        self.fabric_dlg.error = None;
+                    }
+                }
+                Err(err) => {
+                    self.fabric_dlg.versions.clear();
+                    self.fabric_dlg.error = Some(err);
+                }
+            }
+            dirty = true;
+        }
+
+        if let Some(outcome) = take_slot(&self.create_slot) {
+            self.new_form.creating = false;
+            match outcome {
+                Ok(created) => {
+                    let name = created.name.clone();
+                    let id = created.id.clone();
+                    self.reload_instances();
+                    self.select_instance(Some(id));
+                    self.dialog = None;
+                    self.field = None;
+                    self.say(format!("Created instance \"{name}\"."), false);
+                }
+                Err(err) => self.new_form.error = Some(err),
+            }
+            dirty = true;
+        }
+
+        if let Some(outcome) = take_slot(&self.loader_slot) {
+            self.edit.working = false;
+            match outcome {
+                Ok(updated) => {
+                    let msg = match updated.java.as_ref().and_then(|j| j.loader.as_ref()) {
+                        Some(loader) => {
+                            format!("Installed {} {}.", loader.kind.name(), loader.version)
+                        }
+                        None => "Updated instance loader.".into(),
+                    };
+                    self.reload_instances();
+                    self.edit.notice = Some((msg.clone(), false));
+                    if self.dialog == Some(Dialog::FabricVersions) {
+                        self.dialog = Some(Dialog::EditInstance);
+                    }
+                    self.say(msg, false);
+                }
+                Err(err) => {
+                    self.edit.notice = Some((err.clone(), true));
+                    if self.dialog == Some(Dialog::FabricVersions) {
+                        self.fabric_dlg.error = Some(err);
+                    }
+                }
+            }
+            dirty = true;
+        }
+
+        if dirty {
+            cx.notify();
+        }
+    }
+
+    // ----- Data helpers -------------------------------------------------------------------------
+
+    pub(crate) fn say(&mut self, text: impl Into<String>, is_error: bool) {
+        self.notice = Some((text.into(), is_error));
+    }
+
+    pub(crate) fn reload_instances(&mut self) {
+        self.instances = load_visible_instances(self.prefs.sort);
+        if let Some(sel) = &self.selected_id {
+            if !self.instances.iter().any(|i| &i.id == sel) {
+                self.selected_id = self.instances.first().map(|i| i.id.clone());
+            }
+        }
+    }
+
+    pub(crate) fn reload_accounts(&mut self) {
+        self.accounts = Accounts::load();
+        if let Some(sel) = &self.selected_account {
+            if !self.accounts.accounts.iter().any(|a| &a.uuid == sel) {
+                self.selected_account = self
+                    .accounts
+                    .selected()
+                    .map(|a| a.uuid.clone())
+                    .or_else(|| self.accounts.accounts.first().map(|a| a.uuid.clone()));
+            }
+        } else {
+            self.selected_account = self
+                .accounts
+                .selected()
+                .map(|a| a.uuid.clone())
+                .or_else(|| self.accounts.accounts.first().map(|a| a.uuid.clone()));
+        }
+    }
+
+    pub(crate) fn selected(&self) -> Option<&Instance> {
+        let id = self.selected_id.as_deref()?;
+        self.instances.iter().find(|i| i.id == id)
+    }
+
+    pub(crate) fn find_instance(&self, id: &str) -> Option<&Instance> {
+        self.instances.iter().find(|i| i.id == id)
+    }
+
+    pub(crate) fn select_instance(&mut self, id: Option<String>) {
+        self.selected_id = id.clone();
+        self.notice = None;
+        if let Some(id) = id {
+            let _ = inst::select(&id);
+        }
+    }
+
+    pub(crate) fn existing_groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = Vec::new();
+        for instance in &self.instances {
+            if let Some(group) = instance.group.as_deref().map(str::trim).filter(|g| !g.is_empty())
+            {
+                if !groups.iter().any(|g| g.eq_ignore_ascii_case(group)) {
+                    groups.push(group.to_owned());
+                }
+            }
+        }
+        groups.sort_by_key(|g| g.to_ascii_lowercase());
+        groups
+    }
+
+    // ----- Actions ------------------------------------------------------------------------------
+
+    /// Handles a click on `Add Instance...`: `Ctrl + Shift + Alt` performs a full factory reset
+    /// and relaunches `FH.exe`; any ordinary click opens `NewInstanceDialog`.
+    pub(crate) fn on_add_instance_click(
+        &mut self,
+        event: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu = None;
+        if reset::is_reset_click(event) {
+            log::line("Factory reset requested (Ctrl+Shift+Alt + Add Instance).");
+            match reset::wipe_and_relaunch() {
+                Ok(()) => {
+                    cx.quit();
+                    return;
+                }
+                Err(err) => {
+                    self.say(err, true);
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.open_add_instance();
         cx.notify();
     }
 
-    fn signed_in(&self) -> Option<String> {
-        self.accounts
-            .selected()
-            .map(|account| account.name.clone())
-    }
-
-    /// The top bar: the chosen instance's mark and name, the account, and Play.
-    fn toolbar(&mut self, cx: &mut Context<Self>) -> Div {
-        let instance = self.current().cloned();
-        let name = instance
-            .as_ref()
-            .map(|instance| instance.name.clone())
-            .unwrap_or_else(|| "No instance".to_owned());
-        let detail = instance.as_ref().map(detail_of).unwrap_or_default();
-        let mark = match &instance {
-            Some(instance) => look::tile(
-                &initial(&instance.name),
-                colour_of(&instance.id, instance.icon.as_ref()),
-                44.,
-            ),
-            None => look::brand_mark(44.),
+    pub(crate) fn open_add_instance(&mut self) {
+        self.menu = None;
+        let colour_idx = self.instances.len() % ICON_PALETTE.len();
+        let mut form = NewInstanceForm {
+            colour_idx,
+            ..NewInstanceForm::default()
         };
-        let account = self
-            .signed_in()
-            .unwrap_or_else(|| "Not signed in".to_owned());
-        let play = match instance {
-            Some(instance) => play_button("play", "▶  Play")
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    job::play(instance.clone());
-                    this.was_busy = true;
-                    cx.notify();
-                }))
-                .into_any_element(),
-            None => button("play", "Play", Kind::Primary).into_any_element(),
-        };
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(12.))
-            .h(px(76.))
-            .px(px(16.))
-            .bg(c(look::WINDOW))
-            .border_b_1()
-            .border_color(c(look::BORDER))
-            .child(mark)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .gap(px(3.))
-                    .child(look::line(16., name).font_weight(FontWeight::SEMIBOLD))
-                    .child(quiet(12., detail)),
-            )
-            .child(
-                chip("account", format!("{account}  ▾")).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.dialog = Some(Dialog::Accounts);
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(play)
-    }
-
-    /// The left pane: every instance, then the button that makes another.
-    fn sidebar(&mut self, cx: &mut Context<Self>) -> Div {
-        let list = self.instances.clone();
-        let rows: Vec<AnyElement> = list
-            .iter()
-            .map(|instance| self.instance_row(instance, cx))
-            .collect();
-        let count = list.len();
-        let new = button("new-instance", "+  New instance", Kind::Secondary).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.dialog = Some(Dialog::NewInstance);
-                this.message = None;
-                this.ask_versions(cx);
-                cx.notify();
-            }),
-        );
-        div()
-            .flex()
-            .flex_none()
-            .flex_col()
-            .w(px(260.))
-            .h_full()
-            .bg(c(look::BASE))
-            .border_r_1()
-            .border_color(c(look::RULE))
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_between()
-                    .h(px(34.))
-                    .px(px(12.))
-                    .child(heading("INSTANCES"))
-                    .child(quiet(11., format!("{count}"))),
-            )
-            .child(
-                div()
-                    .id("instance-list")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_y_scroll()
-                    .px(px(6.))
-                    .pb(px(6.))
-                    .children(rows),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .p(px(8.))
-                    .border_t_1()
-                    .border_color(c(look::RULE))
-                    .child(div().flex().w_full().justify_center().child(new)),
-            )
-    }
-
-    fn instance_row(&self, instance: &Instance, cx: &mut Context<Self>) -> AnyElement {
-        let chosen = self.chosen.as_deref() == Some(instance.id.as_str());
-        let id = SharedString::from(format!("row:{}", instance.id));
-        let click_id = instance.id.clone();
-        let ink = if chosen { c(look::ON_ACCENT) } else { c(look::INK) };
-        let under = if chosen { c(0x20400a) } else { c(look::MUTED) };
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap(px(9.))
-            .h(px(42.))
-            .px(px(8.))
-            .rounded(px(3.))
-            .bg(if chosen {
-                c(look::ACCENT)
-            } else {
-                gpui::transparent_black()
-            })
-            .when(!chosen, |row| row.hover(|style| style.bg(c(look::ALT))))
-            .cursor_pointer()
-            .child(look::tile(
-                &initial(&instance.name),
-                colour_of(&instance.id, instance.icon.as_ref()),
-                28.,
-            ))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(ink)
-                            .child(instance.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(under)
-                            .child(kind_line(instance)),
-                    ),
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.choose(click_id.clone(), cx);
-            }))
-            .into_any_element()
-    }
-
-    /// The right side: the instance's tabs and the tab's page.
-    fn main_area(&mut self, cx: &mut Context<Self>) -> Div {
-        let tabs: Vec<AnyElement> = Tab::ALL
-            .iter()
-            .map(|tab| self.tab_button(*tab, cx))
-            .collect();
-        let body = match self.tab {
-            Tab::Overview => self.overview(cx),
-            Tab::Mods => self.mods(cx),
-            Tab::Worlds => self.worlds(cx),
-            Tab::Logs => self.logs(cx),
-        };
-        div()
-            .flex()
-            .flex_1()
-            .min_w(px(0.))
-            .h_full()
-            .flex_col()
-            .bg(c(look::BASE))
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .h(px(40.))
-                    .px(px(8.))
-                    .gap(px(2.))
-                    .border_b_1()
-                    .border_color(c(look::RULE))
-                    .children(tabs),
-            )
-            .child(
-                div()
-                    .id("page")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_y_scroll()
-                    .p(px(20.))
-                    .child(body),
-            )
-    }
-
-    fn tab_button(&self, tab: Tab, cx: &mut Context<Self>) -> AnyElement {
-        let active = self.tab == tab;
-        div()
-            .id(tab.id())
-            .flex()
-            .items_center()
-            .h(px(38.))
-            .px(px(14.))
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(if active { c(look::INK) } else { c(look::MUTED) })
-            .border_b_2()
-            .border_color(if active {
-                c(look::ACCENT)
-            } else {
-                gpui::transparent_black()
-            })
-            .cursor_pointer()
-            .when(!active, |tab| tab.hover(|style| style.text_color(c(look::INK))))
-            .child(tab.label())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.tab = tab;
-                cx.notify();
-            }))
-            .into_any_element()
-    }
-
-    /// The instance's page: what it plays, where it keeps it, and what can be done with it.
-    fn overview(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(instance) = self.current().cloned() else {
-            return empty("No instance yet: make one with the button in the list.");
-        };
-        let folder = instance.home.clone();
-        let open = button("open-folder", "Open folder", Kind::Secondary).on_click(
-            cx.listener(move |_this, _: &ClickEvent, _, _cx| {
-                if let Err(e) = log::open_folder(&folder) {
-                    log::line(&e);
-                }
-            }),
-        );
-        let mut info = div().flex().flex_col().gap(px(8.));
-        for (label, value) in [
-            ("Plays", kind_line(&instance)),
-            ("Build", build_line(&instance)),
-            ("Last played", played_line(&instance)),
-            ("Game folder", instance.home.display().to_string()),
-        ] {
-            info = info.child(field(label, value));
-        }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(look::line(20., instance.name.clone()).font_weight(FontWeight::SEMIBOLD))
-                    .child(quiet(12., detail_of(&instance))),
-            )
-            .child(info)
-            .child(div().flex().items_center().gap(px(8.)).child(open))
-            .into_any_element()
-    }
-
-    /// What is in the instance's `mods/`: the jars it loads, newest name order.
-    fn mods(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(instance) = self.current().cloned() else {
-            return empty("No instance yet: make one with the button in the list.");
-        };
-        let mods = jar_list(&instance.home.join("mods"));
-        let folder = instance.home.join("mods");
-        let open = button("open-mods", "Open mods folder", Kind::Secondary).on_click(
-            cx.listener(move |_this, _: &ClickEvent, _, _cx| {
-                if let Err(e) = log::open_folder(&folder) {
-                    log::line(&e);
-                }
-            }),
-        );
-        let mut body = div().flex().flex_col().gap(px(10.)).child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(look::line(16., format!("{} mods", mods.len())).font_weight(FontWeight::SEMIBOLD))
-                .child(open),
-        );
-        if mods.is_empty() {
-            body = body.child(quiet(
-                12.,
-                "No mods yet. Drop .jar files in the mods folder, or let a modpack put them there.",
-            ));
+        if let Some(list) = &self.mc_versions {
+            form.mc_version = list.latest_release.clone();
+            form.name = list.latest_release.clone();
         } else {
-            for (name, bytes) in mods {
-                body = body.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(12.))
-                        .px(px(10.))
-                        .py(px(6.))
-                        .rounded(px(3.))
-                        .bg(c(look::ALT))
-                        .child(div().text_size(px(12.)).child(name))
-                        .child(quiet(11., megabytes(bytes))),
-                );
-            }
+            self.fetch_mc_versions(false);
         }
-        body.into_any_element()
+        self.new_form = form;
+        self.dialog = Some(Dialog::AddInstance);
+        self.field = Some(Field::NewName);
     }
 
-    /// The instance's saves: name, mode, version, size and when it was last played.
-    fn worlds(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(instance) = self.current().cloned() else {
-            return empty("No instance yet: make one with the button in the list.");
-        };
-        let saves = worlds::list(&instance.home);
-        let folder = instance.home.join("saves");
-        let open = button("open-saves", "Open saves folder", Kind::Secondary).on_click(
-            cx.listener(move |_this, _: &ClickEvent, _, _cx| {
-                if let Err(e) = log::open_folder(&folder) {
-                    log::line(&e);
-                }
-            }),
-        );
-        let mut body = div().flex().flex_col().gap(px(10.)).child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(look::line(16., format!("{} worlds", saves.len())).font_weight(FontWeight::SEMIBOLD))
-                .child(open),
-        );
-        if saves.is_empty() {
-            body = body.child(quiet(12., "No worlds yet: Play makes one."));
-        } else {
-            for world in saves {
-                let version = world.version.clone().unwrap_or_else(|| "—".to_owned());
-                body = body.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(12.))
-                        .px(px(10.))
-                        .py(px(7.))
-                        .rounded(px(3.))
-                        .bg(c(look::ALT))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(div().text_size(px(12.)).child(world.name.clone()))
-                                .child(quiet(
-                                    11.,
-                                    format!("{} · {} · {}", world.mode, version, megabytes(world.size)),
-                                )),
-                        )
-                        .child(quiet(11., when(world.last_played))),
-                );
-            }
+    pub(crate) fn pick_new_mc_version(&mut self, version: &str) {
+        self.new_form.mc_version = version.to_owned();
+        self.new_form.fabric_version = None;
+        if !self.new_form.name_touched || self.new_form.name.trim().is_empty() {
+            self.new_form.name = version.to_owned();
         }
-        body.into_any_element()
     }
 
-    /// The end of the instance's own log: what the game said when it last ran.
-    fn logs(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(instance) = self.current().cloned() else {
-            return empty("No instance yet: make one with the button in the list.");
-        };
-        let path = instance.home.join("logs").join("latest.log");
-        let lines = tail(&path, 400);
-        let folder = instance.home.join("logs");
-        let open = button("open-logs", "Open log folder", Kind::Secondary).on_click(
-            cx.listener(move |_this, _: &ClickEvent, _, _cx| {
-                if let Err(e) = log::open_folder(&folder) {
-                    log::line(&e);
-                }
-            }),
-        );
-        let showing = if lines.is_empty() {
-            "No log yet: the game writes one when it first runs.".to_owned()
-        } else {
-            format!("The last {} lines of {}", lines.len(), short_path(&path.display().to_string(), 64))
-        };
-        let mut body = div().flex().flex_col().gap(px(10.)).child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.))
-                .child(quiet(11., showing))
-                .child(open),
-        );
-        if !lines.is_empty() {
-            let mut log_box = div().flex().flex_col().gap(px(1.)).p(px(10.)).rounded(px(3.)).bg(c(look::RULE));
-            for line in lines {
-                log_box = log_box.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(c(look::MUTED))
-                        .child(line),
-                );
-            }
-            body = body.child(log_box);
+    pub(crate) fn set_new_kind(&mut self, kind: NewKind) {
+        self.new_form.kind = kind;
+        self.new_form.error = None;
+        if !self.new_form.name_touched || self.new_form.name.trim().is_empty() {
+            self.new_form.name = match kind {
+                NewKind::Horizon => "Horizon".into(),
+                NewKind::Custom => self.new_form.mc_version.clone(),
+            };
         }
-        body.into_any_element()
     }
 
-    /// The bottom bar: what the launch is doing, how far it got, and how to dismiss it.
-    fn status_bar(&mut self, cx: &mut Context<Self>) -> Div {
-        let status = job::status();
-        let count = self.instances.len();
-        let noun = if count == 1 { "instance" } else { "instances" };
-        let (colour, text) = match &status {
-            Some(status) if status.failed => (c(look::DANGER), status.line.clone()),
-            Some(status) if status.busy => (c(look::ACCENT), format!("{} — {}", status.title, status.line)),
-            Some(status) => (c(look::DIM), status.line.clone()),
-            None => (c(look::DIM), format!("Ready · {count} {noun}")),
-        };
-        let bar = status.as_ref().and_then(|status| status.fraction).map(progress);
-        let dismiss = status
-            .as_ref()
-            .filter(|status| !status.busy)
-            .map(|_| {
-                button("dismiss", "Dismiss", Kind::Quiet)
-                    .on_click(cx.listener(|_this, _: &ClickEvent, _, cx| {
-                        job::clear();
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            });
-        let brand = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
-            .child(look::brand_mark(17.))
-            .child(quiet(11., format!("FNH v{}", crate::VERSION)));
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(10.))
-            .h(px(30.))
-            .px(px(12.))
-            .bg(c(look::WINDOW))
-            .border_t_1()
-            .border_color(c(look::RULE))
-            .text_size(px(11.))
-            .child(dot(colour))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_color(c(look::MUTED))
-                    .child(text),
-            )
-            .when_some(bar, |row, bar| row.child(bar))
-            .when_some(dismiss, |row, dismiss| row.child(dismiss))
-            .child(brand)
-    }
-
-    /// Asks Mojang for the Minecraft versions once, for the new-instance dialog.
-    fn ask_versions(&mut self, cx: &mut Context<Self>) {
-        if !matches!(self.versions, List::NotAsked) {
+    pub(crate) fn fetch_mc_versions(&mut self, force: bool) {
+        if self.mc_loading {
             return;
         }
-        self.versions = List::Loading;
-        let task = cx
-            .background_executor()
-            .spawn(async { minecraft_versions::load() });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.versions = match result {
-                    Ok(versions) => List::Ready(versions),
-                    Err(e) => List::Failed(e),
-                };
-                cx.notify();
-            });
-        })
-        .detach();
+        if force {
+            let cache = backend::data_dir()
+                .join("minecraft")
+                .join("version_manifest_v2.json");
+            let _ = std::fs::remove_file(cache);
+        }
+        self.mc_loading = true;
+        self.mc_error = None;
+        let slot = Arc::clone(&self.mc_slot);
+        std::thread::spawn(move || {
+            let res = minecraft_versions::load();
+            if let Ok(mut out) = slot.lock() {
+                *out = Some(res);
+            }
+        });
     }
 
-    /// The dialog over the window, on a dimmed backdrop.
-    fn dialog_panel(&mut self, dialog: Dialog, cx: &mut Context<Self>) -> AnyElement {
-        let body = match dialog {
-            Dialog::NewInstance => self.new_instance(cx),
-            Dialog::Accounts => self.accounts_panel(cx),
-            Dialog::SignIn => self.sign_in_panel(cx),
+    pub(crate) fn submit_add_instance(&mut self) {
+        if self.new_form.creating {
+            return;
+        }
+        let kind = self.new_form.kind;
+        let fallback = match kind {
+            NewKind::Horizon => "Horizon".to_owned(),
+            NewKind::Custom => self.new_form.mc_version.clone(),
         };
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::hsla(0., 0., 0., 0.55))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(px(540.))
-                    .max_h(px(540.))
-                    .gap(px(12.))
-                    .p(px(16.))
-                    .rounded(px(4.))
-                    .bg(c(look::WINDOW))
-                    .border_1()
-                    .border_color(c(look::BORDER))
-                    .child(body),
-            )
-            .into_any_element()
+        let raw_name = self.new_form.name.trim();
+        let name = if raw_name.is_empty() {
+            fallback
+        } else {
+            raw_name.to_owned()
+        };
+        if name.trim().is_empty() {
+            self.new_form.error = Some("Enter an instance name first.".into());
+            return;
+        }
+        let group = Some(self.new_form.group.trim().to_owned()).filter(|g| !g.is_empty());
+        let icon = Some(Icon::Colour(
+            ICON_PALETTE[self.new_form.colour_idx % ICON_PALETTE.len()].to_owned(),
+        ));
+
+        match kind {
+            NewKind::Horizon => {
+                let default_active =
+                    reset::has_default_horizon_data(&backend::data_dir(), &backend::game_home());
+                let result = if !default_active && name.eq_ignore_ascii_case("Horizon") {
+                    let _ = std::fs::create_dir_all(backend::game_home());
+                    inst::edit("horizon", |meta| {
+                        meta.name = Some("Horizon".into());
+                        meta.group = group;
+                        meta.icon = icon;
+                    })
+                } else {
+                    inst::create(&name, None).and_then(|made| {
+                        inst::edit(&made.id, |meta| {
+                            meta.group = group;
+                            meta.icon = icon;
+                        })
+                    })
+                };
+                match result {
+                    Ok(created) => {
+                        let created_name = created.name.clone();
+                        let created_id = created.id.clone();
+                        self.reload_instances();
+                        self.select_instance(Some(created_id));
+                        self.dialog = None;
+                        self.field = None;
+                        self.say(format!("Created instance \"{created_name}\"."), false);
+                    }
+                    Err(err) => self.new_form.error = Some(err),
+                }
+            }
+            NewKind::Custom => {
+                let mc = self.new_form.mc_version.trim().to_owned();
+                if mc.is_empty() {
+                    self.new_form.error = Some("Select a Minecraft version from the list.".into());
+                    return;
+                }
+                let loader = self.new_form.loader;
+                let fabric_ver = self.new_form.fabric_version.clone();
+                self.new_form.creating = true;
+                self.new_form.error = None;
+                let slot = Arc::clone(&self.create_slot);
+                std::thread::spawn(move || {
+                    let outcome = (|| -> Result<Instance, String> {
+                        let chosen_loader: Option<Loader> = match loader {
+                            NewLoader::Vanilla => None,
+                            NewLoader::Fabric => {
+                                Some(loaders::choose("fabric", &mc, fabric_ver.as_deref())?)
+                            }
+                        };
+                        let made = inst::create_java(&name, &mc)?;
+                        inst::edit(&made.id, |meta| {
+                            meta.group = group;
+                            meta.icon = icon;
+                            if let Some(java) = meta.java.as_mut() {
+                                java.loader = chosen_loader;
+                            }
+                        })
+                    })();
+                    if let Ok(mut out) = slot.lock() {
+                        *out = Some(outcome);
+                    }
+                });
+            }
+        }
     }
 
-    fn close_row(&self, title: &str, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn launch_id(&mut self, id: &str) {
+        self.menu = None;
+        if self.status.busy {
+            self.say("An instance or task is already running.", true);
+            return;
+        }
+        let Some(instance) = self.find_instance(id).cloned() else {
+            return;
+        };
+        let _ = inst::select(&instance.id);
+        self.selected_id = Some(instance.id.clone());
+        job::clear();
+        job::play(instance);
+        self.status = job::status().unwrap_or_default();
+        self.was_busy = self.status.busy;
+    }
+
+    pub(crate) fn launch_selected(&mut self) {
+        if let Some(id) = self.selected_id.clone() {
+            self.launch_id(&id);
+        }
+    }
+
+    pub(crate) fn kill_running(&mut self) {
+        self.menu = None;
+        if job::kill() {
+            self.status = job::status().unwrap_or_default();
+            self.say("Stopping the running instance…", false);
+        }
+    }
+
+    pub(crate) fn open_edit(&mut self, id: &str, page: EditPage) {
+        self.menu = None;
+        let Some(instance) = self.find_instance(id).cloned() else {
+            return;
+        };
+        self.selected_id = Some(instance.id.clone());
+        let (memory_mb, jvm_args, win_w, win_h) = match &instance.java {
+            Some(java) => {
+                let (w, h) = java
+                    .window
+                    .map(|(w, h)| (w.to_string(), h.to_string()))
+                    .unwrap_or_default();
+                (
+                    java.memory_mb
+                        .unwrap_or(inst::DEFAULT_MEMORY_MB)
+                        .to_string(),
+                    java.jvm_args.clone(),
+                    w,
+                    h,
+                )
+            }
+            None => (String::new(), String::new(), String::new(), String::new()),
+        };
+        self.edit = EditState {
+            instance_id: instance.id.clone(),
+            page,
+            mods: list_mods(&instance.home),
+            selected_mod: None,
+            mod_filter: String::new(),
+            worlds: worlds::list(&instance.home),
+            selected_world: None,
+            log_lines: read_tail(&instance.home.join("logs").join("latest.log"), 400),
+            name: instance.name.clone(),
+            group: instance.group.clone().unwrap_or_default(),
+            memory_mb,
+            jvm_args,
+            win_w,
+            win_h,
+            pre_launch: instance.launch.pre_launch.clone(),
+            wrapper: instance.launch.wrapper.clone(),
+            working: false,
+            notice: None,
+        };
+        self.dialog = Some(Dialog::EditInstance);
+        self.field = None;
+    }
+
+    pub(crate) fn reload_edit_mods(&mut self) {
+        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
+            self.edit.mods = list_mods(&home);
+        }
+    }
+
+    pub(crate) fn reload_edit_worlds(&mut self) {
+        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
+            self.edit.worlds = worlds::list(&home);
+        }
+    }
+
+    pub(crate) fn reload_edit_log(&mut self) {
+        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
+            self.edit.log_lines = read_tail(&home.join("logs").join("latest.log"), 400);
+        }
+    }
+
+    pub(crate) fn toggle_mod(&mut self, file_name: &str) {
+        let Some(entry) = self.edit.mods.iter().find(|m| m.file_name == file_name).cloned() else {
+            return;
+        };
+        let next_name = if entry.enabled {
+            format!("{}.disabled", entry.file_name)
+        } else {
+            entry
+                .file_name
+                .strip_suffix(".disabled")
+                .unwrap_or(&entry.file_name)
+                .to_owned()
+        };
+        let target = entry.path.with_file_name(&next_name);
+        match std::fs::rename(&entry.path, &target) {
+            Ok(()) => {
+                self.edit.selected_mod = Some(next_name);
+                self.reload_edit_mods();
+            }
+            Err(err) => self.edit.notice = Some((format!("Could not toggle mod: {err}"), true)),
+        }
+    }
+
+    pub(crate) fn delete_selected_mod(&mut self) {
+        let Some(sel) = self.edit.selected_mod.clone() else {
+            return;
+        };
+        let Some(entry) = self.edit.mods.iter().find(|m| m.file_name == sel).cloned() else {
+            return;
+        };
+        match std::fs::remove_file(&entry.path) {
+            Ok(()) => {
+                self.edit.selected_mod = None;
+                self.reload_edit_mods();
+                self.edit.notice = Some((format!("Removed {}.", entry.display), false));
+            }
+            Err(err) => self.edit.notice = Some((format!("Could not remove mod: {err}"), true)),
+        }
+    }
+
+    pub(crate) fn install_fabric_on(&mut self, id: &str, version: Option<String>) {
+        if self.edit.working {
+            return;
+        }
+        let Some(mc) = self
+            .find_instance(id)
+            .and_then(|i| i.java.as_ref())
+            .map(|j| j.minecraft.clone())
+        else {
+            return;
+        };
+        let id = id.to_owned();
+        self.edit.working = true;
+        self.edit.notice = Some(("Fetching Fabric Loader metadata…".into(), false));
+        let slot = Arc::clone(&self.loader_slot);
+        std::thread::spawn(move || {
+            let outcome = loaders::choose("fabric", &mc, version.as_deref()).and_then(|chosen| {
+                inst::edit(&id, |meta| {
+                    if let Some(java) = meta.java.as_mut() {
+                        java.loader = Some(chosen);
+                    }
+                })
+            });
+            if let Ok(mut out) = slot.lock() {
+                *out = Some(outcome);
+            }
+        });
+    }
+
+    pub(crate) fn remove_loader_on(&mut self, id: &str) {
+        match inst::edit(id, |meta| {
+            if let Some(java) = meta.java.as_mut() {
+                java.loader = None;
+            }
+        }) {
+            Ok(_) => {
+                self.reload_instances();
+                self.edit.notice = Some(("Removed mod loader (instance is now Vanilla).".into(), false));
+            }
+            Err(err) => self.edit.notice = Some((err, true)),
+        }
+    }
+
+    pub(crate) fn save_edit_settings(&mut self) {
+        let id = self.edit.instance_id.clone();
+        let Some(current) = self.find_instance(&id).cloned() else {
+            return;
+        };
+        let name = self.edit.name.trim().to_owned();
+        if name.is_empty() {
+            self.edit.notice = Some(("Instance name cannot be empty.".into(), true));
+            return;
+        }
+        let parsed_memory: Option<u32> = if current.java.is_some() {
+            let raw = self.edit.memory_mb.trim();
+            if raw.is_empty() {
+                None
+            } else {
+                match raw.parse::<u32>() {
+                    Ok(mb) if (256..=65_536).contains(&mb) => Some(mb),
+                    _ => {
+                        self.edit.notice = Some((
+                            "Memory must be a number between 256 and 65536 MiB.".into(),
+                            true,
+                        ));
+                        return;
+                    }
+                }
+            }
+        } else {
+            None
+        };
+        let parsed_window: Option<(u32, u32)> = if current.java.is_some() {
+            let w = self.edit.win_w.trim();
+            let h = self.edit.win_h.trim();
+            if w.is_empty() && h.is_empty() {
+                None
+            } else {
+                match (w.parse::<u32>(), h.parse::<u32>()) {
+                    (Ok(w), Ok(h)) if w >= 320 && h >= 200 => Some((w, h)),
+                    _ => {
+                        self.edit.notice = Some((
+                            "Window size must be width × height in pixels (at least 320 × 200), or blank."
+                                .into(),
+                            true,
+                        ));
+                        return;
+                    }
+                }
+            }
+        } else {
+            None
+        };
+        let group = Some(self.edit.group.trim().to_owned()).filter(|g| !g.is_empty());
+        let jvm_args = self.edit.jvm_args.trim().to_owned();
+        let pre_launch = self.edit.pre_launch.trim().to_owned();
+        let wrapper = self.edit.wrapper.trim().to_owned();
+
+        match inst::edit(&id, |meta| {
+            meta.name = Some(name);
+            meta.group = group;
+            meta.launch.pre_launch = pre_launch;
+            meta.launch.wrapper = wrapper;
+            if let Some(java) = meta.java.as_mut() {
+                java.memory_mb = parsed_memory;
+                java.jvm_args = jvm_args;
+                java.window = parsed_window;
+            }
+        }) {
+            Ok(_) => {
+                self.reload_instances();
+                self.edit.notice = Some(("Saved instance settings.".into(), false));
+            }
+            Err(err) => self.edit.notice = Some((err, true)),
+        }
+    }
+
+    pub(crate) fn cycle_instance_colour(&mut self, id: &str) {
+        let Some(current) = self.find_instance(id) else {
+            return;
+        };
+        let next = look::next_palette_colour(current.icon.as_ref());
+        if inst::edit(id, |meta| meta.icon = Some(Icon::Colour(next))).is_ok() {
+            self.reload_instances();
+        }
+    }
+
+    pub(crate) fn set_instance_colour(&mut self, id: &str, colour: &str) {
+        if inst::edit(id, |meta| meta.icon = Some(Icon::Colour(colour.to_owned()))).is_ok() {
+            self.reload_instances();
+        }
+    }
+
+    pub(crate) fn open_prompt(&mut self, dialog: Dialog, id: &str) {
+        self.menu = None;
+        let Some(instance) = self.find_instance(id).cloned() else {
+            return;
+        };
+        self.selected_id = Some(instance.id.clone());
+        self.prompt_target = instance.id.clone();
+        self.prompt_error = None;
+        self.prompt_text = match dialog {
+            Dialog::Rename => instance.name,
+            Dialog::ChangeGroup => instance.group.unwrap_or_default(),
+            Dialog::CopyInstance => format!("{} (Copy)", instance.name),
+            Dialog::ConfirmDelete => instance.name,
+            _ => String::new(),
+        };
+        self.dialog = Some(dialog);
+        self.field = match dialog {
+            Dialog::ConfirmDelete => None,
+            _ => Some(Field::PromptText),
+        };
+    }
+
+    pub(crate) fn submit_prompt(&mut self) {
+        let Some(kind) = self.dialog else {
+            return;
+        };
+        let id = self.prompt_target.clone();
+        match kind {
+            Dialog::Rename => {
+                let name = self.prompt_text.trim().to_owned();
+                match inst::edit(&id, |meta| meta.name = Some(name)) {
+                    Ok(updated) => {
+                        let label = updated.name;
+                        self.reload_instances();
+                        self.dialog = None;
+                        self.field = None;
+                        self.say(format!("Renamed instance to \"{label}\"."), false);
+                    }
+                    Err(err) => self.prompt_error = Some(err),
+                }
+            }
+            Dialog::ChangeGroup => {
+                let group = Some(self.prompt_text.trim().to_owned()).filter(|g| !g.is_empty());
+                match inst::edit(&id, |meta| meta.group = group) {
+                    Ok(updated) => {
+                        let msg = match updated.group {
+                            Some(g) => format!("Moved \"{}\" to group \"{g}\".", updated.name),
+                            None => format!("Moved \"{}\" to Ungrouped.", updated.name),
+                        };
+                        self.reload_instances();
+                        self.dialog = None;
+                        self.field = None;
+                        self.say(msg, false);
+                    }
+                    Err(err) => self.prompt_error = Some(err),
+                }
+            }
+            Dialog::CopyInstance => {
+                let name = self.prompt_text.trim().to_owned();
+                match inst::create(&name, Some(&id)) {
+                    Ok(copy) => {
+                        let copy_id = copy.id.clone();
+                        let copy_name = copy.name.clone();
+                        self.reload_instances();
+                        self.select_instance(Some(copy_id));
+                        self.dialog = None;
+                        self.field = None;
+                        self.say(format!("Copied instance to \"{copy_name}\"."), false);
+                    }
+                    Err(err) => self.prompt_error = Some(err),
+                }
+            }
+            Dialog::ConfirmDelete => {
+                let Some(target) = self.find_instance(&id).cloned() else {
+                    self.dialog = None;
+                    return;
+                };
+                let outcome = if target.kind == InstanceKind::Default {
+                    reset::delete_default_horizon().map(|()| target.name.clone())
+                } else {
+                    inst::delete(&id).map(|gone| gone.name)
+                };
+                match outcome {
+                    Ok(gone) => {
+                        self.reload_instances();
+                        self.dialog = None;
+                        self.field = None;
+                        self.say(format!("Deleted instance \"{gone}\"."), false);
+                    }
+                    Err(err) => self.prompt_error = Some(err),
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn open_settings(&mut self, page: SettingsPage) {
+        self.menu = None;
+        self.settings_page = page;
+        self.refresh_runtimes();
+        self.dialog = Some(Dialog::Settings);
+        self.field = None;
+    }
+
+    pub(crate) fn refresh_runtimes(&mut self) {
+        let mut all = java::mojang_runtimes(&java::runtimes_dir());
+        for rt in java::installed() {
+            if !all.iter().any(|existing| existing.home == rt.home) {
+                all.push(rt);
+            }
+        }
+        self.runtimes = all;
+    }
+
+    pub(crate) fn open_accounts_dialog(&mut self) {
+        self.menu = None;
+        self.reload_accounts();
+        self.dialog = Some(Dialog::Accounts);
+        self.field = None;
+    }
+
+    pub(crate) fn start_microsoft_sign_in(&mut self) {
+        self.menu = None;
+        if self.status.busy {
+            if self.status.code.is_some() {
+                self.dialog = Some(Dialog::SignIn);
+            } else {
+                self.say("Wait for the current task to finish before signing in.", true);
+            }
+            return;
+        }
+        job::clear();
+        job::sign_in_now();
+        self.status = job::status().unwrap_or_default();
+        self.was_busy = true;
+        self.dialog = Some(Dialog::SignIn);
+        self.field = None;
+    }
+
+    pub(crate) fn switch_account(&mut self, uuid: &str) {
+        self.menu = None;
+        let mut accounts = Accounts::load();
+        if let Err(err) = accounts.play_as(uuid).and_then(|()| accounts.save()) {
+            self.say(err, true);
+            return;
+        }
+        self.reload_accounts();
+        self.selected_account = Some(uuid.to_owned());
+        if let Some(acc) = self.accounts.selected() {
+            self.say(format!("Active account: {}.", acc.name), false);
+        }
+    }
+
+    pub(crate) fn remove_account(&mut self, uuid: &str) {
+        let mut accounts = Accounts::load();
+        let name = accounts
+            .accounts
+            .iter()
+            .find(|a| a.uuid == uuid)
+            .map(|a| a.name.clone())
+            .unwrap_or_default();
+        if let Err(err) = accounts
+            .remove(account::store(), uuid)
+            .and_then(|()| accounts.save())
+        {
+            self.say(err, true);
+            return;
+        }
+        let _ = accounts.remove(account::keychain(), uuid);
+        self.reload_accounts();
+        self.say(format!("Removed account {name}."), false);
+    }
+
+    pub(crate) fn open_fabric_versions(&mut self, target_instance: Option<String>) {
+        self.menu = None;
+        let mc = target_instance
+            .as_deref()
+            .and_then(|id| self.find_instance(id))
+            .and_then(|i| i.java.as_ref())
+            .map(|j| j.minecraft.clone())
+            .or_else(|| {
+                self.selected()
+                    .and_then(|i| i.java.as_ref())
+                    .map(|j| j.minecraft.clone())
+            })
+            .or_else(|| self.mc_versions.as_ref().map(|v| v.latest_release.clone()))
+            .unwrap_or_default();
+        self.fabric_dlg = FabricDialogState {
+            mc_version: mc,
+            target_instance,
+            versions: Vec::new(),
+            selected: None,
+            loading: false,
+            error: None,
+        };
+        self.dialog = Some(Dialog::FabricVersions);
+        self.field = Some(Field::FabricMcVersion);
+        if self.fabric_dlg.mc_version.is_empty() {
+            self.fetch_mc_versions(false);
+        } else {
+            self.fetch_fabric_versions();
+        }
+    }
+
+    pub(crate) fn fetch_fabric_versions(&mut self) {
+        let mc = self.fabric_dlg.mc_version.trim().to_owned();
+        if mc.is_empty() || self.fabric_dlg.loading {
+            return;
+        }
+        self.fabric_dlg.loading = true;
+        self.fabric_dlg.error = None;
+        let slot = Arc::clone(&self.fabric_slot);
+        std::thread::spawn(move || {
+            let res = loaders::versions(LoaderKind::Fabric, &mc, &backend::get_bytes)
+                .map(|list| (mc, list));
+            if let Ok(mut out) = slot.lock() {
+                *out = Some(res);
+            }
+        });
+    }
+
+    pub(crate) fn clear_metadata_cache(&mut self) {
+        self.menu = None;
+        let cache = backend::data_dir()
+            .join("minecraft")
+            .join("version_manifest_v2.json");
+        let _ = std::fs::remove_file(cache);
+        self.mc_versions = None;
+        self.mc_error = None;
+        self.fabric_dlg.versions.clear();
+        self.say("Cleared cached Minecraft and Fabric version metadata.", false);
+    }
+
+    pub(crate) fn open_launcher_log(&mut self) {
+        self.menu = None;
+        self.launcher_log = read_tail(log::path(), 400);
+        self.dialog = Some(Dialog::LauncherLog);
+        self.field = None;
+    }
+
+    pub(crate) fn open_dir(&mut self, path: PathBuf, create: bool) {
+        self.menu = None;
+        if create {
+            let _ = std::fs::create_dir_all(&path);
+        }
+        if let Err(err) = log::open_folder(&path) {
+            self.say(err, true);
+        }
+    }
+
+    pub(crate) fn open_web(&mut self, url: &str) {
+        self.menu = None;
+        if let Err(err) = log::open_url(url) {
+            self.say(err, true);
+        }
+    }
+
+    pub(crate) fn close_dialog(&mut self) {
+        self.dialog = None;
+        self.field = None;
+        self.prompt_error = None;
+    }
+
+    // ----- Keyboard input -----------------------------------------------------------------------
+
+    fn active_field_mut(&mut self) -> Option<&mut String> {
+        let field = self.field?;
+        match field {
+            Field::NewName => Some(&mut self.new_form.name),
+            Field::NewGroup => Some(&mut self.new_form.group),
+            Field::NewVersionFilter => Some(&mut self.new_form.filter),
+            Field::ModFilter => Some(&mut self.edit.mod_filter),
+            Field::EditName => Some(&mut self.edit.name),
+            Field::EditGroup => Some(&mut self.edit.group),
+            Field::EditMemory => Some(&mut self.edit.memory_mb),
+            Field::EditJvmArgs => Some(&mut self.edit.jvm_args),
+            Field::EditWinW => Some(&mut self.edit.win_w),
+            Field::EditWinH => Some(&mut self.edit.win_h),
+            Field::EditPreLaunch => Some(&mut self.edit.pre_launch),
+            Field::EditWrapper => Some(&mut self.edit.wrapper),
+            Field::PromptText => Some(&mut self.prompt_text),
+            Field::FabricMcVersion => Some(&mut self.fabric_dlg.mc_version),
+        }
+    }
+
+    fn on_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
+        let k = &ev.keystroke;
+        let ctrl = k.modifiers.control || k.modifiers.platform;
+
+        if k.key == "escape" {
+            if self.menu.take().is_some() {
+                cx.notify();
+                return;
+            }
+            if self.field.take().is_some() {
+                cx.notify();
+                return;
+            }
+            if self.dialog.is_some() {
+                self.close_dialog();
+                cx.notify();
+            }
+            return;
+        }
+
+        // Focused text box input.
+        if let Some(which) = self.field {
+            if k.key == "enter" {
+                match self.dialog {
+                    Some(Dialog::AddInstance) => self.submit_add_instance(),
+                    Some(Dialog::Rename | Dialog::ChangeGroup | Dialog::CopyInstance) => {
+                        self.submit_prompt()
+                    }
+                    Some(Dialog::FabricVersions) => self.fetch_fabric_versions(),
+                    Some(Dialog::EditInstance) if self.edit.page == EditPage::Settings => {
+                        self.save_edit_settings()
+                    }
+                    _ => {}
+                }
+                cx.notify();
+                return;
+            }
+            if k.key == "backspace" {
+                if ctrl {
+                    if let Some(buf) = self.active_field_mut() {
+                        buf.clear();
+                    }
+                } else if let Some(buf) = self.active_field_mut() {
+                    buf.pop();
+                }
+                if which == Field::NewName {
+                    self.new_form.name_touched = true;
+                }
+                cx.notify();
+                return;
+            }
+            if ctrl && k.key == "v" {
+                if let Some(clip) = cx.read_from_clipboard().and_then(|c| c.text()) {
+                    let clean: String = clip
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(260)
+                        .collect();
+                    if let Some(buf) = self.active_field_mut() {
+                        buf.push_str(&clean);
+                    }
+                    if which == Field::NewName {
+                        self.new_form.name_touched = true;
+                    }
+                    cx.notify();
+                }
+                return;
+            }
+            if !ctrl && !k.modifiers.alt {
+                let typed = k.key_char.as_deref().or_else(|| {
+                    if k.key == "space" {
+                        Some(" ")
+                    } else if k.key.len() == 1 {
+                        Some(k.key.as_str())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(ch) = typed {
+                    let clean: String = ch.chars().filter(|c| !c.is_control()).collect();
+                    if !clean.is_empty() {
+                        if let Some(buf) = self.active_field_mut() {
+                            if buf.chars().count() < 260 {
+                                buf.push_str(&clean);
+                            }
+                        }
+                        if which == Field::NewName {
+                            self.new_form.name_touched = true;
+                        }
+                        cx.notify();
+                        return;
+                    }
+                }
+            }
+            return;
+        }
+
+        // Dialog-level Enter when no field is focused.
+        if self.dialog.is_some() {
+            if k.key == "enter" {
+                match self.dialog {
+                    Some(Dialog::AddInstance) => self.submit_add_instance(),
+                    Some(Dialog::ConfirmDelete) => self.submit_prompt(),
+                    _ => {}
+                }
+                cx.notify();
+            }
+            return;
+        }
+
+        // JLac MainWindow shortcuts.
+        if ctrl && !k.modifiers.alt && !k.modifiers.shift {
+            match k.key.as_str() {
+                "n" => {
+                    self.open_add_instance();
+                    cx.notify();
+                }
+                "k" => {
+                    self.kill_running();
+                    cx.notify();
+                }
+                "i" => {
+                    if let Some(id) = self.selected_id.clone() {
+                        self.open_edit(&id, EditPage::Version);
+                        cx.notify();
+                    }
+                }
+                "g" => {
+                    if let Some(id) = self.selected_id.clone() {
+                        self.open_prompt(Dialog::ChangeGroup, &id);
+                        cx.notify();
+                    }
+                }
+                "d" => {
+                    if let Some(id) = self.selected_id.clone() {
+                        self.open_prompt(Dialog::CopyInstance, &id);
+                        cx.notify();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        match k.key.as_str() {
+            "enter" => {
+                self.launch_selected();
+                cx.notify();
+            }
+            "f2" => {
+                if let Some(id) = self.selected_id.clone() {
+                    self.open_prompt(Dialog::Rename, &id);
+                    cx.notify();
+                }
+            }
+            "f5" => {
+                self.reload_instances();
+                self.reload_accounts();
+                self.say("Refreshed instances.", false);
+                cx.notify();
+            }
+            "delete" => {
+                if let Some(id) = self.selected_id.clone() {
+                    self.open_prompt(Dialog::ConfirmDelete, &id);
+                    cx.notify();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // ----- MainWindow rendering -----------------------------------------------------------------
+
+    fn render_top_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let account_label = self
+            .accounts
+            .selected()
+            .map(|a| a.name.clone())
+            .unwrap_or_else(|| "Accounts".into());
+
         div()
             .flex()
             .flex_none()
             .items_center()
             .justify_between()
-            .child(look::line(15., title.to_owned()).font_weight(FontWeight::SEMIBOLD))
+            .gap(px(4.))
+            .w_full()
+            .h(px(40.))
+            .px(px(6.))
+            .bg(t.window)
+            .border_b_1()
+            .border_color(t.divider)
             .child(
-                button("close", "Close", Kind::Quiet).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.dialog = None;
-                        this.message = None;
-                        cx.notify();
-                    },
-                )),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(
+                        tool_button("tb-add", "add", "Add Instance...", false, false, t)
+                            .on_click(cx.listener(Self::on_add_instance_click)),
+                    )
+                    .child(vsep(t))
+                    .child(
+                        tool_button(
+                            "tb-folders",
+                            "folder",
+                            "Folders",
+                            true,
+                            self.menu == Some(Menu::Folders),
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.menu = if this.menu == Some(Menu::Folders) {
+                                None
+                            } else {
+                                Some(Menu::Folders)
+                            };
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        tool_button("tb-settings", "settings", "Settings...", false, false, t)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.open_settings(SettingsPage::Ui);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        tool_button(
+                            "tb-help",
+                            "help",
+                            "Help",
+                            true,
+                            self.menu == Some(Menu::Help),
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.menu = if this.menu == Some(Menu::Help) {
+                                None
+                            } else {
+                                Some(Menu::Help)
+                            };
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        tool_button("tb-update", "update", "Update...", false, false, t)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.open_web(RELEASES_URL);
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                tool_button(
+                    "tb-accounts",
+                    "account",
+                    account_label,
+                    true,
+                    self.menu == Some(Menu::Accounts),
+                    t,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.reload_accounts();
+                    this.menu = if this.menu == Some(Menu::Accounts) {
+                        None
+                    } else {
+                        Some(Menu::Accounts)
+                    };
+                    cx.notify();
+                })),
             )
     }
 
-    /// A new instance: what it plays, which Minecraft version, and the button that makes it.
-    fn new_instance(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut card = div().flex().flex_col().gap(px(12.)).child(self.close_row("New instance", cx));
-        let picks: Vec<AnyElement> = Plan::ALL
-            .iter()
-            .map(|plan| {
-                let active = self.plan == *plan;
-                let picked = *plan;
-                div()
-                    .id(plan.id())
-                    .flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .h(px(34.))
-                    .rounded(px(3.))
-                    .bg(if active { c(look::ACCENT) } else { c(look::BUTTON) })
-                    .text_color(if active { c(look::ON_ACCENT) } else { c(look::INK) })
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .when(!active, |plate| plate.hover(|style| style.bg(c(look::BUTTON_HOVER))))
-                    .child(plan.label())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.plan = picked;
-                        this.mc = None;
-                        if picked != Plan::Horizon {
-                            this.ask_versions(cx);
-                        }
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            })
-            .collect();
-        card = card.child(div().flex().items_center().gap(px(6.)).children(picks));
-        if self.plan != Plan::Horizon {
-            card = card.child(quiet(
-                11.,
-                "Its Minecraft version, newest first. Fabric's loader version comes with the first Play.",
-            ));
-            card = card.child(self.version_list(cx));
-        } else {
-            card = card.child(quiet(
-                12.,
-                "A Horizon instance of its own: worlds, options and packs, started on Horizon.",
-            ));
+    fn render_instance_view(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
+        if self.instances.is_empty() {
+            return div()
+                .id("instance-view-empty")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .items_center()
+                .justify_center()
+                .gap(px(12.))
+                .p(px(28.))
+                .bg(t.layer)
+                .child(look::brand_mark(52.))
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.ink)
+                        .child("Welcome to FNH"),
+                )
+                .child(
+                    div()
+                        .max_w(px(360.))
+                        .text_center()
+                        .text_size(px(12.5))
+                        .text_color(t.ink_secondary)
+                        .child(
+                            "No instances yet. Click \"Add Instance...\" to create a Fabric or Horizon instance.",
+                        ),
+                )
+                .child(
+                    div().mt(px(4.)).child(
+                        push_button(
+                            "empty-add-instance",
+                            "Add Instance...",
+                            ButtonKind::Accent,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(Self::on_add_instance_click)),
+                    ),
+                );
         }
-        let create = if self.creating {
-            button("create", "Making it…", Kind::Primary)
-        } else {
-            button("create", "Create", Kind::Primary).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    this.create(cx);
-                },
-            ))
-        };
-        let message = self
-            .message
-            .clone()
-            .map(|message| quiet(11., message).text_color(c(look::DANGER)));
-        card.child(div().flex().items_center().justify_between().gap(px(12.)).child(create).when_some(message, |row, message| row.child(message)))
-    }
 
-    fn version_list(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let mut list = div()
-            .id("versions")
+        let sections = group_instances(&self.instances);
+        let has_named_groups = sections.iter().any(|(name, _)| !name.is_empty());
+
+        let mut children: Vec<AnyElement> = Vec::new();
+        for (idx, (group_name, items)) in sections.into_iter().enumerate() {
+            if has_named_groups {
+                let label = if group_name.is_empty() {
+                    "Ungrouped".to_owned()
+                } else {
+                    group_name.clone()
+                };
+                let key = label.clone();
+                let collapsed = self.prefs.is_collapsed(&key);
+                let toggle_key = key.clone();
+                let hover = t.subtle_hover;
+                children.push(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("grp-hdr-{idx}")))
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .h(px(26.))
+                                .px(px(6.))
+                                .rounded(px(4.))
+                                .cursor_pointer()
+                                .hover(move |s| s.bg(hover))
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.prefs.toggle_group(&toggle_key);
+                                    this.prefs.save();
+                                    cx.notify();
+                                }))
+                                .child(icon(
+                                    if collapsed {
+                                        "chevron-right"
+                                    } else {
+                                        "chevron-down"
+                                    },
+                                    14.,
+                                    t.ink_secondary,
+                                ))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(12.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(t.ink)
+                                        .child(label),
+                                )
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(11.5))
+                                        .text_color(t.ink_tertiary)
+                                        .child(format!("({})", items.len())),
+                                )
+                                .child(div().flex_1().h(px(1.)).ml(px(4.)).bg(t.divider)),
+                        )
+                        .when(!collapsed, |sec| {
+                            sec.child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap(px(6.))
+                                    .px(px(4.))
+                                    .children(
+                                        items
+                                            .into_iter()
+                                            .map(|inst| self.render_tile(inst, t, cx)),
+                                    ),
+                            )
+                        })
+                        .into_any_element(),
+                );
+            } else {
+                children.push(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .children(items.into_iter().map(|inst| self.render_tile(inst, t, cx)))
+                        .into_any_element(),
+                );
+            }
+        }
+
+        div()
+            .id("instance-view")
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .max_h(px(240.))
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .gap(px(12.))
+            .p(px(10.))
+            .bg(t.layer)
             .overflow_y_scroll()
-            .p(px(6.))
-            .rounded(px(3.))
-            .bg(c(look::BASE));
-        match &self.versions {
-            List::NotAsked | List::Loading => {
-                list = list.child(quiet(12., "Asking Mojang for the list…"));
-            }
-            List::Failed(e) => {
-                list = list.child(quiet(12., format!("Mojang's list could not be read: {e}")));
-            }
-            List::Ready(versions) => {
-                let latest = versions.latest_release.clone();
-                let chosen = self.mc.clone().unwrap_or_else(|| latest.clone());
-                let rows: Vec<(String, bool)> = versions
-                    .all
-                    .iter()
-                    .filter(|version| matches!(version.kind, minecraft_versions::Kind::Release))
-                    .take(80)
-                    .map(|version| (version.id.clone(), version.id == chosen))
-                    .collect();
-                let mut built: Vec<AnyElement> = Vec::with_capacity(rows.len());
-                for (version, picked) in rows {
-                    let id = SharedString::from(format!("mc:{version}"));
-                    let click = version.clone();
-                    built.push(
-                        div()
-                            .id(id)
-                            .flex()
-                            .items_center()
-                            .h(px(26.))
-                            .px(px(8.))
-                            .rounded(px(3.))
-                            .bg(if picked {
-                                c(look::ACCENT)
-                            } else {
-                                gpui::transparent_black()
-                            })
-                            .text_color(if picked { c(look::ON_ACCENT) } else { c(look::INK) })
-                            .text_size(px(12.))
-                            .cursor_pointer()
-                            .when(!picked, |row| row.hover(|style| style.bg(c(look::ALT))))
-                            .child(version)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.mc = Some(click.clone());
-                                cx.notify();
-                            }))
-                            .into_any_element(),
-                    );
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.menu.take().is_some() {
+                    cx.notify();
+                    return;
                 }
-                list = list.children(built);
-            }
-        }
-        list
+                this.select_instance(None);
+                cx.notify();
+            }))
+            .children(children)
     }
 
-    /// Makes the instance the dialog chose, on a background thread (creating a Java instance asks
-    /// the loader's service for its version, and that is a download).
-    fn create(&mut self, cx: &mut Context<Self>) {
-        if self.creating {
-            return;
-        }
-        let plan = self.plan;
-        let minecraft = match plan {
-            Plan::Horizon => None,
-            _ => {
-                let picked = self.mc.clone().or_else(|| match &self.versions {
-                    List::Ready(versions) => Some(versions.latest_release.clone()),
-                    _ => None,
-                });
-                match picked {
-                    Some(mc) => Some(mc),
-                    None => {
-                        self.message = Some("Mojang's version list isn't here yet.".to_owned());
-                        return;
-                    }
-                }
-            }
-        };
-        let taken: Vec<String> = self
-            .instances
-            .iter()
-            .map(|instance| instance.name.clone())
-            .collect();
-        let name = match &minecraft {
-            None => free_name("My Horizon".to_owned(), &taken),
-            Some(mc) => free_name(
-                match plan {
-                    Plan::Fabric => format!("Fabric {mc}"),
-                    _ => format!("Vanilla {mc}"),
-                },
-                &taken,
-            ),
-        };
-        self.creating = true;
-        self.message = Some(format!("Making {name}…"));
-        let made_name = name.clone();
-        let task = cx.background_executor().spawn(async move {
-            match minecraft {
-                None => inst::create(&made_name, None),
-                Some(mc) => {
-                    let made = inst::create_java(&made_name, &mc)?;
-                    if plan == Plan::Fabric {
-                        let loader = loaders::choose("fabric", &mc, None)?;
-                        return inst::edit(&made.id, |meta| {
-                            meta.java.get_or_insert_with(Default::default).loader = Some(loader)
-                        });
-                    }
-                    Ok(made)
-                }
-            }
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.creating = false;
-                match result {
-                    Ok(made) => {
-                        log::line(&format!("Made {} ({}).", made.name, made.id));
-                        this.chosen = Some(made.id.clone());
-                        this.instances = inst::list();
-                        this.dialog = None;
-                        this.message = None;
-                        this.tab = Tab::Overview;
-                    }
-                    Err(e) => {
-                        log::line(&format!("Could not make an instance: {e}"));
-                        this.message = Some(e);
-                    }
+    fn render_tile(
+        &self,
+        instance: &Instance,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let selected = self.selected_id.as_deref() == Some(instance.id.as_str());
+        let running = self.status.busy
+            && self.status.instance_id.as_deref() == Some(instance.id.as_str());
+        let click_id = instance.id.clone();
+        let right_id = instance.id.clone();
+        let hover = t.subtle_hover;
+
+        div()
+            .id(SharedString::from(format!("inst-{}", instance.id)))
+            .flex()
+            .flex_col()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .w(px(104.))
+            .pt(px(10.))
+            .pb(px(8.))
+            .px(px(6.))
+            .rounded(px(4.))
+            .bg(if selected {
+                t.tile_selected
+            } else {
+                gpui::transparent_black()
+            })
+            .border_1()
+            .border_color(if selected {
+                t.tile_selected_border
+            } else {
+                gpui::transparent_black()
+            })
+            .cursor_pointer()
+            .when(!selected, |el| el.hover(move |s| s.bg(hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.menu = None;
+                let double = match event {
+                    ClickEvent::Mouse(m) => m.down.click_count >= 2,
+                    _ => false,
+                };
+                if double {
+                    this.launch_id(&click_id);
+                } else {
+                    this.select_instance(Some(click_id.clone()));
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.select_instance(Some(right_id.clone()));
+                    let vw = f32::from(window.viewport_size().width);
+                    let vh = f32::from(window.viewport_size().height);
+                    let x = f32::from(event.position.x).clamp(6., (vw - 210.).max(6.));
+                    let y = f32::from(event.position.y).clamp(6., (vh - 330.).max(6.));
+                    this.menu = Some(Menu::Instance { id: right_id.clone(), x, y });
+                    cx.notify();
+                }),
+            )
+            .child(instance_icon(instance, 48., running, t))
+            .child(
+                div()
+                    .w_full()
+                    .max_h(px(33.))
+                    .overflow_hidden()
+                    .text_center()
+                    .text_size(px(12.))
+                    .line_height(px(15.5))
+                    .font_weight(if selected {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .text_color(t.ink)
+                    .child(instance.name.clone()),
+            )
+            .into_any_element()
     }
 
-    /// The accounts this computer has, and the one Play signs in as.
-    fn accounts_panel(&mut self, cx: &mut Context<Self>) -> Div {
-        let list = self.accounts.accounts.clone();
-        let chosen = self.accounts.selected.clone();
-        let mut rows: Vec<AnyElement> = Vec::with_capacity(list.len());
-        for account in list {
-            let picked = chosen.as_deref() == Some(account.uuid.as_str());
-            let id = SharedString::from(format!("account:{}", account.uuid));
-            let uuid = account.uuid.clone();
-            let name = account.name.clone();
-            rows.push(
-                div()
-                    .id(id)
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.))
-                    .h(px(38.))
-                    .px(px(10.))
-                    .rounded(px(3.))
-                    .bg(if picked { c(look::ALT) } else { c(look::BASE) })
-                    .border_1()
-                    .border_color(if picked { c(look::ACCENT) } else { c(look::RULE) })
-                    .cursor_pointer()
-                    .hover(|style| style.bg(c(look::ALT)))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(div().text_size(px(12.)).child(name))
-                            .child(quiet(11., short_path(&account.uuid, 18))),
-                    )
-                    .child(quiet(11., if picked { "playing" } else { "use" }))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let played = this.accounts.play_as(&uuid);
-                        let result = played.and_then(|()| this.accounts.save());
-                        this.message = Some(match result {
-                            Ok(()) => "That account plays now.".to_owned(),
-                            Err(e) => e,
-                        });
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        let mut card = div().flex().flex_col().gap(px(12.)).child(self.close_row("Accounts", cx));
-        if rows.is_empty() {
-            card = card.child(quiet(
-                12.,
-                "No Microsoft account on this computer yet. Sign in and the game starts as you.",
-            ));
-        } else {
-            card = card.child(div().flex().flex_col().gap(px(6.)).children(rows));
-        }
-        let message = self.message.clone().map(|message| quiet(11., message));
-        card.child(
+    fn render_right_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
+        let selected = self.selected();
+        let has_sel = selected.is_some();
+        let can_launch = has_sel && !self.status.busy;
+        let can_kill = job::can_kill();
+        let running_selected = selected.is_some_and(|inst| {
+            self.status.busy && self.status.instance_id.as_deref() == Some(inst.id.as_str())
+        });
+        let hover = t.subtle_hover;
+
+        let header: AnyElement = if let Some(inst) = selected {
+            let colour_id = inst.id.clone();
+            let rename_id = inst.id.clone();
             div()
                 .flex()
+                .flex_col()
                 .items_center()
-                .justify_between()
-                .gap(px(12.))
+                .gap(px(6.))
+                .w_full()
+                .pt(px(6.))
+                .pb(px(4.))
                 .child(
-                    button("sign-in", "Sign in with Microsoft", Kind::Primary).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.dialog = Some(Dialog::SignIn);
-                            this.message = None;
-                            job::sign_in_now();
+                    div()
+                        .id("sb-icon")
+                        .p(px(4.))
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.cycle_instance_colour(&colour_id);
                             cx.notify();
-                        }),
-                    ),
+                        }))
+                        .child(instance_icon(inst, 56., running_selected, t)),
                 )
-                .when_some(message, |row, message| row.child(message)),
-        )
-    }
-
-    /// The sign-in's own page: the code Microsoft gave, where to type it, and how it is going.
-    fn sign_in_panel(&mut self, cx: &mut Context<Self>) -> Div {
-        let status = job::status();
-        let code = status.as_ref().and_then(|status| status.code.clone());
-        let line = status
-            .as_ref()
-            .map(|status| status.line.clone())
-            .unwrap_or_else(|| "Asking Microsoft for a sign-in code…".to_owned());
-        let failed = status.as_ref().is_some_and(|status| status.failed);
-        let mut card = div().flex().flex_col().gap(px(12.)).child(self.close_row("Sign in", cx));
-        if let Some((code, link)) = code {
-            let copy_code = code.clone();
-            card = card
-                .child(quiet(12., "Enter this code on Microsoft's page:"))
+                .child(
+                    div()
+                        .id("sb-rename")
+                        .w_full()
+                        .px(px(6.))
+                        .py(px(3.))
+                        .rounded(px(4.))
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_prompt(Dialog::Rename, &rename_id);
+                            cx.notify();
+                        }))
+                        .text_center()
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.ink)
+                        .child(inst.name.clone()),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .px(px(6.))
+                        .text_center()
+                        .text_size(px(11.))
+                        .text_color(t.ink_secondary)
+                        .truncate()
+                        .child(instance_subtitle(inst)),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(8.))
+                .w_full()
+                .pt(px(10.))
+                .pb(px(6.))
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(10.))
+                        .justify_center()
+                        .size(px(56.))
+                        .rounded(px(10.))
+                        .bg(t.control)
+                        .border_1()
+                        .border_color(t.control_border)
+                        .child(icon("cube", 26., t.ink_tertiary)),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .px(px(6.))
+                        .text_center()
+                        .text_size(px(12.))
+                        .text_color(t.ink_secondary)
+                        .child("No Instance Selected"),
+                )
+                .into_any_element()
+        };
+
+        div()
+            .id("instance-toolbar")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(166.))
+            .min_h(px(0.))
+            .p(px(6.))
+            .gap(px(2.))
+            .bg(t.window)
+            .overflow_y_scroll()
+            .child(header)
+            .child(div().my(px(4.)).child(hsep(t)))
+            .child(
+                wide_action("act-launch", "play", "Launch", true, can_launch, t).when(
+                    can_launch,
+                    |b| {
+                        b.on_click(cx.listener(|this, _, _, cx| {
+                            this.launch_selected();
+                            cx.notify();
+                        }))
+                    },
+                ),
+            )
+            .child(
+                wide_action("act-kill", "kill", "Kill", false, can_kill, t).when(can_kill, |b| {
+                    b.on_click(cx.listener(|this, _, _, cx| {
+                        this.kill_running();
+                        cx.notify();
+                    }))
+                }),
+            )
+            .child(div().my(px(4.)).child(hsep(t)))
+            .child(
+                wide_action("act-edit", "edit", "Edit...", false, has_sel, t).when(has_sel, |b| {
+                    b.on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(id) = this.selected_id.clone() {
+                            this.open_edit(&id, EditPage::Version);
+                            cx.notify();
+                        }
+                    }))
+                }),
+            )
+            .child(
+                wide_action("act-group", "group", "Change Group...", false, has_sel, t).when(
+                    has_sel,
+                    |b| {
+                        b.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(id) = this.selected_id.clone() {
+                                this.open_prompt(Dialog::ChangeGroup, &id);
+                                cx.notify();
+                            }
+                        }))
+                    },
+                ),
+            )
+            .child(
+                wide_action("act-folder", "folder", "Folder", false, has_sel, t).when(
+                    has_sel,
+                    |b| {
+                        b.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
+                                this.open_dir(home, true);
+                                cx.notify();
+                            }
+                        }))
+                    },
+                ),
+            )
+            .child(
+                wide_action("act-copy", "copy", "Copy...", false, has_sel, t).when(has_sel, |b| {
+                    b.on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(id) = this.selected_id.clone() {
+                            this.open_prompt(Dialog::CopyInstance, &id);
+                            cx.notify();
+                        }
+                    }))
+                }),
+            )
+            .child(
+                wide_action("act-delete", "delete", "Delete", false, has_sel, t).when(
+                    has_sel,
+                    |b| {
+                        b.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(id) = this.selected_id.clone() {
+                                this.open_prompt(Dialog::ConfirmDelete, &id);
+                                cx.notify();
+                            }
+                        }))
+                    },
+                ),
+            )
+    }
+
+    fn render_task_banner(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
+        if !self.status.busy && !self.status.failed {
+            return None;
+        }
+        let is_err = self.status.failed;
+        let message = if self.status.line.is_empty() {
+            self.status.title.clone()
+        } else if self.status.title.is_empty() || is_err {
+            self.status.line.clone()
+        } else {
+            format!("{} — {}", self.status.title, self.status.line)
+        };
+
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_between()
+                .gap(px(12.))
+                .w_full()
+                .px(px(12.))
+                .py(px(6.))
+                .bg(t.control)
+                .border_t_1()
+                .border_color(t.divider)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(icon(
+                            if is_err { "info" } else { "play" },
+                            14.,
+                            if is_err { t.danger } else { t.accent },
+                        ))
                         .child(
                             div()
-                                .flex()
-                                .items_center()
-                                .h(px(48.))
-                                .px(px(16.))
-                                .rounded(px(3.))
-                                .bg(c(look::BASE))
-                                .border_1()
-                                .border_color(c(look::BORDER))
-                                .text_size(px(26.))
-                                .font_weight(FontWeight::BOLD)
-                                .child(code),
-                        )
-                        .child(button("copy", "Copy code", Kind::Secondary).on_click(
-                            cx.listener(move |_this, _: &ClickEvent, _, _cx| {
-                                if !log::copy(&copy_code) {
-                                    log::line("The code could not be put on the clipboard.");
-                                }
-                            }),
-                        )),
+                                .flex_1()
+                                .min_w(px(0.))
+                                .truncate()
+                                .text_size(px(12.))
+                                .text_color(if is_err { t.danger } else { t.ink })
+                                .child(message),
+                        ),
                 )
-                .child(quiet(12., format!("It opens {link} in your browser as well.")));
-        }
-        card.child(
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(8.))
+                        .when_some(self.status.fraction, |row, frac| {
+                            row.child(progress_bar(frac, 140., t))
+                        })
+                        .when(self.status.code.is_some(), |row| {
+                            row.child(
+                                push_button("banner-code", "Sign In...", ButtonKind::Accent, true, t)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dialog = Some(Dialog::SignIn);
+                                        cx.notify();
+                                    })),
+                            )
+                        })
+                        .when(job::can_kill(), |row| {
+                            row.child(
+                                push_button("banner-kill", "Kill", ButtonKind::Standard, true, t)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.kill_running();
+                                        cx.notify();
+                                    })),
+                            )
+                        })
+                        .when(is_err, |row| {
+                            row.child(
+                                push_button("banner-log", "View Log", ButtonKind::Standard, true, t)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_launcher_log();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                push_button(
+                                    "banner-dismiss",
+                                    "Dismiss",
+                                    ButtonKind::Subtle,
+                                    true,
+                                    t,
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    job::clear();
+                                    this.status = job::status().unwrap_or_default();
+                                    cx.notify();
+                                })),
+                            )
+                        }),
+                ),
+        )
+    }
+
+    fn render_status_bar(&self, t: &Theme) -> Div {
+        let total: Duration = self.instances.iter().map(|i| i.played).sum();
+        let (left_text, left_colour) = if let Some((msg, err)) = &self.notice {
+            (msg.clone(), if *err { t.danger } else { t.ink_secondary })
+        } else if let Some(inst) = self.selected() {
+            (instance_status_line(inst), t.ink_secondary)
+        } else {
+            ("No instance selected".to_owned(), t.ink_secondary)
+        };
+
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_between()
+            .gap(px(12.))
+            .w_full()
+            .h(px(26.))
+            .px(px(10.))
+            .bg(t.window)
+            .border_t_1()
+            .border_color(t.divider)
+            .text_size(px(11.5))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_color(left_colour)
+                    .child(left_text),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().w(px(1.)).h(px(14.)).bg(t.divider))
+                    .child(
+                        div()
+                            .whitespace_nowrap()
+                            .text_color(t.ink_secondary)
+                            .child(format!("Total playtime: {}", look::playtime(total))),
+                    ),
+            )
+    }
+
+    fn render_menu_overlay(&self, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let menu = self.menu.as_ref()?;
+        let has_sel = self.selected().is_some();
+
+        let positioned = match menu {
+            Menu::Folders => {
+                let rows = vec![
+                    menu_item(
+                        "m-f-inst",
+                        Some("folder"),
+                        "View Instance Folder",
+                        None,
+                        false,
+                        has_sel,
+                        t,
+                    )
+                    .when(has_sel, |el| {
+                        el.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
+                                this.open_dir(home, true);
+                                cx.notify();
+                            }
+                        }))
+                    })
+                    .into_any_element(),
+                    menu_item(
+                        "m-f-mods",
+                        Some("mods"),
+                        "View Instance Mods Folder",
+                        None,
+                        false,
+                        has_sel,
+                        t,
+                    )
+                    .when(has_sel, |el| {
+                        el.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
+                                this.open_dir(home.join("mods"), true);
+                                cx.notify();
+                            }
+                        }))
+                    })
+                    .into_any_element(),
+                    menu_item(
+                        "m-f-saves",
+                        Some("world"),
+                        "View Instance Saves Folder",
+                        None,
+                        false,
+                        has_sel,
+                        t,
+                    )
+                    .when(has_sel, |el| {
+                        el.on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
+                                this.open_dir(home.join("saves"), true);
+                                cx.notify();
+                            }
+                        }))
+                    })
+                    .into_any_element(),
+                    menu_sep(t),
+                    menu_item(
+                        "m-f-root",
+                        Some("folder"),
+                        "View Launcher Root Folder",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_dir(backend::data_dir(), true);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "m-f-game",
+                        Some("cube"),
+                        "View Instances Root Folder",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_dir(backend::game_home(), true);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "m-f-logs",
+                        Some("log"),
+                        "View Launcher Logs Folder",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_dir(backend::data_dir().join("fh"), true);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                ];
+                div()
+                    .absolute()
+                    .top(px(38.))
+                    .left(px(134.))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(look::flyout_card(236., rows, t))
+            }
+            Menu::Help => {
+                let rows = vec![
+                    menu_item(
+                        "m-h-cache",
+                        Some("refresh"),
+                        "Clear Metadata Cache",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.clear_metadata_cache();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "m-h-fabric",
+                        Some("fabric"),
+                        "Fabric Versions...",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_fabric_versions(None);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "m-h-log",
+                        Some("log"),
+                        "View Launcher Log...",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_launcher_log();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_sep(t),
+                    menu_item(
+                        "m-h-site",
+                        Some("external"),
+                        "FNH Website",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_web(SITE_URL);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "m-h-repo",
+                        Some("external"),
+                        "Source Code (GitHub)",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_web(REPO_URL);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_sep(t),
+                    menu_item("m-h-about", Some("info"), "About FNH", None, false, true, t)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.menu = None;
+                            this.dialog = Some(Dialog::About);
+                            this.field = None;
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                ];
+                div()
+                    .absolute()
+                    .top(px(38.))
+                    .left(px(310.))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(look::flyout_card(224., rows, t))
+            }
+            Menu::Accounts => {
+                let mut rows: Vec<AnyElement> = Vec::new();
+                if self.accounts.accounts.is_empty() {
+                    rows.push(
+                        menu_item(
+                            "m-a-empty",
+                            Some("account"),
+                            "No Default Account",
+                            None,
+                            false,
+                            false,
+                            t,
+                        )
+                        .into_any_element(),
+                    );
+                } else {
+                    let active = self.accounts.selected.as_deref();
+                    for (idx, acc) in self.accounts.accounts.iter().enumerate() {
+                        let uuid = acc.uuid.clone();
+                        let is_active = active == Some(acc.uuid.as_str());
+                        rows.push(
+                            menu_item(
+                                format!("m-a-{idx}"),
+                                Some("account"),
+                                acc.name.clone(),
+                                None,
+                                is_active,
+                                true,
+                                t,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.switch_account(&uuid);
+                                cx.notify();
+                            }))
+                            .into_any_element(),
+                        );
+                    }
+                }
+                rows.push(menu_sep(t));
+                rows.push(
+                    menu_item(
+                        "m-a-add",
+                        Some("add"),
+                        "Add Microsoft...",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start_microsoft_sign_in();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                );
+                rows.push(
+                    menu_item(
+                        "m-a-manage",
+                        Some("settings"),
+                        "Manage Accounts...",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_accounts_dialog();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                );
+                div()
+                    .absolute()
+                    .top(px(38.))
+                    .right(px(6.))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(look::flyout_card(224., rows, t))
+            }
+            Menu::Instance { id, x, y } => {
+                let id_launch = id.clone();
+                let id_edit = id.clone();
+                let id_mods = id.clone();
+                let id_group = id.clone();
+                let id_rename = id.clone();
+                let id_colour = id.clone();
+                let id_folder = id.clone();
+                let id_copy = id.clone();
+                let id_delete = id.clone();
+                let can_launch = !self.status.busy;
+                let can_kill = job::can_kill()
+                    && job::active_instance().as_deref() == Some(id.as_str());
+                let rows = vec![
+                    menu_item(
+                        "ctx-launch",
+                        Some("play"),
+                        "Launch",
+                        Some("Enter"),
+                        false,
+                        can_launch,
+                        t,
+                    )
+                    .when(can_launch, |el| {
+                        el.on_click(cx.listener(move |this, _, _, cx| {
+                            this.launch_id(&id_launch);
+                            cx.notify();
+                        }))
+                    })
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-kill",
+                        Some("kill"),
+                        "Kill",
+                        Some("Ctrl+K"),
+                        false,
+                        can_kill,
+                        t,
+                    )
+                    .when(can_kill, |el| {
+                        el.on_click(cx.listener(|this, _, _, cx| {
+                            this.kill_running();
+                            cx.notify();
+                        }))
+                    })
+                    .into_any_element(),
+                    menu_sep(t),
+                    menu_item(
+                        "ctx-edit",
+                        Some("edit"),
+                        "Edit...",
+                        Some("Ctrl+I"),
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_edit(&id_edit, EditPage::Version);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-mods",
+                        Some("mods"),
+                        "Manage Mods...",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_edit(&id_mods, EditPage::Mods);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-group",
+                        Some("group"),
+                        "Change Group...",
+                        Some("Ctrl+G"),
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_prompt(Dialog::ChangeGroup, &id_group);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-rename",
+                        Some("edit"),
+                        "Rename...",
+                        Some("F2"),
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_prompt(Dialog::Rename, &id_rename);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-colour",
+                        Some("palette"),
+                        "Change Icon Colour",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.menu = None;
+                        this.cycle_instance_colour(&id_colour);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_sep(t),
+                    menu_item(
+                        "ctx-folder",
+                        Some("folder"),
+                        "Folder",
+                        None,
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(home) = this.find_instance(&id_folder).map(|i| i.home.clone()) {
+                            this.open_dir(home, true);
+                            cx.notify();
+                        }
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-copy",
+                        Some("copy"),
+                        "Copy...",
+                        Some("Ctrl+D"),
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_prompt(Dialog::CopyInstance, &id_copy);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                    menu_item(
+                        "ctx-delete",
+                        Some("delete"),
+                        "Delete",
+                        Some("Del"),
+                        false,
+                        true,
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_prompt(Dialog::ConfirmDelete, &id_delete);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                ];
+                div()
+                    .absolute()
+                    .left(px(*x))
+                    .top(px(*y))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(look::flyout_card(206., rows, t))
+            }
+        };
+
+        Some(
             div()
-                .text_size(px(12.))
-                .text_color(if failed { c(look::DANGER) } else { c(look::MUTED) })
-                .child(line),
+                .id("menu-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.menu = None;
+                        cx.notify();
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|this, _, _, cx| {
+                        this.menu = None;
+                        cx.notify();
+                    }),
+                )
+                .child(positioned)
+                .into_any_element(),
         )
     }
 }
 
 impl Render for Fh {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dialog = self.dialog.map(|dialog| self.dialog_panel(dialog, cx));
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Theme::resolve(self.prefs.theme, self.prefs.accent, window.appearance());
+
+        let top = self.render_top_toolbar(&t, cx);
+        let center = self.render_instance_view(&t, cx);
+        let right = self.render_right_toolbar(&t, cx);
+        let banner = self.render_task_banner(&t, cx);
+        let status = self.prefs.status_bar.then(|| self.render_status_bar(&t));
+        let menu = self.render_menu_overlay(&t, cx);
+        let dialog = self.render_dialog(&t, cx);
+
         div()
+            .id("fh-root")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| this.on_key(ev, cx)))
             .relative()
             .flex()
             .flex_col()
             .size_full()
-            .bg(c(look::WINDOW))
-            .text_color(c(look::INK))
-            .text_size(px(13.))
-            .child(self.toolbar(cx))
+            .bg(t.window)
+            .text_color(t.ink)
+            .font_family(UI_FONT)
+            .overflow_hidden()
+            .child(top)
             .child(
                 div()
                     .flex()
                     .flex_1()
                     .min_h(px(0.))
-                    .child(self.sidebar(cx))
-                    .child(self.main_area(cx)),
+                    .min_w(px(0.))
+                    .child(center)
+                    .child(div().flex_none().w(px(1.)).h_full().bg(t.divider))
+                    .child(right),
             )
-            .child(self.status_bar(cx))
-            .when_some(dialog, |root, dialog| root.child(dialog))
+            .when_some(banner, |root, bar| root.child(bar))
+            .when_some(status, |root, bar| root.child(bar))
+            .when_some(menu, |root, overlay| root.child(overlay))
+            .when_some(dialog, |root, modal| root.child(modal))
     }
 }
 
-/// `base`, or "base 2", "base 3"… when an instance already has it (names ignore case, as
-/// `instances::create` does).
-fn free_name(base: String, taken: &[String]) -> String {
-    let free = |name: &String| !taken.iter().any(|other| other.eq_ignore_ascii_case(name));
-    if free(&base) {
-        return base;
-    }
-    (2..)
-        .map(|n| format!("{base} {n}"))
-        .find(free)
-        .unwrap_or(base)
+// ----- Free helpers -----------------------------------------------------------------------------
+
+fn take_slot<T>(slot: &AsyncSlot<T>) -> Option<Result<T, String>> {
+    slot.lock().ok().and_then(|mut guard| guard.take())
 }
 
-/// What an instance plays, in one line: "Horizon", "Minecraft 1.21.4 · Fabric".
-fn kind_line(instance: &Instance) -> String {
-    match (&instance.java, instance.kind) {
-        (Some(java), _) => match &java.loader {
+/// Lists all real instances on disk (hiding the untouched synthetic default entry on fresh
+/// installs and after a factory reset) and applies the user's sort order.
+fn load_visible_instances(sort: SortMode) -> Vec<Instance> {
+    let show_default = reset::has_default_horizon_data(&backend::data_dir(), &backend::game_home());
+    let mut all: Vec<Instance> = inst::list()
+        .into_iter()
+        .filter(|i| show_default || i.kind != InstanceKind::Default)
+        .collect();
+    match sort {
+        SortMode::Name => {
+            all.sort_by_key(|i| i.name.to_ascii_lowercase());
+        }
+        SortMode::LastLaunched => {
+            all.sort_by(|a, b| {
+                let ta = a
+                    .last_played
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let tb = b
+                    .last_played
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                tb.cmp(&ta)
+                    .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()))
+            });
+        }
+    }
+    all
+}
+
+/// Groups instances into ordered `(group_name, items)` buckets, with named groups A–Z followed by
+/// `""` (`Ungrouped`).
+fn group_instances(instances: &[Instance]) -> Vec<(String, Vec<&Instance>)> {
+    let mut named: Vec<(String, Vec<&Instance>)> = Vec::new();
+    let mut ungrouped: Vec<&Instance> = Vec::new();
+    for inst in instances {
+        match inst.group.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
+            Some(group) => {
+                if let Some((_, bucket)) = named
+                    .iter_mut()
+                    .find(|(existing, _)| existing.eq_ignore_ascii_case(group))
+                {
+                    bucket.push(inst);
+                } else {
+                    named.push((group.to_owned(), vec![inst]));
+                }
+            }
+            None => ungrouped.push(inst),
+        }
+    }
+    named.sort_by_key(|(name, _)| name.to_ascii_lowercase());
+    if !ungrouped.is_empty() {
+        named.push((String::new(), ungrouped));
+    }
+    named
+}
+
+/// Short version label shown under the selected instance in `instanceToolBar`.
+pub(crate) fn instance_subtitle(instance: &Instance) -> String {
+    match &instance.java {
+        Some(java) => match &java.loader {
+            Some(loader) => format!("{} · {}", java.minecraft, loader.kind.name()),
+            None => format!("Minecraft {}", java.minecraft),
+        },
+        None => match &instance.version {
+            Some(pinned) => format!("Horizon {pinned}"),
+            None => "Horizon".into(),
+        },
+    }
+}
+
+/// JLac status-bar line describing the selected instance.
+pub(crate) fn instance_status_line(instance: &Instance) -> String {
+    let kind = match &instance.java {
+        Some(java) => match &java.loader {
             Some(loader) => format!(
-                "Minecraft {} · {} {}",
+                "Minecraft {} ({} {})",
                 java.minecraft,
                 loader.kind.name(),
                 loader.version
             ),
-            None => format!("Minecraft {}", java.minecraft),
+            None => format!("Minecraft {} (Vanilla)", java.minecraft),
         },
-        (None, InstanceKind::Default) => "Horizon".to_owned(),
-        (None, InstanceKind::Own) => "Horizon instance".to_owned(),
-        (None, InstanceKind::Port) => "Ported pack".to_owned(),
-        (None, InstanceKind::Pack) => "Modpack".to_owned(),
-    }
-}
-
-/// The bar's second line: what it plays, and the build it is kept on when it is pinned.
-fn detail_of(instance: &Instance) -> String {
-    match (&instance.version, instance.java.is_some()) {
-        (Some(build), false) => format!("{} · {build}", kind_line(instance)),
-        _ => kind_line(instance),
-    }
-}
-
-/// The Overview's build row.
-fn build_line(instance: &Instance) -> String {
-    match (&instance.version, &instance.java) {
-        (Some(build), _) => build.clone(),
-        (None, Some(java)) => match &java.loader {
-            Some(loader) => format!("{} {} (managed)", loader.kind.name(), loader.version),
-            None => format!("Minecraft {}", java.minecraft),
+        None => match &instance.version {
+            Some(pinned) => format!("Horizon ({pinned})"),
+            None => "Horizon (latest)".into(),
         },
-        (None, None) => "The newest installed Horizon".to_owned(),
+    };
+    if instance.played.is_zero() {
+        format!("{kind}, never played")
+    } else {
+        format!("{kind}, played for {}", look::playtime(instance.played))
     }
 }
 
-fn played_line(instance: &Instance) -> String {
-    match instance.last_played {
-        Some(_) => format!("{} played", inst::play_time(instance.played)),
-        None => "Not played yet".to_owned(),
+/// Lists `.jar` and `.jar.disabled` mods inside `home/mods`.
+pub(crate) fn list_mods(home: &Path) -> Vec<ModEntry> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(home.join("mods")).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
+            continue;
+        };
+        let lower = file_name.to_ascii_lowercase();
+        let (enabled, display) = if lower.ends_with(".jar") {
+            (true, file_name[..file_name.len() - 4].to_owned())
+        } else if lower.ends_with(".jar.disabled") {
+            (false, file_name[..file_name.len() - 13].to_owned())
+        } else {
+            continue;
+        };
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        out.push(ModEntry {
+            file_name,
+            display,
+            path,
+            enabled,
+            size,
+        });
     }
+    out.sort_by_key(|m| m.display.to_ascii_lowercase());
+    out
 }
 
-/// A row of the Overview: a fixed-width label and its value.
-fn field(label: &str, value: String) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(12.))
-        .py(px(6.))
-        .border_b_1()
-        .border_color(c(look::RULE))
-        .child(div().flex().flex_none().w(px(96.)).child(quiet(11., label.to_owned())))
-        .child(div().flex().flex_1().min_w(px(0.)).text_size(px(12.)).child(value))
-}
-
-/// The page of an instance that has nothing to show.
-fn empty(text: &str) -> AnyElement {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .p(px(24.))
-        .child(quiet(12., text.to_owned()))
-        .into_any_element()
-}
-
-/// The status bar's progress bar: the accent filling as far as the download got.
-fn progress(fraction: f32) -> AnyElement {
-    let width = (120. * fraction.clamp(0., 1.)).max(0.);
-    div()
-        .flex()
-        .flex_none()
-        .w(px(120.))
-        .h(px(5.))
-        .rounded(px(3.))
-        .bg(c(look::BUTTON))
-        .child(div().w(px(width)).h_full().rounded(px(3.)).bg(c(look::ACCENT)))
-        .into_any_element()
-}
-
-/// The jars in `folder`, by name.
-fn jar_list(folder: &std::path::Path) -> Vec<(String, u64)> {
-    let mut jars: Vec<(String, u64)> = std::fs::read_dir(folder)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.path().is_file())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("jar"))
-        })
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            Some((name, size))
-        })
-        .collect();
-    jars.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-    jars
-}
-
-/// The last `count` lines of `path`, or none when it isn't there.
-fn tail(path: &std::path::Path, count: usize) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(path) else {
+/// Reads the trailing `keep` lines of a text file for console/log tabs.
+pub(crate) fn read_tail(path: &Path, keep: usize) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(path) else {
         return Vec::new();
     };
-    let lines: Vec<String> = text.lines().map(|line| line.to_owned()).collect();
-    let skip = lines.len().saturating_sub(count);
-    lines.into_iter().skip(skip).collect()
+    let text = String::from_utf8_lossy(&bytes);
+    let all: Vec<&str> = text.lines().collect();
+    let start = all.len().saturating_sub(keep);
+    all[start..].iter().map(|line| (*line).to_owned()).collect()
 }
 
-/// `bytes` as the megabytes a person reads.
-fn megabytes(bytes: u64) -> String {
-    if bytes >= 1 << 30 {
-        format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)
-    } else if bytes >= 1 << 20 {
-        format!("{:.1} MB", bytes as f64 / (1u64 << 20) as f64)
-    } else if bytes >= 1024 {
-        format!("{} KB", bytes / 1024)
-    } else {
+/// Human-readable file size (`412 KB`, `3.4 MB`).
+pub(crate) fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let b = bytes as f64;
+    if bytes < 1024 {
         format!("{bytes} B")
+    } else if b < MB {
+        format!("{:.0} KB", b / KB)
+    } else if b < GB {
+        format!("{:.1} MB", b / MB)
+    } else {
+        format!("{:.2} GB", b / GB)
     }
 }
 
-/// `when` as a person reads it: today, yesterday, or how many days ago.
-fn when(at: std::time::SystemTime) -> String {
-    let Ok(age) = std::time::SystemTime::now().duration_since(at) else {
-        return "just now".to_owned();
-    };
-    let days = age.as_secs() / 86_400;
-    match days {
-        0 => "today".to_owned(),
-        1 => "yesterday".to_owned(),
-        _ => format!("{days} days ago"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{free_name, jar_list, megabytes, tail};
-
-    #[test]
-    fn a_name_is_free_and_numbered_when_it_is_taken() {
-        let taken = vec!["Fabric 1.21.4".to_owned(), "my horizon".to_owned()];
-        assert_eq!(free_name("Vanilla 1.21.4".to_owned(), &taken), "Vanilla 1.21.4");
-        assert_eq!(
-            free_name("Fabric 1.21.4".to_owned(), &taken),
-            "Fabric 1.21.4 2"
-        );
-        assert_eq!(free_name("My Horizon".to_owned(), &taken), "My Horizon 2");
-    }
-
-    #[test]
-    fn a_mods_folder_lists_only_jars() {
-        let dir = std::env::temp_dir().join(format!("fh-mods-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        std::fs::write(dir.join("sodium.jar"), b"1234").unwrap();
-        std::fs::write(dir.join("notes.txt"), b"hi").unwrap();
-        let listed = jar_list(&dir);
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].0, "sodium.jar");
-        assert_eq!(listed[0].1, 4);
-    }
-
-    #[test]
-    fn a_log_shows_its_end() {
-        let dir = std::env::temp_dir().join(format!("fh-log-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("latest.log");
-        std::fs::write(&path, "one\ntwo\nthree\n").unwrap();
-        assert_eq!(tail(&path, 2), vec!["two".to_owned(), "three".to_owned()]);
-        assert!(tail(&dir.join("missing.log"), 5).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn sizes_read_as_a_person_reads_them() {
-        assert_eq!(megabytes(512), "512 B");
-        assert_eq!(megabytes(2048), "2 KB");
-        assert_eq!(megabytes(5 << 20), "5.0 MB");
-        assert_eq!(megabytes(2 << 30), "2.0 GB");
+/// Human-readable Minecraft release category for the `Add Instance` version table.
+pub(crate) fn mc_kind_label(kind: McKind) -> &'static str {
+    match kind {
+        McKind::Release => "Release",
+        McKind::Snapshot => "Snapshot",
+        McKind::OldBeta => "Beta",
+        McKind::OldAlpha => "Alpha",
     }
 }

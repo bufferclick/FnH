@@ -2,35 +2,36 @@
 //! and the same steps for a Minecraft: Java Edition instance (Fabric, Quilt, Forge, NeoForge or
 //! none), which the launcher drives through Java.
 //!
-//! The work is `horizon-launcher`'s own, in the order its Play takes it: `account` for the
-//! Microsoft sign-in and the owner gate, `backend` for the install, the preparation and the game's
-//! command (or `backend::java_game` for a Java instance), `instances` and `launch` for the
-//! instance's folder and wrapper. What is added here is the order, the status the window draws,
-//! and a log line for every step — including the command line itself, because "not signed in" in
-//! the game is nearly always a launch that never got a `--session-file`.
+//! Tracks the running instance's id and honours `kill()` (`Ctrl+K` or JLac's right-hand `Kill`
+//! button, as well as the factory-reset chord) so a running instance can be stopped cleanly from
+//! the window.
 
 use crate::log;
 use horizon_launcher::account::{self, SignIn, SignInState};
 use horizon_launcher::instances::{self as inst, Instance};
 use horizon_launcher::{backend, launch, process};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
-/// What the window's status bar draws: the step, how far it got, and the sign-in's code while one
-/// is waiting. `busy`: a launch or a sign-in is running; `failed`/`done`: how the last one ended.
+/// What the window draws for the running (or most recent) task.
 #[derive(Clone, Default, PartialEq)]
 pub struct Status {
+    pub instance_id: Option<String>,
     pub title: String,
     pub line: String,
     pub fraction: Option<f32>,
     pub code: Option<(String, String)>,
     pub busy: bool,
+    /// True once the game child process itself has spawned and can be terminated by `kill()`.
+    pub running_game: bool,
     pub failed: bool,
     pub done: bool,
 }
 
 static STATUS: Mutex<Option<Status>> = Mutex::new(None);
+static KILL_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// The status of the running (or last) launch, if one has been asked for.
 pub fn status() -> Option<Status> {
@@ -42,8 +43,31 @@ pub fn busy() -> bool {
     status().is_some_and(|status| status.busy)
 }
 
+/// Whether a game process is actively running and can be killed.
+pub fn can_kill() -> bool {
+    status().is_some_and(|status| status.busy && status.running_game)
+}
+
+/// The id of the instance currently launching or running, if any.
+pub fn active_instance() -> Option<String> {
+    status()
+        .filter(|status| status.busy)
+        .and_then(|status| status.instance_id)
+}
+
+/// Requests termination of the running game process (returns true if one was active).
+pub fn kill() -> bool {
+    let active = busy();
+    if active {
+        KILL_REQUESTED.store(true, Ordering::Release);
+        horizon_launcher::mojang::CANCEL.store(true, Ordering::Relaxed);
+    }
+    active
+}
+
 /// Forgets the last launch's status (the window's Dismiss).
 pub fn clear() {
+    KILL_REQUESTED.store(false, Ordering::Release);
     if let Ok(mut status) = STATUS.lock() {
         *status = None;
     }
@@ -57,14 +81,17 @@ fn set(change: impl FnOnce(&mut Status)) {
     }
 }
 
-fn begin(title: String, line: String) {
+fn begin(instance_id: Option<String>, title: String, line: String) {
+    KILL_REQUESTED.store(false, Ordering::Release);
     set(|status| {
         *status = Status {
+            instance_id,
             title,
             line,
             fraction: None,
             code: None,
             busy: true,
+            running_game: false,
             failed: false,
             done: false,
         };
@@ -83,13 +110,17 @@ fn fraction(value: f32) {
     set(|status| status.fraction = Some(value.clamp(0., 1.)));
 }
 
-/// One instance's Play, on its own thread: the window stays live while it works.
+/// Launches `instance` on its own background thread so the window stays responsive.
 pub fn play(instance: Instance) {
+    if busy() {
+        return;
+    }
     begin(
-        format!("Starting {}", instance.name),
-        "Reading your sign-in and the game's files…".to_owned(),
+        Some(instance.id.clone()),
+        format!("Launching {}", instance.name),
+        "Checking Microsoft account and game files…".to_owned(),
     );
-    log::line(&format!("Play: {} ({}).", instance.name, instance.id));
+    log::line(&format!("Launch: {} ({}).", instance.name, instance.id));
     std::thread::spawn(move || {
         let result = run(&instance);
         match result {
@@ -97,10 +128,11 @@ pub fn play(instance: Instance) {
                 log::line(&note);
                 set(|status| {
                     status.busy = false;
+                    status.running_game = false;
                     status.done = true;
                     status.code = None;
                     status.fraction = None;
-                    status.title = format!("{} ended", instance.name);
+                    status.title = format!("{} finished", instance.name);
                     status.line = note;
                 });
             }
@@ -108,10 +140,11 @@ pub fn play(instance: Instance) {
                 log::line(&format!("{} did not start: {error}", instance.name));
                 set(|status| {
                     status.busy = false;
+                    status.running_game = false;
                     status.failed = true;
                     status.code = None;
                     status.fraction = None;
-                    status.title = format!("{} did not start", instance.name);
+                    status.title = format!("{} stopped", instance.name);
                     status.line = error;
                 });
             }
@@ -121,15 +154,20 @@ pub fn play(instance: Instance) {
 
 /// The whole launch. Ok: what to say when the game ended; Err: why it did not start.
 fn run(instance: &Instance) -> Result<String, String> {
-    sign_in()?;
+    sign_in(false)?;
+    if KILL_REQUESTED.load(Ordering::Acquire) {
+        return Ok(format!("{} launch cancelled.", instance.name));
+    }
     let mut cmd = if instance.java.is_some() {
+        step(
+            &format!("Preparing {}", instance.name),
+            "Resolving Minecraft, Fabric loader and libraries…".to_owned(),
+        );
         backend::java_game(instance, None, &|line| log::line(&line))?
     } else {
         let tag = version(instance)?;
         prepare(&tag)?;
         let cmd = backend::client_as(&tag, None)?;
-        // Every launch of a Horizon instance carries the read-once session file the game signs
-        // in with; one without it plays offline, and its multiplayer asks for a sign-in again.
         if !cmd.get_args().any(|arg| arg == "--session-file") {
             log::line(
                 "No --session-file on the command: this launch has no Microsoft session and \
@@ -158,69 +196,101 @@ fn run(instance: &Instance) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(" ")
     ));
-    step(
-        &format!("{} is starting", instance.name),
-        "Horizon is starting: the game's window comes in a moment.".to_owned(),
-    );
     let started = SystemTime::now();
     let clock = Instant::now();
-    let status = cmd
+    let mut child = cmd
         .spawn()
-        .and_then(|mut child| child.wait())
         .map_err(|e| format!("Could not start {:?}: {e}", cmd.get_program()))?;
+    set(|status| {
+        status.running_game = true;
+        status.fraction = None;
+        status.title = format!("{} (running)", instance.name);
+        status.line = "Instance is running.".to_owned();
+    });
+    let mut killed = false;
+    let exit_status = loop {
+        if KILL_REQUESTED.swap(false, Ordering::AcqRel) {
+            log::line(&format!("Killing {} at user request.", instance.name));
+            let _ = child.kill();
+            killed = true;
+            break child
+                .wait()
+                .map_err(|e| format!("Waiting for terminated process: {e}"))?;
+        }
+        match child.try_wait() {
+            Ok(Some(done)) => break done,
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) => return Err(format!("Lost track of running process: {e}")),
+        }
+    };
     drop(runtime);
     let played = clock.elapsed();
     if let Err(e) = inst::record_play(&instance.id, played) {
         log::line(&format!("Play time not saved: {e}"));
     }
-    if let Some(mut after) = launch::after_exit(&instance.launch, &instance.home, &vars) {
-        match after.status() {
-            Ok(s) if s.success() => {}
-            Ok(s) => log::line(&format!("The post-exit command failed ({s}).")),
-            Err(e) => log::line(&format!("The post-exit command didn't run: {e}")),
+    if !killed {
+        if let Some(mut after) = launch::after_exit(&instance.launch, &instance.home, &vars) {
+            match after.status() {
+                Ok(s) if s.success() => {}
+                Ok(s) => log::line(&format!("The post-exit command failed ({s}).")),
+                Err(e) => log::line(&format!("The post-exit command didn't run: {e}")),
+            }
         }
     }
-    log::line(&format!("The game ended: {status}."));
-    if status.success() {
+    log::line(&format!("The game ended: {exit_status}."));
+    if killed {
         return Ok(format!(
-            "{} ended after {}.",
+            "{} killed after {}.",
             instance.name,
             inst::play_time(played)
         ));
     }
-    // A crash report says what went wrong; without one, the game's own log is the place.
-    match backend::crash_report_since(&backend::game_home(), started) {
+    if exit_status.success() {
+        return Ok(format!(
+            "{} exited cleanly after {}.",
+            instance.name,
+            inst::play_time(played)
+        ));
+    }
+    match backend::crash_report_since(&instance.home, started)
+        .or_else(|| backend::crash_report_since(&backend::game_home(), started))
+    {
         Some(report) => {
             let summary = std::fs::read_to_string(&report)
                 .ok()
                 .and_then(|text| backend::crash_summary(&text));
             Err(match summary {
-                Some(summary) => format!("Horizon crashed: {summary} — {}", report.display()),
-                None => format!("Horizon crashed ({status}): {}", report.display()),
+                Some(summary) => format!("Game crashed: {summary} — {}", report.display()),
+                None => format!("Game crashed ({exit_status}): {}", report.display()),
             })
         }
         None => Err(format!(
-            "Horizon ended ({status}). Its log is in {}.",
-            backend::logs_dir().display()
+            "Game exited with {exit_status}. Log: {}.",
+            instance.home.join("logs").display()
         )),
     }
 }
 
-/// The Microsoft sign-in, unless this computer has an account that owns the game already.
-fn sign_in() -> Result<(), String> {
-    let accounts = account::Accounts::load();
-    if !accounts.accounts.is_empty() && accounts.has_owner(account::store()) {
-        log::line("Signed in already.");
-        return Ok(());
+/// The Microsoft sign-in, skipped on launch (`force == false`) when an owning account is ready.
+fn sign_in(force: bool) -> Result<(), String> {
+    if !force {
+        let accounts = account::Accounts::load();
+        if !accounts.accounts.is_empty() && accounts.has_owner(account::store()) {
+            log::line("Signed in already.");
+            return Ok(());
+        }
     }
     log::line("Signing in with Microsoft.");
     step(
         "Signing in with Microsoft",
-        "Asking Microsoft for a sign-in code…".to_owned(),
+        "Requesting device code from Microsoft…".to_owned(),
     );
     let sign_in = SignIn::start();
     let mut opened = false;
     loop {
+        if KILL_REQUESTED.load(Ordering::Acquire) {
+            return Err("Sign-in cancelled.".into());
+        }
         match sign_in.state() {
             SignInState::Starting => {}
             SignInState::Code(code) => {
@@ -238,7 +308,9 @@ fn sign_in() -> Result<(), String> {
                     }
                 }
             }
-            SignInState::Working(phase) => step("Signing in with Microsoft", phase.label().to_owned()),
+            SignInState::Working(phase) => {
+                step("Signing in with Microsoft", phase.label().to_owned())
+            }
             SignInState::Done(Ok(account)) => {
                 log::line(&format!("Signed in as {}.", account.name));
                 return Ok(());
@@ -249,9 +321,7 @@ fn sign_in() -> Result<(), String> {
     }
 }
 
-/// The build the instance plays: its own pinned build, installed when this computer has no copy,
-/// else the launcher's choice from what is installed, and the newest published build when nothing
-/// is installed at all.
+/// Resolves or installs the Horizon build `instance` plays.
 fn version(instance: &Instance) -> Result<String, String> {
     if let Some(pinned) = instance.version.clone() {
         if backend::installed().contains(&pinned) {
@@ -266,11 +336,10 @@ fn version(instance: &Instance) -> Result<String, String> {
             Ok(tag)
         }
         Err(_) => {
-            step("Getting Horizon", "Asking GitHub for the newest build…".to_owned());
+            step("Downloading Horizon", "Checking GitHub for the latest release…".to_owned());
             let releases = backend::releases().map_err(|e| {
                 format!(
-                    "No Horizon build is installed on this computer yet, and GitHub could not be \
-                     asked for one ({e})."
+                    "No Horizon build is installed yet, and GitHub could not be reached ({e})."
                 )
             })?;
             let latest = backend::latest(&releases)
@@ -283,25 +352,24 @@ fn version(instance: &Instance) -> Result<String, String> {
 
 fn install(tag: &str) -> Result<String, String> {
     log::line(&format!("Installing {tag}."));
-    step("Getting Horizon", format!("Downloading {tag}…"));
+    step("Downloading Horizon", format!("Downloading {tag}…"));
     let tag = backend::install_tag(tag, false, fraction)?;
     fraction(1.);
     log::line(&format!("Installed {tag}."));
     Ok(tag)
 }
 
-/// Prepares `tag`'s resources when it has none: from the player's own Minecraft install, as the
-/// launcher's Play does on a build it has never prepared.
+/// Prepares `tag`'s resources from the player's own Minecraft installation when needed.
 fn prepare(tag: &str) -> Result<(), String> {
     if backend::check_prepared(tag) {
         log::line(&format!("{tag} is prepared."));
         return Ok(());
     }
     log::line(&format!("Preparing {tag}."));
-    horizon_launcher::mojang::CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
+    horizon_launcher::mojang::CANCEL.store(false, Ordering::Relaxed);
     step(
-        "Getting the game's files",
-        "Looking for your Minecraft install…".to_owned(),
+        "Preparing game assets",
+        "Locating your Minecraft installation…".to_owned(),
     );
     let minecraft = backend::minecraft_dir(None)?;
     let lines = |line: String| log::line(&line);
@@ -310,8 +378,8 @@ fn prepare(tag: &str) -> Result<(), String> {
     backend::sounds(tag, &minecraft, &lines);
     backend::set_prepare_step(backend::PrepareStep::Prepare);
     step(
-        "Preparing the game",
-        "Building its tables from your Minecraft files…".to_owned(),
+        "Preparing Horizon",
+        "Building data tables from your Minecraft files…".to_owned(),
     );
     match preparer {
         backend::Preparer::InProcess(options) => backend::prepare_in_process(&options, &lines)?,
@@ -323,7 +391,7 @@ fn prepare(tag: &str) -> Result<(), String> {
                     Ok(backend::Msg::Line(backend::Job::Prepare, line)) => log::line(&line),
                     Ok(backend::Msg::Exit(backend::Job::Prepare, result)) => result?,
                     Ok(_) => {}
-                    Err(_) => return Err("The preparation stopped without saying why.".into()),
+                    Err(_) => return Err("Preparation stopped unexpectedly.".into()),
                 }
             }
         }
@@ -331,22 +399,21 @@ fn prepare(tag: &str) -> Result<(), String> {
     backend::forget_prepared();
     if !backend::check_prepared(tag) {
         return Err(format!(
-            "{tag} is still not prepared: the preparation stopped before it finished. The log \
-             says where."
+            "{tag} is still not prepared: check the launcher log for details."
         ));
     }
     log::line(&format!("{tag} is prepared."));
     Ok(())
 }
 
-/// A sign-in on its own, from the window's Accounts page: the code shows there and goes on the
-/// clipboard, and Microsoft's page opens once.
+/// Starts a standalone Microsoft device-code sign-in from Accounts.
 pub fn sign_in_now() {
     begin(
+        None,
         "Signing in with Microsoft".to_owned(),
-        "Asking Microsoft for a sign-in code…".to_owned(),
+        "Requesting device code from Microsoft…".to_owned(),
     );
-    std::thread::spawn(|| match sign_in() {
+    std::thread::spawn(|| match sign_in(true) {
         Ok(()) => {
             let name = account::Accounts::load()
                 .selected()
@@ -354,6 +421,7 @@ pub fn sign_in_now() {
                 .unwrap_or_default();
             set(|status| {
                 status.busy = false;
+                status.running_game = false;
                 status.done = true;
                 status.code = None;
                 status.title = "Signed in".to_owned();
@@ -364,6 +432,7 @@ pub fn sign_in_now() {
             log::line(&format!("Sign-in failed: {error}"));
             set(|status| {
                 status.busy = false;
+                status.running_game = false;
                 status.failed = true;
                 status.code = None;
                 status.title = "Sign-in failed".to_owned();
