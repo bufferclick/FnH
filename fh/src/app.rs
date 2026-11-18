@@ -19,8 +19,8 @@ use crate::prefs::{Prefs, SortMode};
 use crate::{job, log, reset};
 use gpui::{
     div, prelude::*, px, AnyElement, ClickEvent, ClipboardItem, Context, Div, FocusHandle,
-    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Render, SharedString, Subscription,
-    Window,
+    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Render, SharedString, Stateful,
+    Subscription, Window,
 };
 use horizon_launcher::account::{self, Accounts};
 use horizon_launcher::backend;
