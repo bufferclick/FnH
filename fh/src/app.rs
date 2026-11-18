@@ -509,7 +509,12 @@ impl Fh {
 
     /// Handles a click on `Add Instance...`: `Ctrl + Shift + Alt` performs a full factory reset
     /// and relaunches `FH.exe`; any ordinary click opens `NewInstanceDialog`.
-    pub(crate) fn on_add_instance_click(&mut self, event: &ClickEvent, cx: &mut Context<Self>) {
+    pub(crate) fn on_add_instance_click(
+        &mut self,
+        event: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.menu = None;
         if reset::is_reset_click(event) {
             log::line("Factory reset requested (Ctrl+Shift+Alt + Add Instance).");
@@ -748,8 +753,8 @@ impl Fh {
             jvm_args,
             win_w,
             win_h,
-            pre_launch: instance.launch.pre_launch.clone().unwrap_or_default(),
-            wrapper: instance.launch.wrapper.clone().unwrap_or_default(),
+            pre_launch: instance.launch.pre_launch.clone(),
+            wrapper: instance.launch.wrapper.clone(),
             working: false,
             notice: None,
         };
@@ -910,8 +915,8 @@ impl Fh {
         };
         let group = Some(self.edit.group.trim().to_owned()).filter(|g| !g.is_empty());
         let jvm_args = self.edit.jvm_args.trim().to_owned();
-        let pre_launch = Some(self.edit.pre_launch.trim().to_owned()).filter(|s| !s.is_empty());
-        let wrapper = Some(self.edit.wrapper.trim().to_owned()).filter(|s| !s.is_empty());
+        let pre_launch = self.edit.pre_launch.trim().to_owned();
+        let wrapper = self.edit.wrapper.trim().to_owned();
 
         match inst::edit(&id, |meta| {
             meta.name = Some(name);
