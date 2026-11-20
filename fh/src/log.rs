@@ -174,6 +174,77 @@ pub fn open_folder(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Opens a file with the user's configured external editor (`Settings -> External Tools`), or the
+/// OS default handler (`notepad` / default image viewer / shell) when blank.
+pub fn open_file(path: &Path, editor_cmd: &str) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("{} does not exist yet.", path.display()));
+    }
+    let editor = editor_cmd.trim().trim_matches('"');
+    if !editor.is_empty() {
+        horizon_launcher::process::command(editor)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Could not launch {editor}: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = horizon_launcher::process::command("cmd");
+        cmd.raw_arg(format!("/D /S /C start \"\" \"{}\"", path.display()));
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Could not open {}: {e}", path.display()))?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        horizon_launcher::process::command("open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Could not open {}: {e}", path.display()))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        horizon_launcher::process::command("xdg-open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Could not open {}: {e}", path.display()))
+    }
+}
+
+/// Runs a custom world tool command (`Settings -> External Tools`) with `${WORLD_PATH}` replaced.
+pub fn run_world_tool(template: &str, world_path: &Path) -> Result<(), String> {
+    let trimmed = template.trim();
+    if trimmed.is_empty() {
+        return Err("Configure a World Tool in Settings -> External Tools first.".into());
+    }
+    let expanded = trimmed.replace("${WORLD_PATH}", &world_path.to_string_lossy());
+    let parts = horizon_launcher::backend::split_args(&expanded);
+    let Some((prog, args)) = parts.split_first() else {
+        return Err("Empty world tool command.".into());
+    };
+    let mut cmd = horizon_launcher::process::command(prog);
+    cmd.args(args);
+    if !trimmed.contains("${WORLD_PATH}") {
+        cmd.arg(world_path);
+    }
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not start {prog}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     /// The sign-in's page takes the code in its address, so the browser lands on it with nothing
