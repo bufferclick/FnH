@@ -136,7 +136,7 @@ impl SettingsWindow {
         let opts = secondary_window_options("Settings - FNH", 940., 660., 740., 500., cx);
         cx.open_window(opts, move |window, cx| {
             cx.new(|cx| {
-                cx.observe(&app, |_, _, cx| cx.notify()).detach();
+                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
                 let runtimes = collect_runtimes();
@@ -2330,7 +2330,7 @@ impl SettingsWindow {
                         .when_some(picked.clone(), |b, a| {
                             b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 let mut all = account::Accounts::load();
-                                all.select(&a.uuid);
+                                let _ = all.play_as(&a.uuid);
                                 let _ = all.save();
                                 this.app.update(cx, |_, cx| cx.notify());
                                 cx.notify();

@@ -76,7 +76,7 @@ impl IconPickerWindow {
         let opts = secondary_window_options("Select Icon - FNH", 720., 540., 540., 400., cx);
         cx.open_window(opts, move |window, cx| {
             cx.new(|cx| {
-                cx.observe(&app, |_, _, cx| cx.notify()).detach();
+                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
                 Self {
@@ -452,7 +452,7 @@ impl NewInstanceWindow {
         let opts = secondary_window_options("New Instance - FNH", 840., 600., 680., 480., cx);
         cx.open_window(opts, move |window, cx| {
             cx.new(|cx| {
-                cx.observe(&app, |_, _, cx| cx.notify()).detach();
+                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
                 let prefs = app.read(cx).prefs.clone();
@@ -527,7 +527,10 @@ impl NewInstanceWindow {
         if self.picked_mc.is_empty() {
             if let Ok(slot) = self.versions.lock() {
                 if let Some(Ok(list)) = slot.as_ref() {
-                    if let Some(first) = list.iter().find(|v| v.kind == "release").or(list.first())
+                    if let Some(first) = list
+                        .iter()
+                        .find(|v| v.kind == minecraft_versions::Kind::Release)
+                        .or(list.first())
                     {
                         let id = first.id.clone();
                         drop(slot);
@@ -707,7 +710,6 @@ impl Render for NewInstanceWindow {
                     .bg(t.control)
                     .border_1()
                     .border_color(t.control_border)
-                    .border_b_color(t.control_bottom)
                     .cursor_pointer()
                     .hover(move |s| s.bg(icon_hover))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -1259,77 +1261,84 @@ impl NewInstanceWindow {
     fn render_horizon_pane(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
         let installed = backend::installed();
         div()
-            .id("new-horizon-scroll")
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
-            .gap(px(12.))
-            .p(px(14.))
-            .overflow_y_scroll()
             .child(
-                group_box(
-                    "Horizon Instance (Isolated)",
-                    Some("Gets its own dedicated saves, horizon-mods, resourcepacks, servers.dat, screenshots and options.txt — never mixed with any other instance or launcher."),
-                    t,
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.))
-                        .children(
-                            [
-                                (HorizonTrack::Nightly, "Nightly (latest)"),
-                                (HorizonTrack::Release, "Stable Release"),
-                                (HorizonTrack::Default, "Follow Global Setting"),
-                                (HorizonTrack::Pinned, "Pin Installed Version"),
-                            ]
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, (tr, lbl))| {
-                                chip(format!("new-hz-tr-{i}"), lbl, self.horizon_track == tr, t)
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.horizon_track = tr;
-                                        cx.notify();
-                                    }))
-                            }),
-                        ),
-                ),
-            )
-            .when(self.horizon_track == HorizonTrack::Pinned, |d| {
-                d.child(
-                    group_box(
-                        "Installed Horizon Builds",
-                        Some("Select a local Horizon build to pin to this instance."),
-                        t,
-                    )
-                    .when(installed.is_empty(), |g| {
-                        g.child(
+                div()
+                    .id("new-horizon-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .gap(px(12.))
+                    .p(px(14.))
+                    .overflow_y_scroll()
+                    .child(
+                        group_box(
+                            "Horizon Instance (Isolated)",
+                            Some("Gets its own dedicated saves, horizon-mods, resourcepacks, servers.dat, screenshots and options.txt — never mixed with any other instance or launcher."),
+                            t,
+                        )
+                        .child(
                             div()
-                                .text_size(px(12.))
-                                .text_color(t.ink_secondary)
-                                .child("No Horizon builds installed yet — pick Nightly or Stable Release and FNH will download and prepare it automatically on first launch."),
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(6.))
+                                .children(
+                                    [
+                                        (HorizonTrack::Nightly, "Nightly (latest)"),
+                                        (HorizonTrack::Release, "Stable Release"),
+                                        (HorizonTrack::Default, "Follow Global Setting"),
+                                        (HorizonTrack::Pinned, "Pin Installed Version"),
+                                    ]
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, (tr, lbl))| {
+                                        chip(format!("new-hz-tr-{i}"), lbl, self.horizon_track == tr, t)
+                                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                                this.horizon_track = tr;
+                                                cx.notify();
+                                            }))
+                                    }),
+                                ),
+                        ),
+                    )
+                    .when(self.horizon_track == HorizonTrack::Pinned, |d| {
+                        d.child(
+                            group_box(
+                                "Installed Horizon Builds",
+                                Some("Select a local Horizon build to pin to this instance."),
+                                t,
+                            )
+                            .when(installed.is_empty(), |g| {
+                                g.child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(t.ink_secondary)
+                                        .child("No Horizon builds installed yet — pick Nightly or Stable Release and FNH will download and prepare it automatically on first launch."),
+                                )
+                            })
+                            .children(installed.into_iter().enumerate().map(|(i, tag)| {
+                                let active = self.picked_horizon_tag == tag;
+                                let tag_c = tag.clone();
+                                chip(format!("new-hz-pin-{i}"), tag, active, t).on_click(cx.listener(
+                                    move |this, _: &ClickEvent, _, cx| {
+                                        this.picked_horizon_tag = tag_c.clone();
+                                        cx.notify();
+                                    },
+                                ))
+                            })),
                         )
                     })
-                    .children(installed.into_iter().enumerate().map(|(i, tag)| {
-                        let active = self.picked_horizon_tag == tag;
-                        let tag_c = tag.clone();
-                        chip(format!("new-hz-pin-{i}"), tag, active, t).on_click(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
-                                this.picked_horizon_tag = tag_c.clone();
-                                cx.notify();
-                            },
-                        ))
-                    })),
-                )
-            })
-            .child(
-                group_box(
-                    "Mods & Customization",
-                    Some("After creating the instance, open Edit… -> Mods to browse the Horizon Mod Registry, add .hmod / .hnmod files, or drag-and-drop mods straight in. Configure wgpu graphics, creative launch, privacy, game options and hooks under Edit… -> Settings -> Horizon."),
-                    t,
-                ),
+                    .child(
+                        group_box(
+                            "Mods & Customization",
+                            Some("After creating the instance, open Edit… -> Mods to browse the Horizon Mod Registry, add .hmod / .hnmod files, or drag-and-drop mods straight in. Configure wgpu graphics, creative launch, privacy, game options and hooks under Edit… -> Settings -> Horizon."),
+                            t,
+                        ),
+                    ),
             )
     }
 }
@@ -1371,7 +1380,7 @@ impl ModBrowserWindow {
 
         cx.open_window(opts, move |window, cx| {
             cx.new(|cx| {
-                cx.observe(&app, |_, _, cx| cx.notify()).detach();
+                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
                 let mut win = Self {
@@ -1839,7 +1848,7 @@ impl UtilityWindow {
         let opts = secondary_window_options(title, w, h, w.min(400.), h.min(200.), cx);
         cx.open_window(opts, move |window, cx| {
             cx.new(|cx| {
-                cx.observe(&app, |_, _, cx| cx.notify()).detach();
+                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
                 if matches!(mode, UtilityMode::FabricVersions { .. } | UtilityMode::LauncherLog) {

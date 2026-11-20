@@ -422,7 +422,7 @@ pub struct MainWindow {
 
 impl MainWindow {
     pub fn new(app: Entity<Fh>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe(&app, |_, _, cx| cx.notify()).detach();
+        cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
 
@@ -1045,7 +1045,7 @@ impl MainWindow {
         let is_grid = prefs.view_mode == ViewMode::Grid;
         let active_job_inst = job::active_instance();
 
-        div()
+        div().flex_1().min_w_0().min_h_0().flex().flex_col().child(div()
             .id("main-instances-scroll")
             .flex_1()
             .min_w_0()
@@ -1146,12 +1146,12 @@ impl MainWindow {
                                             .border_color(if is_sel {
                                                 t.tile_selected_border
                                             } else {
-                                                gpui::rgba(0x0000_0000)
+                                                gpui::transparent_black()
                                             })
                                             .bg(if is_sel {
                                                 t.tile_selected
                                             } else {
-                                                gpui::rgba(0x0000_0000)
+                                                gpui::transparent_black()
                                             })
                                             .hover(|s| {
                                                 if is_sel {
@@ -1303,12 +1303,12 @@ impl MainWindow {
                                             .border_color(if is_sel {
                                                 t.tile_selected_border
                                             } else {
-                                                gpui::rgba(0x0000_0000)
+                                                gpui::transparent_black()
                                             })
                                             .bg(if is_sel {
                                                 t.tile_selected
                                             } else {
-                                                gpui::rgba(0x0000_0000)
+                                                gpui::transparent_black()
                                             })
                                             .hover(|s| {
                                                 if is_sel {
@@ -1398,7 +1398,7 @@ impl MainWindow {
                             )
                         }
                     })
-            }))
+            })))
     }
 
     fn render_wide_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
@@ -1469,7 +1469,7 @@ impl MainWindow {
                 .child("No instance selected"),
         };
 
-        div()
+        div().w(px(196.)).flex_shrink_0().h_full().flex().flex_col().child(div()
             .id("widebar-scroll")
             .w(px(196.))
             .flex_shrink_0()
@@ -1686,7 +1686,7 @@ impl MainWindow {
                         }))
                     },
                 )
-            })
+            }))
     }
 
     fn render_status_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {

@@ -619,7 +619,7 @@ pub fn search_projects(
     };
     query.limit = 30;
     query.filters = Filters {
-        sort,
+        sort: Some(sort),
         ..query.filters
     };
     source.search(&query)

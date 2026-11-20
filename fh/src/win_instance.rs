@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui::prelude::FluentBuilder;
+use gpui::prelude::*;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable,
      FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathPromptOptions,
@@ -903,7 +903,7 @@ impl InstanceWindow {
 
             let inst_prefetch = instance.clone();
 
-            div()
+            div().flex_1().min_h_0().flex().flex_col().child(div()
                 .id("ver-java-scroll")
                 .flex_1()
                 .min_h_0()
@@ -1136,7 +1136,7 @@ impl InstanceWindow {
                                     })
                                     .take(80)
                                     .collect();
-                                div()
+                                div().child(div()
                                     .id("ver-mc-list")
                                     .max_h(px(220.))
                                     .overflow_y_scroll()
@@ -1169,7 +1169,7 @@ impl InstanceWindow {
                                             .bg(if selected {
                                                 t.tile_selected
                                             } else {
-                                                gpui::rgba(0x0000_0000)
+                                                gpui::transparent_black()
                                             })
                                             .hover(|s| s.bg(t.subtle_hover))
                                             .on_click(cx.listener(
@@ -1211,17 +1211,17 @@ impl InstanceWindow {
                                                     .text_color(t.ink_tertiary)
                                                     .child(format!("{kind_lbl} · {}", mv.released)),
                                             )
-                                    }))
+                                    })))
                             }
                         }),
-                ))
+                )))
         } else {
             // Horizon Version Page
             let cfg = self.app.read(cx).cfgs.get(&instance.id);
             let installed = backend::installed();
             let inst_prefetch = instance.clone();
 
-            div()
+            div().flex_1().min_h_0().flex().flex_col().child(div()
                 .id("ver-hz-scroll")
                 .flex_1()
                 .min_h_0()
@@ -1399,7 +1399,7 @@ impl InstanceWindow {
                                     )),
                                 )
                         })),
-                ))
+                )))
         }
     }
 
@@ -1528,7 +1528,7 @@ impl InstanceWindow {
                                     .border_color(if selected {
                                         t.accent
                                     } else {
-                                        gpui::rgba(0x0000_0000)
+                                        gpui::transparent_black()
                                     })
                                     .bg(if selected {
                                         t.tile_selected
@@ -1859,7 +1859,7 @@ impl InstanceWindow {
                                     .border_color(if selected {
                                         t.accent
                                     } else {
-                                        gpui::rgba(0x0000_0000)
+                                        gpui::transparent_black()
                                     })
                                     .bg(if selected {
                                         t.tile_selected
@@ -2195,7 +2195,7 @@ impl InstanceWindow {
                             .border_color(if selected {
                                 t.accent
                             } else {
-                                gpui::rgba(0x0000_0000)
+                                gpui::transparent_black()
                             })
                             .bg(if selected {
                                 t.tile_selected
@@ -2514,7 +2514,7 @@ impl InstanceWindow {
                                     .border_color(if selected {
                                         t.accent
                                     } else {
-                                        gpui::rgba(0x0000_0000)
+                                        gpui::transparent_black()
                                     })
                                     .bg(if selected {
                                         t.tile_selected

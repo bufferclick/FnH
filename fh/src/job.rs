@@ -590,7 +590,7 @@ fn build_java_command(
     let previous_account = if let Some(uuid) = account_who {
         let mut accs = account::Accounts::load();
         let prev = accs.selected.clone();
-        if accs.select(uuid) {
+        if accs.play_as(uuid).is_ok() {
             let _ = accs.save();
             prev
         } else {
