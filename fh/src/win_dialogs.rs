@@ -525,18 +525,18 @@ impl NewInstanceWindow {
 
     fn sync_loaded_versions(&mut self) {
         if self.picked_mc.is_empty() {
-            if let Ok(slot) = self.versions.lock() {
-                if let Some(Ok(list)) = slot.as_ref() {
-                    if let Some(first) = list
-                        .iter()
-                        .find(|v| v.kind == minecraft_versions::Kind::Release)
-                        .or(list.first())
-                    {
-                        let id = first.id.clone();
-                        drop(slot);
-                        self.select_mc(id);
-                    }
-                }
+            let found = self.versions.lock().ok().and_then(|slot| {
+                slot.as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .and_then(|list| {
+                        list.iter()
+                            .find(|v| v.kind == minecraft_versions::Kind::Release)
+                            .or(list.first())
+                            .map(|v| v.id.clone())
+                    })
+            });
+            if let Some(id) = found {
+                self.select_mc(id);
             }
         }
     }

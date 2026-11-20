@@ -1648,7 +1648,7 @@ impl InstanceWindow {
                     )
                     .child(
                         side_btn("mod-add", Some("add"), "Add File...", true, t).on_click(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.listener(move |_, _: &ClickEvent, _, cx| {
                                 let rx = cx.prompt_for_paths(PathPromptOptions {
                                     files: true,
                                     directories: !is_java,
@@ -1961,7 +1961,7 @@ impl InstanceWindow {
                     )
                     .child(
                         side_btn("pk-add", Some("add"), "Add File...", true, t).on_click(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.listener(move |_, _: &ClickEvent, _, cx| {
                                 let rx = cx.prompt_for_paths(PathPromptOptions {
                                     files: true,
                                     directories: true,
@@ -2280,11 +2280,12 @@ impl InstanceWindow {
                                     multiple: true,
                                     prompt: Some("Select datapack .zip file(s)".into()),
                                 });
-                                let dp_dir = w.path.join("datapacks");
+                                let w_path = w.path.clone();
+                                let dp_dir = w_path.join("datapacks");
                                 cx.spawn(async move |view, cx| {
                                     if let Ok(Ok(Some(paths))) = rx.await {
                                         let res =
-                                            content::add_pack_files(&w.path, "datapacks", &paths);
+                                            content::add_pack_files(&w_path, "datapacks", &paths);
                                         let _ = std::fs::create_dir_all(&dp_dir);
                                         let _ = view.update(cx, |v, cx| {
                                             match res {
