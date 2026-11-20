@@ -1,16 +1,16 @@
 [package]
-# Fabric n Horizon: JLac's Windows 11 window over Horizon's instances. The version here and
-# fh/VERSION move together (a test checks it): v1.4 first, then one tenth per update.
+# Fabric n Horizon (FNH) — made by Buffer. JLac's Windows 11 launcher for Fabric and Horizon.
+# The version here and fh/VERSION move together (a test checks it).
 name = "horizon-fh"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2021"
+authors = ["Buffer"]
 license = "MIT"
-description = "FNH: JLac's Windows 11 interface over your Horizon and Fabric instances."
+description = "FNH (made by Buffer): JLac's Windows 11 launcher for Fabric and Horizon instances."
 publish = false
 
 # A workspace of its own, so the launcher's workspace and its lock file are untouched: this crate
-# only builds the window and uses the launcher's own core (the instance list, the sign-in, the
-# installs, the preparation and the game's command) through `horizon-launcher`.
+# builds the multi-window Windows 11 launcher and uses `horizon-launcher` and `horizon-port-pack`.
 [workspace]
 
 [[bin]]
@@ -18,39 +18,33 @@ name = "FH"
 path = "src/main.rs"
 
 [dependencies]
-# `xbox-sign-in`: Microsoft's own Xbox Live client, so the sign-in needs no Azure app of anyone's
-# making (launcher/Cargo.toml's note; account::XBOX_CLIENT_ID).
+# `xbox-sign-in`: Microsoft's own Xbox Live client, so sign-in needs no custom Azure app.
 horizon-launcher = { path = "../launcher", features = ["xbox-sign-in"] }
-# The window, drawn the way JLac's own widgets are: the same GPUI the launcher draws with, so the
-# two share one copy of it.
+horizon-port-pack = { path = "../crates/horizon-port-pack" }
 gpui = { package = "gpui-fast", version = "0.1.13" }
 gpui_platform = { package = "gpui-fast-platform", version = "0.1.13", features = ["wayland", "x11", "font-kit"] }
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "ico"] }
 
 [target.'cfg(windows)'.build-dependencies]
-# The icon and version in the .exe (build.rs).
 winresource = "0.1"
 
-# The same fixes the launcher's workspace applies (launcher/Cargo.toml): this binary links the
-# launcher's code, so wgpu-hal, naga and libmimalloc-sys must be the same copies — Intel's Windows
-# drivers crash on the released wgpu-hal's descriptor pool, shader packs need naga's GLSL fixes,
-# and the released libmimalloc-sys dies before main on CPUs without POPCNT.
+# Same patches as the launcher's workspace so linked crates share identical copies.
 [patch.crates-io]
 wgpu-hal = { path = "../third_party/wgpu-hal" }
 naga = { path = "../third_party/naga" }
 libmimalloc-sys = { path = "../third_party/libmimalloc-sys" }
 
-# Line tables keep file:line in backtraces; as in the launcher's workspace.
 [profile.dev]
 debug = "line-tables-only"
 
-# A small, fast executable: the shapes are the launcher's own (launcher/Cargo.toml).
 [profile.release]
 strip = true
 lto = "thin"
 codegen-units = 1
 
-# The native mod API's generator parses the game's sources on every build; unoptimized it costs
-# seconds of each one (launcher/Cargo.toml has the same entries).
 [profile.dev.package.horizon-mod-api-gen]
 opt-level = 3
 [profile.dev.package.syn]

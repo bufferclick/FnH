@@ -1,14 +1,13 @@
 //! Built-in 24x24 vector icons for FNH's Windows 11 toolbar, right-hand `WideBar`, popup menus
 //! and `PageContainer` sidebars.
 //!
-//! Matches the iconography JLac draws on Windows 11 (`flat` in light mode, `flat_white` in dark
-//! mode): GPUI tints every SVG to `.text_color(...)`, so one crisp vector set serves light, dark,
-//! accent and disabled states with zero external files.
+//! Matches JLac's `flat` (light) and `flat_white` (dark) iconography on Windows 11: GPUI tints
+//! every SVG to `.text_color(...)`, serving light, dark, accent and disabled states cleanly.
 
 use gpui::{prelude::*, px, svg, Hsla, SharedString, Svg};
 use std::borrow::Cow;
 
-/// Every embedded icon `(name, svg_markup)`.
+/// Every embedded UI glyph `(name, svg_markup)`.
 pub const ALL: &[(&str, &str)] = &[
     (
         "add",
@@ -84,7 +83,7 @@ pub const ALL: &[(&str, &str)] = &[
     ),
     (
         "horizon",
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5 4h2.5v6.75h9V4H19v16h-2.5v-6.75h-9V20H5V4Z"/></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M3 15h18v2H3v-2Zm2 4h14v1.8H5V19Zm7-14a5 5 0 0 1 4.9 4H19a1 1 0 1 1 0 2h-2.1A5 5 0 0 1 17 13H7a5 5 0 0 1 5-8Z"/></svg>"#,
     ),
     (
         "palette",
@@ -114,6 +113,66 @@ pub const ALL: &[(&str, &str)] = &[
         "external",
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M14 4h6v6h-2V7.41l-7.29 7.3-1.42-1.42 7.3-7.29H14V4ZM5 5h6v2H6v11h11v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>"#,
     ),
+    (
+        "download",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M11 3h2v9.59l3.3-3.3 1.4 1.42L12 16.41l-5.7-5.7 1.4-1.42 3.3 3.3V3ZM4 18h16v2H4v-2Z"/></svg>"#,
+    ),
+    (
+        "upload",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 3.59 17.7 9.3l-1.4 1.4L13 7.42V16h-2V7.42L7.7 10.7l-1.4-1.4L12 3.59ZM4 18h16v2H4v-2Z"/></svg>"#,
+    ),
+    (
+        "pack",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/></svg>"#,
+    ),
+    (
+        "shader",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 14.4 9.6 22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2Z"/></svg>"#,
+    ),
+    (
+        "note",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5 3h14a2 2 0 0 1 2 2v10l-6 6H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm9 11v5l5-5h-5ZM7 7v1.8h10V7H7Zm0 4v1.8h6V11H7Z"/></svg>"#,
+    ),
+    (
+        "server",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 4h16a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 20 11H4a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 4 4Zm2.5 2.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5ZM4 13h16a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 20 20H4a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 4 13Zm2.5 2.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z"/></svg>"#,
+    ),
+    (
+        "camera",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M9 4h6l1.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.5L9 4Zm3 4.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"/></svg>"#,
+    ),
+    (
+        "java",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5 10h11a3 3 0 0 1 3 3 3 3 0 0 1-3 3h-.5a4.5 4.5 0 0 1-4.25 3H8.75A4.5 4.5 0 0 1 4.25 14.5V10H5Zm11 2v2h.2a1 1 0 1 0 0-2H16ZM4 20h14v1.6H4V20Zm5-16c1.2 1.2 1.2 2.4 0 3.6L7.8 6.4c.6-.6.6-1.2 0-1.8L9 4Zm4 0c1.2 1.2 1.2 2.4 0 3.6l-1.2-1.2c.6-.6.6-1.2 0-1.8L13 4Z"/></svg>"#,
+    ),
+    (
+        "terminal",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm2.3 4.7L9.6 12l-3.3 3.3 1.4 1.4L12.4 12 7.7 7.3 6.3 8.7ZM12 15h6v1.8h-6V15Z"/></svg>"#,
+    ),
+    (
+        "network",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M9 3h6v5h-2v3h5a1 1 0 0 1 1 1v4h2v5h-6v-5h2v-3H7v3h2v5H3v-5h2v-4a1 1 0 0 1 1-1h5V8H9V3Z"/></svg>"#,
+    ),
+    (
+        "tools",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M21.2 6.8a5.5 5.5 0 0 1-7.4 6.1L7.1 19.6a1.8 1.8 0 0 1-2.5-2.5l6.7-6.7A5.5 5.5 0 0 1 17.4 3l-3.1 3.1 2.4 2.4 3.1-3.1c.6.4 1.1.9 1.4 1.4Z"/></svg>"#,
+    ),
+    (
+        "key",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M8.5 6a5.5 5.5 0 1 0 5.2 7.3H17v2.7h2.5v-2.7H22v-2.6h-8.3A5.5 5.5 0 0 0 8.5 6Zm0 3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>"#,
+    ),
+    (
+        "shortcut",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M14 5V2l7 6-7 6v-3.2c-4.8 0-8 1.6-10 5.2 1-5.2 4-10.2 10-11Z"/></svg>"#,
+    ),
+    (
+        "image",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm3.5 4a1.8 1.8 0 1 0 0 3.6A1.8 1.8 0 0 0 8.5 7ZM5 17.5h14l-4.5-6-3.5 4.5-2.5-3-3.5 4.5Z"/></svg>"#,
+    ),
+    (
+        "list",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg>"#,
+    ),
 ];
 
 /// GPUI asset source serving `icons/<name>.svg`.
@@ -121,32 +180,36 @@ pub struct Assets;
 
 impl gpui::AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        let name = path
+        let Some(name) = path
             .strip_prefix("icons/")
-            .and_then(|rest| rest.strip_suffix(".svg"));
-        let found = name.and_then(|wanted| {
-            ALL.iter()
-                .find(|(key, _)| *key == wanted)
-                .map(|(_, data)| Cow::Borrowed(data.as_bytes()))
-        });
-        Ok(found)
-    }
-
-    fn list(&self, _path: &str) -> gpui::Result<Vec<SharedString>> {
+            .and_then(|rest| rest.strip_suffix(".svg"))
+        else {
+            return Ok(None);
+        };
         Ok(ALL
             .iter()
-            .map(|(name, _)| SharedString::from(format!("icons/{name}.svg")))
+            .find(|(key, _)| *key == name)
+            .map(|(_, data)| Cow::Borrowed(data.as_bytes())))
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        if !path.is_empty() && path != "icons" && path != "icons/" {
+            return Ok(Vec::new());
+        }
+        Ok(ALL
+            .iter()
+            .map(|(name, _)| format!("icons/{name}.svg").into())
             .collect())
     }
 }
 
-/// Renders a built-in vector icon at `size` pixels tinted with `colour`.
-pub fn icon(name: &'static str, size: f32, colour: Hsla) -> Svg {
+/// Draws a named built-in vector icon at `size` logical pixels tinted to `color`.
+pub fn icon(name: &'static str, size: f32, color: Hsla) -> Svg {
     svg()
         .path(format!("icons/{name}.svg"))
-        .flex_none()
         .size(px(size))
-        .text_color(colour)
+        .flex_none()
+        .text_color(color)
 }
 
 #[cfg(test)]
@@ -155,17 +218,18 @@ mod tests {
     use gpui::AssetSource;
 
     #[test]
-    fn every_builtin_icon_is_valid_svg_and_loadable() {
+    fn embedded_icons_are_unique_and_valid_svg() {
         let assets = Assets;
-        assert_eq!(assets.list("icons").unwrap().len(), ALL.len());
-        for (name, raw) in ALL {
-            assert!(raw.starts_with("<svg ") && raw.ends_with("</svg>"), "{name}");
-            let loaded = assets
-                .load(&format!("icons/{name}.svg"))
-                .unwrap()
-                .expect(name);
-            assert_eq!(loaded.as_ref(), raw.as_bytes());
+        for (i, (name, markup)) in ALL.iter().enumerate() {
+            assert!(!name.is_empty());
+            assert!(markup.starts_with("<svg ") && markup.ends_with("</svg>"));
+            assert!(markup.contains("viewBox=\"0 0 24 24\""));
+            for (other, _) in &ALL[..i] {
+                assert_ne!(name, other, "duplicate icon name {name}");
+            }
+            let path = format!("icons/{name}.svg");
+            let loaded = assets.load(&path).unwrap();
+            assert!(loaded.is_some(), "asset lookup failed for {path}");
         }
-        assert!(assets.load("icons/missing.svg").unwrap().is_none());
     }
 }

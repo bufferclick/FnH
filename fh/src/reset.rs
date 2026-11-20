@@ -1,35 +1,31 @@
-//! Complete factory reset (`Ctrl + Shift + Alt` while clicking `Add Instance...`): removes every
-//! account, instance, world, mod, cached version, preference and log FNH holds, then starts a
-//! fresh copy of `FH.exe` and closes the current window so the launcher comes back like a brand
-//! new install.
+//! Bulletproof factory reset (`Ctrl + Shift + Alt` while clicking `Add Instance...`).
+//!
+//! Why two phases:
+//! Deleting gigabytes of Minecraft assets, Java runtimes and Horizon builds on the UI thread or
+//! while `location.lock` is held hangs or fails on Windows. Instead:
+//! 1. The running window stops any launched game, signs out all FNH accounts, closes `fh.log`,
+//!    spawns a detached `FH.exe --factory-reset` worker (with `%TEMP%` as its working directory so
+//!    nothing holds a handle on `<FnH>`), and exits immediately.
+//! 2. The worker waits for the parent process to release `location.lock`, atomically moves every
+//!    item inside `<FnH>` into a staging wipe directory (milliseconds on NTFS), launches a brand
+//!    new `FH.exe --after-reset` immediately so FNH reopens cleanly as a fresh install, and then
+//!    deletes all staged files in the background before exiting.
 
-use crate::{job, log};
+use crate::{job, log, paths};
 use gpui::{ClickEvent, Modifiers};
-use horizon_launcher::{account, backend, data_location};
-use std::path::{Path, PathBuf};
+use horizon_launcher::{account, process};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Hidden command-line flag passed to the relaunched process so it can remove any file handle
-/// (such as `location.lock`) that only unlocked once the old process exited.
+/// Worker CLI flag: waits for parent exit, wipes `<FnH>`, launches fresh `FH.exe`, cleans stage.
+pub const WORKER_FLAG: &str = "--factory-reset";
+
+/// Marker flag passed to the fresh GUI instance strictly for logging that reset completed.
 pub const AFTER_RESET_FLAG: &str = "--after-reset";
 
-/// Real files or folders created inside `game_home` once the default Horizon instance has been
-/// configured or played; their absence (with no `"horizon"` key in `instances.json`) means the
-/// default folder is untouched and should not appear as a phantom instance on a fresh install.
-const DEFAULT_HOME_MARKERS: &[&str] = &[
-    "options.txt",
-    "servers.dat",
-    "horizon-extras.txt",
-    "saves",
-    "mods",
-    "logs",
-    "resourcepacks",
-    "shaderpacks",
-    "crash-reports",
-    "screenshots",
-    "backups",
-];
+/// Prefix used for temporary sibling wipe directories if cross-volume move falls back.
+const WIPE_PREFIX: &str = ".fnh-wipe-";
 
 /// Whether `modifiers` holds `Alt + Shift + Ctrl` together.
 pub fn is_reset_chord(modifiers: Modifiers) -> bool {
@@ -46,112 +42,11 @@ pub fn is_reset_click(event: &ClickEvent) -> bool {
     }
 }
 
-/// Whether the synthetic default `"Horizon"` entry from `instances::list` actually exists on disk
-/// or in `instances.json` (false on a fresh install or after a factory reset).
-pub fn has_default_horizon_data(data_dir: &Path, game_home: &Path) -> bool {
-    if let Ok(text) = std::fs::read_to_string(data_dir.join("instances.json")) {
-        if text.contains("\"horizon\": {") || text.contains("\"horizon\":{") {
-            return true;
-        }
-    }
-    DEFAULT_HOME_MARKERS
-        .iter()
-        .any(|entry| game_home.join(entry).exists())
-}
-
-/// Removes the default `"horizon"` instance's files and `instances.json` entry while keeping any
-/// sibling instances stored under `game_home/instances/`.
-pub fn delete_default_horizon() -> Result<(), String> {
-    delete_default_horizon_in(&backend::data_dir(), &backend::game_home())
-}
-
-fn delete_default_horizon_in(data_dir: &Path, game_home: &Path) -> Result<(), String> {
-    for marker in DEFAULT_HOME_MARKERS {
-        remove_target(&game_home.join(marker));
-    }
-    let store = data_dir.join("instances.json");
-    if let Ok(text) = std::fs::read_to_string(&store) {
-        let updated = remove_horizon_key(&text);
-        std::fs::write(&store, updated).map_err(|e| format!("instances.json: {e}"))?;
-    }
-    Ok(())
-}
-
-/// Strips the `"horizon": { ... }` property from a pretty-printed `instances.json` document while
-/// leaving every other instance entry intact.
-fn remove_horizon_key(json: &str) -> String {
-    let needle = "\"horizon\"";
-    let bytes = json.as_bytes();
-    let Some(key_start) = json.find(needle) else {
-        return json.to_owned();
-    };
-    let mut i = key_start + needle.len();
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-        i += 1;
-    }
-    if bytes.get(i) != Some(&b':') {
-        return json.to_owned();
-    }
-    i += 1;
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-        i += 1;
-    }
-    if bytes.get(i) != Some(&b'{') {
-        return json.to_owned();
-    }
-    let mut depth = 0usize;
-    let mut in_str = false;
-    let mut escape = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if in_str {
-            if escape {
-                escape = false;
-            } else if b == b'\\' {
-                escape = true;
-            } else if b == b'"' {
-                in_str = false;
-            }
-        } else {
-            match b {
-                b'"' => in_str = true,
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        i += 1;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        i += 1;
-    }
-    let mut start = key_start;
-    while start > 0 && matches!(bytes[start - 1], b' ' | b'\t' | b'\r' | b'\n') {
-        start -= 1;
-    }
-    let mut end = i;
-    while end < bytes.len() && matches!(bytes[end], b' ' | b'\t') {
-        end += 1;
-    }
-    if bytes.get(end) == Some(&b',') {
-        end += 1;
-    } else if start > 0 && bytes[start - 1] == b',' {
-        start -= 1;
-    }
-    let mut out = String::with_capacity(json.len());
-    out.push_str(&json[..start]);
-    out.push_str(&json[end..]);
-    out
-}
-
 /// Guard against ever deleting a filesystem root, drive root or bare user profile directory.
 pub fn safe_to_remove(path: &Path) -> bool {
     let depth = path
         .components()
-        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+        .filter(|c| matches!(c, Component::Normal(_)))
         .count();
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -159,108 +54,56 @@ pub fn safe_to_remove(path: &Path) -> bool {
     depth >= 2 && !name.is_empty() && name != "." && name != ".."
 }
 
-/// Every directory or file FNH's data lives in on this computer, deduplicated.
-pub fn collect_targets() -> Vec<PathBuf> {
-    let mut targets: Vec<PathBuf> = Vec::new();
-    let mut push = |candidate: PathBuf| {
-        if safe_to_remove(&candidate) && !targets.iter().any(|existing| existing == &candidate) {
-            targets.push(candidate);
-        }
-    };
-
-    let data = backend::data_dir();
-    let had_data = data.exists();
-    push(data);
-    push(backend::game_home());
-    if had_data {
-        push(backend::build_dir());
-    }
-
-    if let Ok(Some(roots)) = data_location::configured_roots() {
-        push(roots.launcher);
-        push(roots.game);
-        push(roots.build);
-    }
-
-    let isolated = std::env::var_os("HORIZON_LAUNCHER_HOME").is_some_and(|v| !v.is_empty())
-        || std::env::var_os("HORIZON_HOME").is_some_and(|v| !v.is_empty());
-
-    if !isolated {
-        if let Some(appdata) = std::env::var_os("APPDATA").filter(|v| !v.is_empty()) {
-            let roaming = PathBuf::from(appdata);
-            push(roaming.join("horizon-launcher"));
-            push(roaming.join("horizon"));
-            push(roaming.join("horizon-launcher-location"));
-        }
-    }
-
-    if let Ok(bootstrap) = data_location::bootstrap_path() {
-        let custom_pointer =
-            std::env::var_os("HORIZON_LAUNCHER_LOCATION_FILE").is_some_and(|v| !v.is_empty());
-        if !isolated || custom_pointer {
-            if let Some(parent) = bootstrap.parent() {
-                if parent
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "horizon-launcher-location")
-                {
-                    push(parent.to_path_buf());
-                } else {
-                    push(bootstrap);
-                }
-            }
-        }
-    }
-
-    targets
-}
-
-/// Clears read-only flags under `path` so Windows permits deleting extracted Java or mod files.
+/// Clears read-only flags recursively so Windows allows deleting extracted JDK/mod files.
 fn make_writable(path: &Path) {
-    if let Ok(meta) = std::fs::symlink_metadata(path) {
-        let mut perms = meta.permissions();
-        if perms.readonly() {
-            #[allow(clippy::permissions_set_readonly_false)]
-            perms.set_readonly(false);
-            let _ = std::fs::set_permissions(path, perms);
-        }
-        if meta.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
-                    make_writable(&entry.path());
-                }
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    let mut perms = meta.permissions();
+    if perms.readonly() {
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+    if meta.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                make_writable(&entry.path());
             }
         }
     }
 }
 
-/// Removes a single target file or folder tree, clearing read-only attributes if needed.
+/// Deletes a single file or directory tree with read-only stripping and brief Windows retry.
 pub fn remove_target(path: &Path) {
     if !safe_to_remove(path) {
         return;
     }
-    let Ok(meta) = std::fs::symlink_metadata(path) else {
-        return;
-    };
-    if meta.is_dir() {
-        if std::fs::remove_dir_all(path).is_err() {
-            make_writable(path);
-            let _ = std::fs::remove_dir_all(path);
+    for attempt in 0..5 {
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return;
+        };
+        let ok = if meta.is_dir() {
+            std::fs::remove_dir_all(path).is_ok() || {
+                make_writable(path);
+                std::fs::remove_dir_all(path).is_ok()
+            }
+        } else {
+            std::fs::remove_file(path).is_ok() || {
+                make_writable(path);
+                std::fs::remove_file(path).is_ok()
+            }
+        };
+        if ok || !path.exists() {
+            return;
         }
-    } else if std::fs::remove_file(path).is_err() {
-        make_writable(path);
-        let _ = std::fs::remove_file(path);
+        if attempt < 4 {
+            std::thread::sleep(Duration::from_millis(80));
+        }
     }
 }
 
-/// Removes every path in `targets`.
-pub fn wipe_paths(targets: &[PathBuf]) {
-    for target in targets {
-        remove_target(target);
-    }
-}
-
-/// Removes every stored Microsoft account from the launcher's secret stores and session files.
+/// Signs out every Microsoft account stored in FNH's `accounts.json` and clears session files.
 fn wipe_accounts() {
     let mut accounts = account::Accounts::load();
     let uuids: Vec<String> = accounts.accounts.iter().map(|a| a.uuid.clone()).collect();
@@ -272,138 +115,248 @@ fn wipe_accounts() {
     account::discard_unread_sessions();
 }
 
-/// Deletes all FNH & Horizon data on this computer and spawns a fresh instance of `FH.exe`.
-/// Caller immediately quits the current GPUI app after `Ok(())`.
-pub fn wipe_and_relaunch() -> Result<(), String> {
+/// Spawns the detached reset worker (`FH.exe --factory-reset`) without blocking the UI thread.
+/// Once this returns `Ok(())`, the caller exits the process immediately so all file locks drop.
+pub fn spawn_reset_worker() -> Result<(), String> {
     let exe = std::env::current_exe()
-        .map_err(|e| format!("Could not locate the running executable to relaunch: {e}"))?;
+        .map_err(|e| format!("Could not locate FH.exe to relaunch: {e}"))?;
 
-    // Stop any launched game first so it releases world and log files.
-    if job::kill() {
-        std::thread::sleep(Duration::from_millis(250));
-    }
+    // Terminate any running game child first so world/jar handles close.
+    let _ = job::kill();
     job::clear();
 
-    // Sign out of every stored account (clears keychain credentials as well as files).
+    // Sign out of stored accounts while our environment is configured.
     wipe_accounts();
 
-    let targets = collect_targets();
-
-    // Release our own handle on `fh/fh.log` before deleting the data directory.
+    // Flush and close `fh.log` before handing off to the worker.
     log::close();
 
-    wipe_paths(&targets);
-
-    let mut command = std::process::Command::new(&exe);
-    command
-        .arg(AFTER_RESET_FLAG)
+    let safe_cwd = std::env::temp_dir();
+    let mut cmd = process::command(&exe);
+    cmd.arg(WORKER_FLAG)
+        .current_dir(&safe_cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(dir) = exe.parent().filter(|dir| dir.is_dir()) {
-        command.current_dir(dir);
-    }
-    command
-        .spawn()
-        .map_err(|e| format!("Data cleared, but could not relaunch {}: {e}", exe.display()))?;
+
+    cmd.spawn()
+        .map_err(|e| format!("Could not start reset worker ({}): {e}", exe.display()))?;
     Ok(())
 }
 
-/// Runs at the very start of the relaunched `FH.exe` process so any file locked by the exiting
-/// parent process (such as `location.lock` or `fh.log`) is swept away before startup begins.
-pub fn finish_post_reset_sweep() {
-    let targets = collect_targets();
-    for attempt in 0..10 {
-        wipe_paths(&targets);
-        if targets.iter().all(|path| !path.exists()) {
+/// Waits up to ~4 seconds until the exiting parent process releases `location.lock` and `fh.log`.
+fn wait_for_parent_unlock(root: &Path) {
+    std::thread::sleep(Duration::from_millis(180));
+    let lock_candidates = [
+        root.join("launcher").join("location.lock"),
+        root.join("logs").join("fh.log"),
+        root.join("launcher").join("fh").join("fh.log"),
+    ];
+    for _ in 0..40 {
+        let mut busy = false;
+        for lock in &lock_candidates {
+            if lock.is_file() && std::fs::remove_file(lock).is_err() && lock.exists() {
+                busy = true;
+                break;
+            }
+        }
+        if !busy {
             break;
         }
-        if attempt < 9 {
-            std::thread::sleep(Duration::from_millis(60));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Moves every entry inside `root` (never touching `protected_exe` if nested) into a temporary
+/// staging folder so `root` becomes completely empty in milliseconds, returning staged paths to
+/// delete afterwards.
+pub fn stage_and_empty_dir(root: &Path, protected_exe: Option<&Path>) -> Vec<PathBuf> {
+    if !safe_to_remove(root) || !root.is_dir() {
+        return Vec::new();
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    let temp_stage = std::env::temp_dir().join(format!("fnh-reset-{pid}-{stamp}"));
+    let _ = std::fs::create_dir_all(&temp_stage);
+
+    let mut trash: Vec<PathBuf> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return trash;
+    };
+
+    for (idx, entry) in entries.flatten().enumerate() {
+        let path = entry.path();
+        if let Some(exe) = protected_exe {
+            if same_or_contains(&path, exe) {
+                continue;
+            }
+        }
+        // Try instant move into %TEMP% first; if cross-volume, rename beside root's parent.
+        let stage_dst = temp_stage.join(format!("item-{idx}"));
+        if std::fs::rename(&path, &stage_dst).is_ok() {
+            continue;
+        }
+        if let Some(parent) = root.parent() {
+            let sibling = parent.join(format!("{WIPE_PREFIX}{pid}-{stamp}-{idx}"));
+            if std::fs::rename(&path, &sibling).is_ok() {
+                trash.push(sibling);
+                continue;
+            }
+        }
+        // Last resort: delete in place before launching the fresh window.
+        remove_target(&path);
+    }
+
+    if temp_stage.exists() {
+        trash.push(temp_stage);
+    }
+    trash
+}
+
+fn same_or_contains(dir_or_file: &Path, target: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let a = dir_or_file.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+        let b = target.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+        b == a || b.starts_with(&format!("{a}\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        target == dir_or_file || target.starts_with(dir_or_file)
+    }
+}
+
+/// Sweeps any leftover sibling `.fnh-wipe-*` folders from an interrupted earlier reset.
+pub fn sweep_stale_stages(root: &Path) {
+    let Some(parent) = root.parent() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name
+            .to_str()
+            .is_some_and(|s| s.starts_with(WIPE_PREFIX))
+        {
+            remove_target(&entry.path());
         }
     }
+}
+
+/// Runs inside `FH.exe --factory-reset`: owns zero locks, wipes all FNH data, immediately opens a
+/// fresh `FH.exe`, then finishes deleting staged trees before exiting.
+pub fn run_worker() -> i32 {
+    let root = paths::root();
+    let exe = std::env::current_exe().ok();
+
+    wait_for_parent_unlock(&root);
+
+    // Collect every FNH directory (including any overridden launcher/game/build roots).
+    let mut roots = vec![root.clone()];
+    for env_key in [
+        "HORIZON_LAUNCHER_HOME",
+        "HORIZON_HOME",
+        "HORIZON_BUILD_DIR",
+    ] {
+        if let Some(val) = std::env::var_os(env_key).filter(|v| !v.is_empty()) {
+            let p = PathBuf::from(val);
+            if !same_or_contains(&root, &p) && safe_to_remove(&p) && !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+    }
+
+    let mut trash = Vec::new();
+    for dir in &roots {
+        trash.extend(stage_and_empty_dir(dir, exe.as_deref()));
+        // Remove the empty root itself if nothing protected sits inside it, then recreate clean.
+        if exe.as_deref().is_none_or(|e| !same_or_contains(dir, e)) {
+            let _ = std::fs::remove_dir(dir);
+        }
+    }
+
+    // Relaunch a brand-new clean FNH window right away so reopening feels instantaneous.
+    if let Some(exe) = &exe {
+        let mut fresh = process::command(exe);
+        fresh
+            .arg(AFTER_RESET_FLAG)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(dir) = exe.parent().filter(|d| d.is_dir()) {
+            fresh.current_dir(dir);
+        }
+        let _ = fresh.spawn();
+    }
+
+    // Delete all staged files completely before exiting the worker.
+    for item in trash {
+        remove_target(&item);
+    }
+    sweep_stale_stages(&root);
+    0
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{has_default_horizon_data, is_reset_chord, safe_to_remove, wipe_paths};
-    use gpui::Modifiers;
-    use std::path::Path;
+    use super::*;
 
     #[test]
     fn reset_chord_requires_all_three_modifiers() {
-        let all = Modifiers {
+        let full = Modifiers {
             control: true,
             alt: true,
             shift: true,
-            ..Modifiers::default()
+            ..Default::default()
         };
-        assert!(is_reset_chord(all));
-        assert!(!is_reset_chord(Modifiers {
-            alt: false,
-            ..all
-        }));
-        assert!(!is_reset_chord(Modifiers {
-            shift: false,
-            ..all
-        }));
+        assert!(is_reset_chord(full));
         assert!(!is_reset_chord(Modifiers {
             control: false,
-            ..all
+            ..full
+        }));
+        assert!(!is_reset_chord(Modifiers { alt: false, ..full }));
+        assert!(!is_reset_chord(Modifiers {
+            shift: false,
+            ..full
         }));
     }
 
     #[test]
-    fn wipe_removes_instances_preferences_logs_and_readonly_files() {
-        let root = std::env::temp_dir().join(format!("fh-reset-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let data = root.join("horizon-launcher");
-        let game = root.join("horizon");
-
-        std::fs::create_dir_all(data.join("fh")).unwrap();
-        std::fs::create_dir_all(game.join("instances").join("fabric-1.21.4").join("mods")).unwrap();
-        std::fs::write(data.join("instances.json"), r#"{"instances":{"horizon":{}}}"#).unwrap();
-        std::fs::write(data.join("fh").join("ui.cfg"), "ApplicationTheme=windows11\n").unwrap();
-        let ro = game
-            .join("instances")
-            .join("fabric-1.21.4")
-            .join("mods")
-            .join("fabric-api.jar");
-        std::fs::write(&ro, b"jar").unwrap();
-        let mut perms = std::fs::metadata(&ro).unwrap().permissions();
-        perms.set_readonly(true);
-        let _ = std::fs::set_permissions(&ro, perms);
-
-        assert!(has_default_horizon_data(&data, &game));
-        assert!(safe_to_remove(&data));
+    fn safe_to_remove_rejects_shallow_and_empty_paths() {
+        assert!(!safe_to_remove(Path::new("")));
         assert!(!safe_to_remove(Path::new("/")));
+        assert!(!safe_to_remove(Path::new("/home")));
+        assert!(safe_to_remove(Path::new("/home/user/FnH")));
+    }
 
-        wipe_paths(&[data.clone(), game.clone()]);
-        assert!(!data.exists());
-        assert!(!game.exists());
-        assert!(!has_default_horizon_data(&data, &game));
+    #[test]
+    fn stage_and_empty_wipes_all_data_while_protecting_portable_exe() {
+        let base = std::env::temp_dir().join(format!("fnh-reset-unit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("FnH");
+        std::fs::create_dir_all(root.join("game/instances/fabric-1.21/mods")).unwrap();
+        std::fs::create_dir_all(root.join("launcher/versions/nightly")).unwrap();
+        std::fs::create_dir_all(root.join("icons")).unwrap();
+        std::fs::write(root.join("settings.json"), "{}").unwrap();
+        std::fs::write(root.join("game/instances/fabric-1.21/mods/sodium.jar"), b"jar").unwrap();
+        let fake_exe = root.join("FH.exe");
+        std::fs::write(&fake_exe, b"exe").unwrap();
 
-        // Creating only an own instance under `game/instances/` does not resurrect default Horizon.
-        std::fs::create_dir_all(game.join("instances").join("my-fabric")).unwrap();
-        assert!(!has_default_horizon_data(&data, &game));
+        let trash = stage_and_empty_dir(&root, Some(&fake_exe));
+        assert!(!root.join("settings.json").exists());
+        assert!(!root.join("game").exists());
+        assert!(!root.join("launcher").exists());
+        assert!(!root.join("icons").exists());
+        assert!(fake_exe.is_file(), "portable FH.exe must never be deleted");
 
-        // Real Horizon data (e.g. `saves/`) makes the default Horizon instance visible again.
-        std::fs::create_dir_all(game.join("saves")).unwrap();
-        std::fs::create_dir_all(&data).unwrap();
-        std::fs::write(
-            data.join("instances.json"),
-            "{\n  \"instances\": {\n    \"horizon\": {\n      \"name\": \"Horizon\"\n    },\n    \"my-fabric\": {\n      \"name\": \"My Fabric\"\n    }\n  }\n}",
-        )
-        .unwrap();
-        assert!(has_default_horizon_data(&data, &game));
-
-        // Deleting default Horizon keeps sibling instances untouched.
-        super::delete_default_horizon_in(&data, &game).unwrap();
-        assert!(!has_default_horizon_data(&data, &game));
-        assert!(game.join("instances").join("my-fabric").is_dir());
-        let kept = std::fs::read_to_string(data.join("instances.json")).unwrap();
-        assert!(kept.contains("\"my-fabric\""));
-
-        let _ = std::fs::remove_dir_all(&root);
+        for item in trash {
+            remove_target(&item);
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

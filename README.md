@@ -3,7 +3,7 @@
 <h1 align="center">FNH</h1>
 
 <p align="center">
-  Fabric n Horizon — a native Windows 11 launcher for your Fabric and Horizon instances.<br>
+  Fabric n Horizon — a native multi-window Windows 11 launcher by <b>Buffer</b> for your Fabric and Horizon instances.<br>
   <a href="https://fnh.is-cool.dev"><b>fnh.is-cool.dev</b></a> ·
   <a href="https://github.com/bufferclick/fnh/releases/latest"><b>Download</b></a> ·
   <a href="fh/README.md"><b>Documentation</b></a>
@@ -11,59 +11,52 @@
 
 ---
 
-FNH is a single-executable desktop application for Windows 10 and 11 (x64), built with the clean
-Windows 11 (WinUI 3) layout and widget style of **JLac**. It manages and launches Minecraft: Java
-Edition instances (with **Fabric** or vanilla) alongside native **Horizon** instances — no
-installer, no embedded browser, and no background service.
+FNH (`v1.6`) is a single-executable desktop application for Windows 10 and 11 (x64) by **Buffer**,
+modelled on **JLac**'s Windows 11 (WinUI 3 / `QWindows11Style`) desktop launcher. It manages and
+launches Minecraft: Java Edition instances (with **Fabric** or vanilla) alongside isolated native
+**Horizon** instances — no installer, no embedded browser, and no background service.
 
 ## Install
 
-1. Download `fnh-1.5.zip` from [Releases](https://github.com/bufferclick/fnh/releases/latest).
+1. Download `fnh-1.6.zip` from [Releases](https://github.com/bufferclick/fnh/releases/latest).
 2. Unzip it anywhere you can write to — `%LOCALAPPDATA%\FNH`, a folder on your desktop, or a USB
    stick.
 3. Double-click `FH.exe`.
 
 Windows 10 or 11 on x64. Nothing else is required: no .NET, no Visual C++ redistributable, and no
-separate Java install (FNH fetches the matching Mojang Java runtime when an instance needs one).
+separate Java install (FNH automatically fetches the matching Mojang Java runtime when needed).
 
-## What it does
+## What's in v1.6
 
-- **Windows 11 (WinUI 3) interface.** Modeled on JLac's `windows11` style: top toolbar
-  (`Add Instance...`, `Folders`, `Settings...`, `Help`, `Update...`, `Accounts`), grouped
-  `InstanceView` grid in the centre, right-hand `WideBar` (`Launch`, `Kill`, `Edit...`,
-  `Change Group...`, `Folder`, `Copy...`, `Delete`), and bottom status bar with total playtime.
-  Follows Windows 11 Light and Dark modes automatically or can be pinned in `Settings...`.
-- **Add Instance.** Create a Minecraft: Java Edition instance with Fabric Loader (or vanilla) from
-  Mojang's live version list, or create a native Horizon instance with optional grouping and icon
-  colour.
-- **Edit Instance.** Per-instance window with **Minecraft Log**, **Version** (install, update, pin
-  or remove Fabric Loader), **Mods** (enable/disable `.jar` files, remove, open folder), **Worlds**
-  (mode, version, size, folder), and **Settings** (memory, JVM flags, window size, launch hooks).
-- **Accounts.** Multi-account Microsoft device-code sign-in with one-click code copy and browser
-  launch, plus quick account switching from the top-right toolbar menu.
-- **Factory reset shortcut.** Hold `Ctrl + Shift + Alt` while clicking `Add Instance...` to delete
-  all FNH data (instances, accounts, saves, mods, caches, preferences and logs) and immediately
-  relaunch `FH.exe` as a fresh install.
+- **True multi-window Windows 11 shell.** Separate OS windows for **Settings** (9 global pages:
+  Launcher, Appearance, Minecraft, Horizon, Java, Accounts, APIs, External Tools, Proxy), per-instance
+  **Edit Instance** (11 pages: Minecraft Log, Version, Mods, Resource Packs, Shader Packs, Notes,
+  Worlds, Servers, Screenshots, Settings, Other Logs), **New Instance**, **Icon Picker** (61 built-in
+  128×128 icons + custom image import), and **Download Mods / Packs / Shaders**.
+- **Isolated `<FnH>` data root.** Stores instances, Java runtimes, Horizon builds, icons, logs and
+  settings under `%APPDATA%\FnH` so FNH never collides with or inherits stray instances from other
+  launchers.
+- **Modrinth + Horizon Registry & auto-porting.** Browse and install mods, resource packs and shaders
+  directly inside FNH, or drag-and-drop `.jar`, `.hmod`, `.hnmod` and mod folders onto any instance
+  (Fabric `.jar` packs dropped onto a Horizon instance are ported automatically via `horizon-port-pack`).
+- **Live game console & `options.txt` tuner.** Real-time stdout/stderr capture with level filtering,
+  search and crash auto-open, plus per-instance `options.txt`, `servers.dat`, world datapack/backup
+  tools, and Windows `.lnk` shortcuts.
+- **Two-phase factory reset.** Hold `Ctrl + Shift + Alt` while clicking `Add Instance` to spawn a
+  detached reset worker that cleanly wipes `%APPDATA%\FnH` after handles close and relaunches `FH.exe`
+  as a fresh install.
 
-Every launch step is recorded in `%APPDATA%\horizon-launcher\fh\fh.log`.
-
-## How it works
-
-FNH is written in Rust on top of [GPUI](https://gpui.rs) (`gpui-fast`) and `horizon-launcher`:
-`look.rs` implements WinUI 3 (`QWindows11Style`) Light and Dark surfaces and Fluent controls,
-`icons.rs` embeds a crisp 24×24 vector icon set, `app.rs` and `dialogs.rs` implement JLac's
-`MainWindow` and modal dialogs, `reset.rs` handles full data wipe and clean relaunch, and `job.rs`
-runs launches, process termination (`Kill`) and Microsoft login on background threads. Full details
-live in [fh/README.md](fh/README.md).
+Every launch step is recorded in `%APPDATA%\FnH\logs\fh.log`.
 
 ## Releases
 
-`fh/VERSION` holds `1.5`, the release tag is `fnh-v1.5`, and the download archive is `fnh-1.5.zip`.
+`fh/VERSION` holds `1.6`, the release tag is `fnh-v1.6`, and the download archive is `fnh-1.6.zip`.
 [fnh.is-cool.dev](https://fnh.is-cool.dev) and the Download link above always resolve to the newest
 release.
 
 ## Licence
 
-MIT. FNH is not an official Minecraft product and is not approved by or associated with Mojang or
-Microsoft. Horizon is made by the [Horizon Team](https://github.com/horizon-rust/horizon); FNH is a
-front end for it, styled after JLac. The launcher's upstream README is [HORIZON.md](HORIZON.md).
+MIT — created by **Buffer**. FNH is not an official Minecraft product and is not approved by or
+associated with Mojang or Microsoft. Horizon is made by the Horizon Team; FNH is a front end for
+Fabric and Horizon styled after Buffer's JLac. The upstream Horizon workspace README is
+[HORIZON.md](HORIZON.md).

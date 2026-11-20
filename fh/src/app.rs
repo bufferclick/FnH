@@ -1,2793 +1,1836 @@
-//! JLac's `MainWindow` built natively for FNH in the Windows 11 (WinUI 3 / `QWindows11Style`)
-//! theme: top `mainToolBar` (`Add Instance...`, `Folders`, `Settings...`, `Help`, `Update...`, and
-//! right-aligned `Accounts`), central grouped `InstanceView`, right-docked `WideBar`
-//! `instanceToolBar` (icon, instance title, `Launch`, `Kill`, `Edit...`, `Change Group...`,
-//! `Folder`, `Copy...`, `Delete`), live task strip, and bottom `QStatusBar` with instance summary
-//! and `"Total playtime: ..."`.
-//!
-//! Holding `Ctrl + Shift + Alt` while clicking `Add Instance...` wipes all launcher data (every
-//! instance, world, mod, account, cache, preference and log) and immediately relaunches `FH.exe`
-//! to a clean fresh-install state.
+//! Shared multi-window application state (`Fh`) and primary launcher shell (`MainWindow`),
+//! modelled on JLac's `MainWindow` (`mainToolBar` + collapsible grouped `InstanceView` + right
+//! `WideBar` + `QStatusBar`).
 
-use crate::icons::icon;
-use crate::job::Status;
-use crate::look::{
-    self, hsep, instance_icon, menu_item, menu_sep, progress_bar, push_button, tool_button, vsep,
-    wide_action, ButtonKind, Theme, ICON_PALETTE, UI_FONT,
-};
-use crate::prefs::{Prefs, SortMode};
-use crate::{job, log, reset};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, prelude::*, px, AnyElement, ClickEvent, ClipboardItem, Context, Div, FocusHandle,
-    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Render, SharedString, Stateful,
-    Subscription, Window,
+    App, ClickEvent, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable,
+    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, WindowHandle, div, px,
 };
-use horizon_launcher::account::{self, Accounts};
-use horizon_launcher::backend;
-use horizon_launcher::instances::{self as inst, Icon, Instance, Kind as InstanceKind};
-use horizon_launcher::java;
-use horizon_launcher::loaders::{self, Kind as LoaderKind, Listed, Loader};
-use horizon_launcher::minecraft_versions::{self, Kind as McKind, Versions};
-use horizon_launcher::worlds::{self, World};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use horizon_launcher::account;
+use horizon_launcher::browser::Kind as BrowseKind;
+use horizon_launcher::instances::{self as inst, Instance};
 
-pub(crate) const SITE_URL: &str = "https://fnh.is-cool.dev";
-pub(crate) const REPO_URL: &str = "https://github.com/bufferclick/fnh";
-pub(crate) const RELEASES_URL: &str = "https://github.com/bufferclick/fnh/releases/latest";
+use crate::content::{self, ShortcutTarget};
+use crate::icons;
+use crate::inst_icons;
+use crate::job::{self, LaunchExtras};
+use crate::log;
+use crate::look::{
+    MONO_FONT, Theme, UI_FONT, accent_button, apply_text_key, brand_mark, chip, instance_summary,
+    menu_frame, menu_row, menu_separator, push_button, status_banner, text_input, toolbar_button,
+    toolbar_separator, wide_bar_action, wide_bar_separator,
+};
+use crate::paths;
+use crate::prefs::{InstanceCfgStore, Prefs, SortMode, ViewMode};
+use crate::reset;
+use crate::win_dialogs::{
+    IconPickerWindow, ModBrowserWindow, NewInstanceWindow, UtilityMode, UtilityWindow,
+};
+use crate::win_instance::{InstancePage, InstanceWindow};
+use crate::win_settings::{SettingsPage, SettingsWindow};
 
-/// Popup menu currently open over `MainWindow`.
-#[derive(Clone, PartialEq)]
-pub(crate) enum Menu {
-    Folders,
-    Help,
-    Accounts,
-    Instance { id: String, x: f32, y: f32 },
-}
-
-/// Active modal dialog over `MainWindow`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Dialog {
-    AddInstance,
-    EditInstance,
-    Settings,
-    Accounts,
-    SignIn,
-    FabricVersions,
-    LauncherLog,
-    Rename,
-    ChangeGroup,
-    CopyInstance,
-    ConfirmDelete,
-    About,
-}
-
-/// Sidebar tab in `Add Instance...` (`NewInstanceDialog`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NewKind {
-    Custom,
-    Horizon,
-}
-
-/// Loader choice for a new Minecraft: Java Edition instance.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NewLoader {
-    Fabric,
-    Vanilla,
-}
-
-/// Sidebar page inside `Edit...` (`InstanceWindow`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EditPage {
-    Log,
-    Version,
-    Mods,
-    Worlds,
-    Settings,
-}
-
-/// Sidebar page inside `Settings...`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SettingsPage {
-    Ui,
-    Minecraft,
-    Launcher,
-}
-
-/// Which `text_box` currently receives typed characters and clipboard paste.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Field {
-    NewName,
-    NewGroup,
-    NewVersionFilter,
-    ModFilter,
-    EditName,
-    EditGroup,
-    EditMemory,
-    EditJvmArgs,
-    EditWinW,
-    EditWinH,
-    EditPreLaunch,
-    EditWrapper,
-    PromptText,
-    FabricMcVersion,
-}
-
-/// One mod file inside an instance's `mods/` directory.
+/// Destination when `IconPickerWindow` confirms an icon key.
 #[derive(Clone)]
-pub(crate) struct ModEntry {
-    pub file_name: String,
-    pub display: String,
-    pub path: PathBuf,
-    pub enabled: bool,
-    pub size: u64,
+pub enum IconTarget {
+    Instance(String),
+    NewInstance(WeakEntity<NewInstanceWindow>),
 }
 
-/// Async result slot shared with short metadata-loading threads.
-type AsyncSlot<T> = Arc<Mutex<Option<Result<T, String>>>>;
+/// Shared launcher state observed by `MainWindow` and every secondary OS window.
+pub struct Fh {
+    pub prefs: Prefs,
+    pub cfgs: InstanceCfgStore,
+    pub instances: Vec<Instance>,
+    pub selected_id: Option<String>,
+    pub notice: Option<String>,
 
-/// State of the `Add Instance...` dialog.
-pub(crate) struct NewInstanceForm {
-    pub kind: NewKind,
-    pub name: String,
-    pub name_touched: bool,
-    pub group: String,
-    pub colour_idx: usize,
-    pub mc_version: String,
-    pub filter: String,
-    pub show_releases: bool,
-    pub show_snapshots: bool,
-    pub show_betas: bool,
-    pub show_alphas: bool,
-    pub loader: NewLoader,
-    pub fabric_version: Option<String>,
-    pub creating: bool,
-    pub error: Option<String>,
+    instance_windows: HashMap<String, WindowHandle<InstanceWindow>>,
+    settings_window: Option<WindowHandle<SettingsWindow>>,
+    new_instance_window: Option<WindowHandle<NewInstanceWindow>>,
+    icon_picker_window: Option<WindowHandle<IconPickerWindow>>,
+    mod_browser_windows: HashMap<String, WindowHandle<ModBrowserWindow>>,
+    utility_window: Option<WindowHandle<UtilityWindow>>,
+
+    seen_event_seq: u64,
+    was_busy: bool,
 }
 
-impl Default for NewInstanceForm {
-    fn default() -> Self {
-        Self {
-            kind: NewKind::Custom,
-            name: String::new(),
-            name_touched: false,
-            group: String::new(),
-            colour_idx: 0,
-            mc_version: String::new(),
-            filter: String::new(),
-            show_releases: true,
-            show_snapshots: false,
-            show_betas: false,
-            show_alphas: false,
-            loader: NewLoader::Fabric,
-            fabric_version: None,
-            creating: false,
-            error: None,
+impl Fh {
+    pub fn new(after_reset: bool) -> Self {
+        let prefs = Prefs::load();
+        prefs.apply_proxy_env();
+        let cfgs = InstanceCfgStore::load();
+        let mut s = Self {
+            prefs,
+            cfgs,
+            instances: Vec::new(),
+            selected_id: None,
+            notice: after_reset.then(|| {
+                "Factory reset complete — FNH has been restored to a clean slate.".to_owned()
+            }),
+            instance_windows: HashMap::new(),
+            settings_window: None,
+            new_instance_window: None,
+            icon_picker_window: None,
+            mod_browser_windows: HashMap::new(),
+            utility_window: None,
+            seen_event_seq: 0,
+            was_busy: false,
+        };
+        s.reload_instances();
+        if s.prefs.remember_selected_instance {
+            let sel = inst::selected();
+            if s.instances.iter().any(|i| i.id == sel.id) {
+                s.selected_id = Some(sel.id);
+            }
+        }
+        s
+    }
+
+    pub fn reload_instances(&mut self) {
+        self.instances = content::user_instances();
+        self.sort_instances();
+        let valid = self
+            .selected_id
+            .as_ref()
+            .is_some_and(|id| self.instances.iter().any(|i| &i.id == id));
+        if !valid {
+            self.selected_id = self.instances.first().map(|i| i.id.clone());
+        }
+    }
+
+    pub fn sort_instances(&mut self) {
+        let mode = self.prefs.sort_mode;
+        let cfgs = &self.cfgs;
+        self.instances.sort_by(|a, b| match mode {
+            SortMode::Name => a
+                .name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase()),
+            SortMode::LastLaunched => {
+                let la = cfgs.get(&a.id).last_launched;
+                let lb = cfgs.get(&b.id).last_launched;
+                lb.cmp(&la)
+                    .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()))
+            }
+            SortMode::PlayTime => b
+                .played
+                .cmp(&a.played)
+                .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase())),
+        });
+    }
+
+    pub fn select_instance(&mut self, id: &str) {
+        if self.instances.iter().any(|i| i.id == id) {
+            self.selected_id = Some(id.to_owned());
+            if self.prefs.remember_selected_instance {
+                let _ = inst::select(id);
+            }
+        }
+    }
+
+    pub fn selected_instance(&self) -> Option<Instance> {
+        let id = self.selected_id.as_deref()?;
+        self.instances.iter().find(|i| i.id == id).cloned()
+    }
+
+    pub fn existing_groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = self
+            .instances
+            .iter()
+            .filter_map(|i| i.group.as_ref().map(|g| g.trim().to_owned()))
+            .filter(|g| !g.is_empty())
+            .collect();
+        groups.sort_by_key(|g| g.to_ascii_lowercase());
+        groups.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        groups
+    }
+
+    pub fn apply_picked_icon(
+        &mut self,
+        target: IconTarget,
+        key: String,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            IconTarget::Instance(id) => {
+                self.cfgs.update(&id, |c| c.icon_key = Some(key));
+                cx.notify();
+            }
+            IconTarget::NewInstance(weak) => {
+                let _ = weak.update(cx, |win, cx| win.set_icon(key, cx));
+            }
+        }
+    }
+
+    pub fn launch_instance(
+        &mut self,
+        id: &str,
+        extras: LaunchExtras,
+        cx: &mut Context<Self>,
+    ) {
+        if job::busy() {
+            self.notice = Some("A game or background task is already running.".into());
+            cx.notify();
+            return;
+        }
+        let Some(instance) = self
+            .instances
+            .iter()
+            .find(|i| i.id == id)
+            .cloned()
+            .or_else(|| inst::find(id).ok())
+        else {
+            return;
+        };
+
+        self.select_instance(&instance.id);
+        let now = content::now_secs();
+        self.cfgs.update(&instance.id, |c| c.last_launched = now);
+        self.sort_instances();
+
+        let cfg = self.cfgs.get(&instance.id);
+        let show_console = self.prefs.effective_show_console_on_launch(&cfg);
+        let inst_id = instance.id.clone();
+
+        job::play(instance, self.prefs.clone(), cfg, extras);
+
+        if show_console {
+            self.open_instance_window(&inst_id, InstancePage::Log, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn open_instance_window(
+        &mut self,
+        id: &str,
+        page: InstancePage,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(handle) = self.instance_windows.get(id).copied() {
+            let ok = handle.update(cx, |view, window, cx| {
+                view.set_page(page, cx);
+                window.activate_window();
+            });
+            if ok.is_ok() {
+                return;
+            }
+            self.instance_windows.remove(id);
+        }
+        let me = cx.entity().clone();
+        let id_owned = id.to_owned();
+        cx.defer(move |cx| {
+            if let Some(h) = InstanceWindow::open(me.clone(), id_owned.clone(), page, cx) {
+                me.update(cx, |app, _| {
+                    app.instance_windows.insert(id_owned, h);
+                });
+            }
+        });
+    }
+
+    pub fn close_instance_window(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(handle) = self.instance_windows.remove(id) {
+            let _ = handle.update(cx, |_, window, _| {
+                window.remove_window();
+            });
+        }
+    }
+
+    pub fn open_settings_window(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
+        if let Some(handle) = self.settings_window {
+            let ok = handle.update(cx, |view, window, cx| {
+                view.set_page(page, cx);
+                window.activate_window();
+            });
+            if ok.is_ok() {
+                return;
+            }
+            self.settings_window = None;
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = SettingsWindow::open(me.clone(), page, cx) {
+                me.update(cx, |app, _| {
+                    app.settings_window = Some(h);
+                });
+            }
+        });
+    }
+
+    pub fn open_new_instance_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.new_instance_window {
+            let ok = handle.update(cx, |_, window, _| {
+                window.activate_window();
+            });
+            if ok.is_ok() {
+                return;
+            }
+            self.new_instance_window = None;
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = NewInstanceWindow::open(me.clone(), cx) {
+                me.update(cx, |app, _| {
+                    app.new_instance_window = Some(h);
+                });
+            }
+        });
+    }
+
+    pub fn open_icon_picker(
+        &mut self,
+        target: IconTarget,
+        current_key: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(handle) = self.icon_picker_window.take() {
+            let _ = handle.update(cx, |_, window, _| {
+                window.remove_window();
+            });
+        }
+        let me = cx.entity().clone();
+        let init = current_key.to_owned();
+        cx.defer(move |cx| {
+            if let Some(h) = IconPickerWindow::open(me.clone(), target, init, cx) {
+                me.update(cx, |app, _| {
+                    app.icon_picker_window = Some(h);
+                });
+            }
+        });
+    }
+
+    pub fn open_mod_browser(
+        &mut self,
+        instance: Instance,
+        kind: BrowseKind,
+        cx: &mut Context<Self>,
+    ) {
+        let key = format!("{}:{:?}", instance.id, kind);
+        if let Some(handle) = self.mod_browser_windows.get(&key).copied() {
+            let ok = handle.update(cx, |_, window, _| {
+                window.activate_window();
+            });
+            if ok.is_ok() {
+                return;
+            }
+            self.mod_browser_windows.remove(&key);
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = ModBrowserWindow::open(me.clone(), instance, kind, cx) {
+                me.update(cx, |app, _| {
+                    app.mod_browser_windows.insert(key, h);
+                });
+            }
+        });
+    }
+
+    pub fn open_utility_window(&mut self, mode: UtilityMode, cx: &mut Context<Self>) {
+        if let Some(handle) = self.utility_window.take() {
+            let _ = handle.update(cx, |_, window, _| {
+                window.remove_window();
+            });
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = UtilityWindow::open(me.clone(), mode, cx) {
+                me.update(cx, |app, _| {
+                    app.utility_window = Some(h);
+                });
+            }
+        });
+    }
+
+    pub fn open_fabric_versions_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.utility_window.take() {
+            let _ = handle.update(cx, |_, window, _| {
+                window.remove_window();
+            });
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = UtilityWindow::open_fabric_versions(me.clone(), cx) {
+                me.update(cx, |app, _| {
+                    app.utility_window = Some(h);
+                });
+            }
+        });
+    }
+
+    pub fn poll_job_events(&mut self, cx: &mut Context<Self>) {
+        let st = job::status();
+        let now_busy = st.as_ref().is_some_and(|s| s.busy);
+        let mut changed = now_busy != self.was_busy;
+        self.was_busy = now_busy;
+
+        if let Some(s) = st {
+            if s.event_seq != self.seen_event_seq {
+                self.seen_event_seq = s.event_seq;
+                changed = true;
+
+                if s.done {
+                    self.reload_instances();
+                    if let Some(inst_id) = s.instance_id.as_deref() {
+                        let cfg = self.cfgs.get(inst_id);
+                        if s.crashed && self.prefs.effective_show_console_on_crash(&cfg) {
+                            self.open_instance_window(inst_id, InstancePage::Log, cx);
+                        } else if !s.crashed
+                            && !s.failed
+                            && self.prefs.effective_close_console_on_exit(&cfg)
+                        {
+                            self.close_instance_window(inst_id, cx);
+                        }
+                        if !s.crashed && !s.failed && self.prefs.quit_launcher_on_exit {
+                            cx.quit();
+                        }
+                    }
+                }
+            }
+        }
+
+        if changed {
+            cx.notify();
         }
     }
 }
 
-/// State of the `Edit...` (`InstanceWindow`) dialog.
-#[derive(Default)]
-pub(crate) struct EditState {
-    pub instance_id: String,
-    pub page: EditPage,
-    pub mods: Vec<ModEntry>,
-    pub selected_mod: Option<String>,
-    pub mod_filter: String,
-    pub worlds: Vec<World>,
-    pub selected_world: Option<String>,
-    pub log_lines: Vec<String>,
-    pub name: String,
-    pub group: String,
-    pub memory_mb: String,
-    pub jvm_args: String,
-    pub win_w: String,
-    pub win_h: String,
-    pub pre_launch: String,
-    pub wrapper: String,
-    pub working: bool,
-    pub notice: Option<(String, bool)>,
+// ================================================================================================
+// MainWindow ("FNH 1.6")
+// ================================================================================================
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TopFlyout {
+    Folders,
+    View,
+    Help,
+    Account,
 }
 
-impl Default for EditPage {
-    fn default() -> Self {
-        Self::Version
-    }
+pub struct MainWindow {
+    app: Entity<Fh>,
+    focus: FocusHandle,
+    search: String,
+    search_focused: bool,
+    flyout: Option<TopFlyout>,
 }
 
-/// State of the `Fabric Versions` dialog (`Help -> Fabric Versions...` or `Change Version...`).
-#[derive(Default)]
-pub(crate) struct FabricDialogState {
-    pub mc_version: String,
-    pub target_instance: Option<String>,
-    pub versions: Vec<Listed>,
-    pub selected: Option<String>,
-    pub loading: bool,
-    pub error: Option<String>,
-}
-
-/// The FNH Windows 11 launcher view.
-pub struct Fh {
-    pub(crate) focus: FocusHandle,
-    _appearance: Subscription,
-    pub(crate) prefs: Prefs,
-    pub(crate) instances: Vec<Instance>,
-    pub(crate) selected_id: Option<String>,
-    pub(crate) accounts: Accounts,
-    pub(crate) selected_account: Option<String>,
-    pub(crate) menu: Option<Menu>,
-    pub(crate) dialog: Option<Dialog>,
-    pub(crate) field: Option<Field>,
-    pub(crate) status: Status,
-    pub(crate) notice: Option<(String, bool)>,
-    last_code_seen: String,
-    was_busy: bool,
-
-    // Dialog states.
-    pub(crate) new_form: NewInstanceForm,
-    pub(crate) edit: EditState,
-    pub(crate) settings_page: SettingsPage,
-    pub(crate) runtimes: Vec<java::Runtime>,
-    pub(crate) fabric_dlg: FabricDialogState,
-    pub(crate) launcher_log: Vec<String>,
-    pub(crate) prompt_target: String,
-    pub(crate) prompt_text: String,
-    pub(crate) prompt_error: Option<String>,
-
-    // Metadata caches and background channels.
-    pub(crate) mc_versions: Option<Versions>,
-    pub(crate) mc_loading: bool,
-    pub(crate) mc_error: Option<String>,
-    mc_slot: AsyncSlot<Versions>,
-    fabric_slot: AsyncSlot<(String, Vec<Listed>)>,
-    create_slot: AsyncSlot<Instance>,
-    loader_slot: AsyncSlot<Instance>,
-}
-
-impl Fh {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+impl MainWindow {
+    pub fn new(app: Entity<Fh>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        let appearance = cx.observe_window_appearance(window, |_, _, cx| cx.notify());
 
-        let prefs = Prefs::load();
-        let instances = load_visible_instances(prefs.sort);
-        let saved_pick = backend::Settings::load().instance;
-        let selected_id = saved_pick
-            .filter(|id| instances.iter().any(|inst| &inst.id == id))
-            .or_else(|| instances.first().map(|inst| inst.id.clone()));
-        let accounts = Accounts::load();
-        let selected_account = accounts
-            .selected()
-            .map(|a| a.uuid.clone())
-            .or_else(|| accounts.accounts.first().map(|a| a.uuid.clone()));
-
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_millis(100))
-                .await;
-            if this.update(cx, |this, cx| this.tick(cx)).is_err() {
-                break;
+        let app_poll = app.clone();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                let ok = this.update(cx, |_, cx| {
+                    app_poll.update(cx, |fh, cx| fh.poll_job_events(cx));
+                    if job::busy() {
+                        cx.notify();
+                    }
+                });
+                if ok.is_err() {
+                    break;
+                }
             }
         })
         .detach();
 
         Self {
+            app,
             focus,
-            _appearance: appearance,
-            prefs,
-            instances,
-            selected_id,
-            accounts,
-            selected_account,
-            menu: None,
-            dialog: None,
-            field: None,
-            status: job::status().unwrap_or_default(),
-            notice: None,
-            last_code_seen: String::new(),
-            was_busy: false,
-            new_form: NewInstanceForm::default(),
-            edit: EditState::default(),
-            settings_page: SettingsPage::Ui,
-            runtimes: Vec::new(),
-            fabric_dlg: FabricDialogState::default(),
-            launcher_log: Vec::new(),
-            prompt_target: String::new(),
-            prompt_text: String::new(),
-            prompt_error: None,
-            mc_versions: None,
-            mc_loading: false,
-            mc_error: None,
-            mc_slot: Arc::new(Mutex::new(None)),
-            fabric_slot: Arc::new(Mutex::new(None)),
-            create_slot: Arc::new(Mutex::new(None)),
-            loader_slot: Arc::new(Mutex::new(None)),
+            search: String::new(),
+            search_focused: false,
+            flyout: None,
         }
     }
 
-    /// Periodic poll for launch status, Microsoft device-code prompts and metadata fetches.
-    fn tick(&mut self, cx: &mut Context<Self>) {
-        let mut dirty = false;
-
-        let next = job::status().unwrap_or_default();
-        if next != self.status {
-            if let Some((code, _)) = next.code.as_ref() {
-                if code != &self.last_code_seen {
-                    self.last_code_seen = code.clone();
-                    let _ = log::copy(code);
-                    cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
-                    self.dialog = Some(Dialog::SignIn);
-                    self.menu = None;
-                }
-            } else {
-                self.last_code_seen.clear();
-            }
-            if self.was_busy && !next.busy {
-                self.reload_instances();
-                self.reload_accounts();
-                if self.dialog == Some(Dialog::SignIn) && !next.failed {
-                    self.dialog = None;
-                    if let Some(acc) = self.accounts.selected() {
-                        self.say(format!("Signed in as {}.", acc.name), false);
-                    }
-                } else if next.done && !next.line.is_empty() {
-                    self.say(next.line.clone(), false);
-                }
-                if self.dialog == Some(Dialog::EditInstance)
-                    && self.edit.page == EditPage::Log
-                {
-                    self.reload_edit_log();
-                }
-            }
-            self.was_busy = next.busy;
-            self.status = next;
-            dirty = true;
-        }
-
-        if let Some(outcome) = take_slot(&self.mc_slot) {
-            self.mc_loading = false;
-            match outcome {
-                Ok(list) => {
-                    if self.new_form.mc_version.is_empty() {
-                        let pick = list.latest_release.clone();
-                        self.pick_new_mc_version(&pick);
-                    }
-                    if self.fabric_dlg.mc_version.is_empty() {
-                        self.fabric_dlg.mc_version = list.latest_release.clone();
-                        if self.dialog == Some(Dialog::FabricVersions) {
-                            self.fetch_fabric_versions();
-                        }
-                    }
-                    self.mc_versions = Some(list);
-                    self.mc_error = None;
-                }
-                Err(err) => self.mc_error = Some(err),
-            }
-            dirty = true;
-        }
-
-        if let Some(outcome) = take_slot(&self.fabric_slot) {
-            self.fabric_dlg.loading = false;
-            match outcome {
-                Ok((mc, list)) => {
-                    if mc == self.fabric_dlg.mc_version {
-                        self.fabric_dlg.selected = list
-                            .iter()
-                            .find(|l| l.stable)
-                            .or_else(|| list.first())
-                            .map(|l| l.version.clone());
-                        self.fabric_dlg.versions = list;
-                        self.fabric_dlg.error = None;
-                    }
-                }
-                Err(err) => {
-                    self.fabric_dlg.versions.clear();
-                    self.fabric_dlg.error = Some(err);
-                }
-            }
-            dirty = true;
-        }
-
-        if let Some(outcome) = take_slot(&self.create_slot) {
-            self.new_form.creating = false;
-            match outcome {
-                Ok(created) => {
-                    let name = created.name.clone();
-                    let id = created.id.clone();
-                    self.reload_instances();
-                    self.select_instance(Some(id));
-                    self.dialog = None;
-                    self.field = None;
-                    self.say(format!("Created instance \"{name}\"."), false);
-                }
-                Err(err) => self.new_form.error = Some(err),
-            }
-            dirty = true;
-        }
-
-        if let Some(outcome) = take_slot(&self.loader_slot) {
-            self.edit.working = false;
-            match outcome {
-                Ok(updated) => {
-                    let msg = match updated.java.as_ref().and_then(|j| j.loader.as_ref()) {
-                        Some(loader) => {
-                            format!("Installed {} {}.", loader.kind.name(), loader.version)
-                        }
-                        None => "Updated instance loader.".into(),
-                    };
-                    self.reload_instances();
-                    self.edit.notice = Some((msg.clone(), false));
-                    if self.dialog == Some(Dialog::FabricVersions) {
-                        self.dialog = Some(Dialog::EditInstance);
-                    }
-                    self.say(msg, false);
-                }
-                Err(err) => {
-                    self.edit.notice = Some((err.clone(), true));
-                    if self.dialog == Some(Dialog::FabricVersions) {
-                        self.fabric_dlg.error = Some(err);
-                    }
-                }
-            }
-            dirty = true;
-        }
-
-        if dirty {
-            cx.notify();
-        }
-    }
-
-    // ----- Data helpers -------------------------------------------------------------------------
-
-    pub(crate) fn say(&mut self, text: impl Into<String>, is_error: bool) {
-        self.notice = Some((text.into(), is_error));
-    }
-
-    pub(crate) fn reload_instances(&mut self) {
-        self.instances = load_visible_instances(self.prefs.sort);
-        if let Some(sel) = &self.selected_id {
-            if !self.instances.iter().any(|i| &i.id == sel) {
-                self.selected_id = self.instances.first().map(|i| i.id.clone());
-            }
-        }
-    }
-
-    pub(crate) fn reload_accounts(&mut self) {
-        self.accounts = Accounts::load();
-        if let Some(sel) = &self.selected_account {
-            if !self.accounts.accounts.iter().any(|a| &a.uuid == sel) {
-                self.selected_account = self
-                    .accounts
-                    .selected()
-                    .map(|a| a.uuid.clone())
-                    .or_else(|| self.accounts.accounts.first().map(|a| a.uuid.clone()));
-            }
+    fn toggle_flyout(&mut self, which: TopFlyout, cx: &mut Context<Self>) {
+        if self.flyout == Some(which) {
+            self.flyout = None;
         } else {
-            self.selected_account = self
-                .accounts
-                .selected()
-                .map(|a| a.uuid.clone())
-                .or_else(|| self.accounts.accounts.first().map(|a| a.uuid.clone()));
+            self.flyout = Some(which);
         }
-    }
-
-    pub(crate) fn selected(&self) -> Option<&Instance> {
-        let id = self.selected_id.as_deref()?;
-        self.instances.iter().find(|i| i.id == id)
-    }
-
-    pub(crate) fn find_instance(&self, id: &str) -> Option<&Instance> {
-        self.instances.iter().find(|i| i.id == id)
-    }
-
-    pub(crate) fn select_instance(&mut self, id: Option<String>) {
-        self.selected_id = id.clone();
-        self.notice = None;
-        if let Some(id) = id {
-            let _ = inst::select(&id);
-        }
-    }
-
-    pub(crate) fn existing_groups(&self) -> Vec<String> {
-        let mut groups: Vec<String> = Vec::new();
-        for instance in &self.instances {
-            if let Some(group) = instance.group.as_deref().map(str::trim).filter(|g| !g.is_empty())
-            {
-                if !groups.iter().any(|g| g.eq_ignore_ascii_case(group)) {
-                    groups.push(group.to_owned());
-                }
-            }
-        }
-        groups.sort_by_key(|g| g.to_ascii_lowercase());
-        groups
-    }
-
-    // ----- Actions ------------------------------------------------------------------------------
-
-    /// Handles a click on `Add Instance...`: `Ctrl + Shift + Alt` performs a full factory reset
-    /// and relaunches `FH.exe`; any ordinary click opens `NewInstanceDialog`.
-    pub(crate) fn on_add_instance_click(
-        &mut self,
-        event: &ClickEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.menu = None;
-        if reset::is_reset_click(event) {
-            log::line("Factory reset requested (Ctrl+Shift+Alt + Add Instance).");
-            match reset::wipe_and_relaunch() {
-                Ok(()) => {
-                    cx.quit();
-                    return;
-                }
-                Err(err) => {
-                    self.say(err, true);
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-        self.open_add_instance();
         cx.notify();
     }
 
-    pub(crate) fn open_add_instance(&mut self) {
-        self.menu = None;
-        let colour_idx = self.instances.len() % ICON_PALETTE.len();
-        let mut form = NewInstanceForm {
-            colour_idx,
-            ..NewInstanceForm::default()
-        };
-        if let Some(list) = &self.mc_versions {
-            form.mc_version = list.latest_release.clone();
-            form.name = list.latest_release.clone();
-        } else {
-            self.fetch_mc_versions(false);
+    fn on_key_down(&mut self, ev: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let key = ev.keystroke.key.as_str();
+        let ctrl = ev.keystroke.modifiers.control || ev.keystroke.modifiers.platform;
+
+        if key == "escape" {
+            if self.flyout.is_some() {
+                self.flyout = None;
+                cx.notify();
+            } else if self.search_focused {
+                self.search_focused = false;
+                cx.notify();
+            }
+            return;
         }
-        self.new_form = form;
-        self.dialog = Some(Dialog::AddInstance);
-        self.field = Some(Field::NewName);
+
+        if ctrl && key.eq_ignore_ascii_case("n") {
+            self.app.update(cx, |a, cx| a.open_new_instance_window(cx));
+            return;
+        }
+        if ctrl && key == "," {
+            self.app
+                .update(cx, |a, cx| a.open_settings_window(SettingsPage::Launcher, cx));
+            return;
+        }
+        if ctrl && key.eq_ignore_ascii_case("f") {
+            self.search_focused = true;
+            cx.notify();
+            return;
+        }
+
+        if self.search_focused {
+            if apply_text_key(&mut self.search, ev, false, cx) {
+                cx.notify();
+            }
+            return;
+        }
+
+        if key == "enter" {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                self.app.update(cx, |a, cx| {
+                    a.launch_instance(&sel.id, LaunchExtras::default(), cx);
+                });
+            }
+        } else if key == "delete" {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                self.request_delete(&sel, cx);
+            }
+        }
     }
 
-    pub(crate) fn pick_new_mc_version(&mut self, version: &str) {
-        self.new_form.mc_version = version.to_owned();
-        self.new_form.fabric_version = None;
-        if !self.new_form.name_touched || self.new_form.name.trim().is_empty() {
-            self.new_form.name = version.to_owned();
-        }
-    }
-
-    pub(crate) fn set_new_kind(&mut self, kind: NewKind) {
-        self.new_form.kind = kind;
-        self.new_form.error = None;
-        if !self.new_form.name_touched || self.new_form.name.trim().is_empty() {
-            self.new_form.name = match kind {
-                NewKind::Horizon => "Horizon".into(),
-                NewKind::Custom => self.new_form.mc_version.clone(),
+    fn request_delete(&mut self, inst: &Instance, cx: &mut Context<Self>) {
+        let confirm = self.app.read(cx).prefs.confirm_delete;
+        if confirm {
+            let mode = UtilityMode::Delete {
+                id: inst.id.clone(),
+                name: inst.name.clone(),
             };
-        }
-    }
-
-    pub(crate) fn fetch_mc_versions(&mut self, force: bool) {
-        if self.mc_loading {
-            return;
-        }
-        if force {
-            let cache = backend::data_dir()
-                .join("minecraft")
-                .join("version_manifest_v2.json");
-            let _ = std::fs::remove_file(cache);
-        }
-        self.mc_loading = true;
-        self.mc_error = None;
-        let slot = Arc::clone(&self.mc_slot);
-        std::thread::spawn(move || {
-            let res = minecraft_versions::load();
-            if let Ok(mut out) = slot.lock() {
-                *out = Some(res);
-            }
-        });
-    }
-
-    pub(crate) fn submit_add_instance(&mut self) {
-        if self.new_form.creating {
-            return;
-        }
-        let kind = self.new_form.kind;
-        let fallback = match kind {
-            NewKind::Horizon => "Horizon".to_owned(),
-            NewKind::Custom => self.new_form.mc_version.clone(),
-        };
-        let raw_name = self.new_form.name.trim();
-        let name = if raw_name.is_empty() {
-            fallback
+            self.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
         } else {
-            raw_name.to_owned()
-        };
-        if name.trim().is_empty() {
-            self.new_form.error = Some("Enter an instance name first.".into());
-            return;
-        }
-        let group = Some(self.new_form.group.trim().to_owned()).filter(|g| !g.is_empty());
-        let icon = Some(Icon::Colour(
-            ICON_PALETTE[self.new_form.colour_idx % ICON_PALETTE.len()].to_owned(),
-        ));
-
-        match kind {
-            NewKind::Horizon => {
-                let default_active =
-                    reset::has_default_horizon_data(&backend::data_dir(), &backend::game_home());
-                let result = if !default_active && name.eq_ignore_ascii_case("Horizon") {
-                    let _ = std::fs::create_dir_all(backend::game_home());
-                    inst::edit("horizon", |meta| {
-                        meta.name = Some("Horizon".into());
-                        meta.group = group;
-                        meta.icon = icon;
-                    })
-                } else {
-                    inst::create(&name, None).and_then(|made| {
-                        inst::edit(&made.id, |meta| {
-                            meta.group = group;
-                            meta.icon = icon;
-                        })
-                    })
-                };
-                match result {
-                    Ok(created) => {
-                        let created_name = created.name.clone();
-                        let created_id = created.id.clone();
-                        self.reload_instances();
-                        self.select_instance(Some(created_id));
-                        self.dialog = None;
-                        self.field = None;
-                        self.say(format!("Created instance \"{created_name}\"."), false);
-                    }
-                    Err(err) => self.new_form.error = Some(err),
-                }
-            }
-            NewKind::Custom => {
-                let mc = self.new_form.mc_version.trim().to_owned();
-                if mc.is_empty() {
-                    self.new_form.error = Some("Select a Minecraft version from the list.".into());
-                    return;
-                }
-                let loader = self.new_form.loader;
-                let fabric_ver = self.new_form.fabric_version.clone();
-                self.new_form.creating = true;
-                self.new_form.error = None;
-                let slot = Arc::clone(&self.create_slot);
-                std::thread::spawn(move || {
-                    let outcome = (|| -> Result<Instance, String> {
-                        let chosen_loader: Option<Loader> = match loader {
-                            NewLoader::Vanilla => None,
-                            NewLoader::Fabric => {
-                                Some(loaders::choose("fabric", &mc, fabric_ver.as_deref())?)
-                            }
-                        };
-                        let made = inst::create_java(&name, &mc)?;
-                        inst::edit(&made.id, |meta| {
-                            meta.group = group;
-                            meta.icon = icon;
-                            if let Some(java) = meta.java.as_mut() {
-                                java.loader = chosen_loader;
-                            }
-                        })
-                    })();
-                    if let Ok(mut out) = slot.lock() {
-                        *out = Some(outcome);
-                    }
-                });
-            }
-        }
-    }
-
-    pub(crate) fn launch_id(&mut self, id: &str) {
-        self.menu = None;
-        if self.status.busy {
-            self.say("An instance or task is already running.", true);
-            return;
-        }
-        let Some(instance) = self.find_instance(id).cloned() else {
-            return;
-        };
-        let _ = inst::select(&instance.id);
-        self.selected_id = Some(instance.id.clone());
-        job::clear();
-        job::play(instance);
-        self.status = job::status().unwrap_or_default();
-        self.was_busy = self.status.busy;
-    }
-
-    pub(crate) fn launch_selected(&mut self) {
-        if let Some(id) = self.selected_id.clone() {
-            self.launch_id(&id);
-        }
-    }
-
-    pub(crate) fn kill_running(&mut self) {
-        self.menu = None;
-        if job::kill() {
-            self.status = job::status().unwrap_or_default();
-            self.say("Stopping the running instance…", false);
-        }
-    }
-
-    pub(crate) fn open_edit(&mut self, id: &str, page: EditPage) {
-        self.menu = None;
-        let Some(instance) = self.find_instance(id).cloned() else {
-            return;
-        };
-        self.selected_id = Some(instance.id.clone());
-        let (memory_mb, jvm_args, win_w, win_h) = match &instance.java {
-            Some(java) => {
-                let (w, h) = java
-                    .window
-                    .map(|(w, h)| (w.to_string(), h.to_string()))
-                    .unwrap_or_default();
-                (
-                    java.memory_mb
-                        .unwrap_or(inst::DEFAULT_MEMORY_MB)
-                        .to_string(),
-                    java.jvm_args.clone(),
-                    w,
-                    h,
-                )
-            }
-            None => (String::new(), String::new(), String::new(), String::new()),
-        };
-        self.edit = EditState {
-            instance_id: instance.id.clone(),
-            page,
-            mods: list_mods(&instance.home),
-            selected_mod: None,
-            mod_filter: String::new(),
-            worlds: worlds::list(&instance.home),
-            selected_world: None,
-            log_lines: read_tail(&instance.home.join("logs").join("latest.log"), 400),
-            name: instance.name.clone(),
-            group: instance.group.clone().unwrap_or_default(),
-            memory_mb,
-            jvm_args,
-            win_w,
-            win_h,
-            pre_launch: instance.launch.pre_launch.clone(),
-            wrapper: instance.launch.wrapper.clone(),
-            working: false,
-            notice: None,
-        };
-        self.dialog = Some(Dialog::EditInstance);
-        self.field = None;
-    }
-
-    pub(crate) fn reload_edit_mods(&mut self) {
-        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
-            self.edit.mods = list_mods(&home);
-        }
-    }
-
-    pub(crate) fn reload_edit_worlds(&mut self) {
-        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
-            self.edit.worlds = worlds::list(&home);
-        }
-    }
-
-    pub(crate) fn reload_edit_log(&mut self) {
-        if let Some(home) = self.find_instance(&self.edit.instance_id).map(|i| i.home.clone()) {
-            self.edit.log_lines = read_tail(&home.join("logs").join("latest.log"), 400);
-        }
-    }
-
-    pub(crate) fn toggle_mod(&mut self, file_name: &str) {
-        let Some(entry) = self.edit.mods.iter().find(|m| m.file_name == file_name).cloned() else {
-            return;
-        };
-        let next_name = if entry.enabled {
-            format!("{}.disabled", entry.file_name)
-        } else {
-            entry
-                .file_name
-                .strip_suffix(".disabled")
-                .unwrap_or(&entry.file_name)
-                .to_owned()
-        };
-        let target = entry.path.with_file_name(&next_name);
-        match std::fs::rename(&entry.path, &target) {
-            Ok(()) => {
-                self.edit.selected_mod = Some(next_name);
-                self.reload_edit_mods();
-            }
-            Err(err) => self.edit.notice = Some((format!("Could not toggle mod: {err}"), true)),
-        }
-    }
-
-    pub(crate) fn delete_selected_mod(&mut self) {
-        let Some(sel) = self.edit.selected_mod.clone() else {
-            return;
-        };
-        let Some(entry) = self.edit.mods.iter().find(|m| m.file_name == sel).cloned() else {
-            return;
-        };
-        match std::fs::remove_file(&entry.path) {
-            Ok(()) => {
-                self.edit.selected_mod = None;
-                self.reload_edit_mods();
-                self.edit.notice = Some((format!("Removed {}.", entry.display), false));
-            }
-            Err(err) => self.edit.notice = Some((format!("Could not remove mod: {err}"), true)),
-        }
-    }
-
-    pub(crate) fn install_fabric_on(&mut self, id: &str, version: Option<String>) {
-        if self.edit.working {
-            return;
-        }
-        let Some(mc) = self
-            .find_instance(id)
-            .and_then(|i| i.java.as_ref())
-            .map(|j| j.minecraft.clone())
-        else {
-            return;
-        };
-        let id = id.to_owned();
-        self.edit.working = true;
-        self.edit.notice = Some(("Fetching Fabric Loader metadata…".into(), false));
-        let slot = Arc::clone(&self.loader_slot);
-        std::thread::spawn(move || {
-            let outcome = loaders::choose("fabric", &mc, version.as_deref()).and_then(|chosen| {
-                inst::edit(&id, |meta| {
-                    if let Some(java) = meta.java.as_mut() {
-                        java.loader = Some(chosen);
-                    }
-                })
+            let id = inst.id.clone();
+            let name = inst.name.clone();
+            let _ = inst::delete(&id);
+            self.app.update(cx, |a, cx| {
+                a.cfgs.remove(&id);
+                a.close_instance_window(&id, cx);
+                a.reload_instances();
+                a.notice = Some(format!("Deleted '{name}'."));
+                cx.notify();
             });
-            if let Ok(mut out) = slot.lock() {
-                *out = Some(outcome);
-            }
-        });
-    }
-
-    pub(crate) fn remove_loader_on(&mut self, id: &str) {
-        match inst::edit(id, |meta| {
-            if let Some(java) = meta.java.as_mut() {
-                java.loader = None;
-            }
-        }) {
-            Ok(_) => {
-                self.reload_instances();
-                self.edit.notice = Some(("Removed mod loader (instance is now Vanilla).".into(), false));
-            }
-            Err(err) => self.edit.notice = Some((err, true)),
         }
     }
 
-    pub(crate) fn save_edit_settings(&mut self) {
-        let id = self.edit.instance_id.clone();
-        let Some(current) = self.find_instance(&id).cloned() else {
-            return;
-        };
-        let name = self.edit.name.trim().to_owned();
-        if name.is_empty() {
-            self.edit.notice = Some(("Instance name cannot be empty.".into(), true));
-            return;
-        }
-        let parsed_memory: Option<u32> = if current.java.is_some() {
-            let raw = self.edit.memory_mb.trim();
-            if raw.is_empty() {
-                None
-            } else {
-                match raw.parse::<u32>() {
-                    Ok(mb) if (256..=65_536).contains(&mb) => Some(mb),
-                    _ => {
-                        self.edit.notice = Some((
-                            "Memory must be a number between 256 and 65536 MiB.".into(),
-                            true,
-                        ));
-                        return;
-                    }
-                }
-            }
-        } else {
-            None
-        };
-        let parsed_window: Option<(u32, u32)> = if current.java.is_some() {
-            let w = self.edit.win_w.trim();
-            let h = self.edit.win_h.trim();
-            if w.is_empty() && h.is_empty() {
-                None
-            } else {
-                match (w.parse::<u32>(), h.parse::<u32>()) {
-                    (Ok(w), Ok(h)) if w >= 320 && h >= 200 => Some((w, h)),
-                    _ => {
-                        self.edit.notice = Some((
-                            "Window size must be width × height in pixels (at least 320 × 200), or blank."
-                                .into(),
-                            true,
-                        ));
-                        return;
-                    }
-                }
-            }
-        } else {
-            None
-        };
-        let group = Some(self.edit.group.trim().to_owned()).filter(|g| !g.is_empty());
-        let jvm_args = self.edit.jvm_args.trim().to_owned();
-        let pre_launch = self.edit.pre_launch.trim().to_owned();
-        let wrapper = self.edit.wrapper.trim().to_owned();
-
-        match inst::edit(&id, |meta| {
-            meta.name = Some(name);
-            meta.group = group;
-            meta.launch.pre_launch = pre_launch;
-            meta.launch.wrapper = wrapper;
-            if let Some(java) = meta.java.as_mut() {
-                java.memory_mb = parsed_memory;
-                java.jvm_args = jvm_args;
-                java.window = parsed_window;
-            }
-        }) {
-            Ok(_) => {
-                self.reload_instances();
-                self.edit.notice = Some(("Saved instance settings.".into(), false));
-            }
-            Err(err) => self.edit.notice = Some((err, true)),
-        }
-    }
-
-    pub(crate) fn cycle_instance_colour(&mut self, id: &str) {
-        let Some(current) = self.find_instance(id) else {
-            return;
-        };
-        let next = look::next_palette_colour(current.icon.as_ref());
-        if inst::edit(id, |meta| meta.icon = Some(Icon::Colour(next))).is_ok() {
-            self.reload_instances();
-        }
-    }
-
-    pub(crate) fn set_instance_colour(&mut self, id: &str, colour: &str) {
-        if inst::edit(id, |meta| meta.icon = Some(Icon::Colour(colour.to_owned()))).is_ok() {
-            self.reload_instances();
-        }
-    }
-
-    pub(crate) fn open_prompt(&mut self, dialog: Dialog, id: &str) {
-        self.menu = None;
-        let Some(instance) = self.find_instance(id).cloned() else {
-            return;
-        };
-        self.selected_id = Some(instance.id.clone());
-        self.prompt_target = instance.id.clone();
-        self.prompt_error = None;
-        self.prompt_text = match dialog {
-            Dialog::Rename => instance.name,
-            Dialog::ChangeGroup => instance.group.unwrap_or_default(),
-            Dialog::CopyInstance => format!("{} (Copy)", instance.name),
-            Dialog::ConfirmDelete => instance.name,
-            _ => String::new(),
-        };
-        self.dialog = Some(dialog);
-        self.field = match dialog {
-            Dialog::ConfirmDelete => None,
-            _ => Some(Field::PromptText),
-        };
-    }
-
-    pub(crate) fn submit_prompt(&mut self) {
-        let Some(kind) = self.dialog else {
-            return;
-        };
-        let id = self.prompt_target.clone();
-        match kind {
-            Dialog::Rename => {
-                let name = self.prompt_text.trim().to_owned();
-                match inst::edit(&id, |meta| meta.name = Some(name)) {
-                    Ok(updated) => {
-                        let label = updated.name;
-                        self.reload_instances();
-                        self.dialog = None;
-                        self.field = None;
-                        self.say(format!("Renamed instance to \"{label}\"."), false);
-                    }
-                    Err(err) => self.prompt_error = Some(err),
-                }
-            }
-            Dialog::ChangeGroup => {
-                let group = Some(self.prompt_text.trim().to_owned()).filter(|g| !g.is_empty());
-                match inst::edit(&id, |meta| meta.group = group) {
-                    Ok(updated) => {
-                        let msg = match updated.group {
-                            Some(g) => format!("Moved \"{}\" to group \"{g}\".", updated.name),
-                            None => format!("Moved \"{}\" to Ungrouped.", updated.name),
-                        };
-                        self.reload_instances();
-                        self.dialog = None;
-                        self.field = None;
-                        self.say(msg, false);
-                    }
-                    Err(err) => self.prompt_error = Some(err),
-                }
-            }
-            Dialog::CopyInstance => {
-                let name = self.prompt_text.trim().to_owned();
-                match inst::create(&name, Some(&id)) {
-                    Ok(copy) => {
-                        let copy_id = copy.id.clone();
-                        let copy_name = copy.name.clone();
-                        self.reload_instances();
-                        self.select_instance(Some(copy_id));
-                        self.dialog = None;
-                        self.field = None;
-                        self.say(format!("Copied instance to \"{copy_name}\"."), false);
-                    }
-                    Err(err) => self.prompt_error = Some(err),
-                }
-            }
-            Dialog::ConfirmDelete => {
-                let Some(target) = self.find_instance(&id).cloned() else {
-                    self.dialog = None;
-                    return;
-                };
-                let outcome = if target.kind == InstanceKind::Default {
-                    reset::delete_default_horizon().map(|()| target.name.clone())
-                } else {
-                    inst::delete(&id).map(|gone| gone.name)
-                };
-                match outcome {
-                    Ok(gone) => {
-                        self.reload_instances();
-                        self.dialog = None;
-                        self.field = None;
-                        self.say(format!("Deleted instance \"{gone}\"."), false);
-                    }
-                    Err(err) => self.prompt_error = Some(err),
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub(crate) fn open_settings(&mut self, page: SettingsPage) {
-        self.menu = None;
-        self.settings_page = page;
-        self.refresh_runtimes();
-        self.dialog = Some(Dialog::Settings);
-        self.field = None;
-    }
-
-    pub(crate) fn refresh_runtimes(&mut self) {
-        let mut all = java::mojang_runtimes(&java::runtimes_dir());
-        for rt in java::installed() {
-            if !all.iter().any(|existing| existing.home == rt.home) {
-                all.push(rt);
-            }
-        }
-        self.runtimes = all;
-    }
-
-    pub(crate) fn open_accounts_dialog(&mut self) {
-        self.menu = None;
-        self.reload_accounts();
-        self.dialog = Some(Dialog::Accounts);
-        self.field = None;
-    }
-
-    pub(crate) fn start_microsoft_sign_in(&mut self) {
-        self.menu = None;
-        if self.status.busy {
-            if self.status.code.is_some() {
-                self.dialog = Some(Dialog::SignIn);
-            } else {
-                self.say("Wait for the current task to finish before signing in.", true);
-            }
-            return;
-        }
-        job::clear();
-        job::sign_in_now();
-        self.status = job::status().unwrap_or_default();
-        self.was_busy = true;
-        self.dialog = Some(Dialog::SignIn);
-        self.field = None;
-    }
-
-    pub(crate) fn switch_account(&mut self, uuid: &str) {
-        self.menu = None;
-        let mut accounts = Accounts::load();
-        if let Err(err) = accounts.play_as(uuid).and_then(|()| accounts.save()) {
-            self.say(err, true);
-            return;
-        }
-        self.reload_accounts();
-        self.selected_account = Some(uuid.to_owned());
-        if let Some(acc) = self.accounts.selected() {
-            self.say(format!("Active account: {}.", acc.name), false);
-        }
-    }
-
-    pub(crate) fn remove_account(&mut self, uuid: &str) {
-        let mut accounts = Accounts::load();
-        let name = accounts
-            .accounts
-            .iter()
-            .find(|a| a.uuid == uuid)
-            .map(|a| a.name.clone())
-            .unwrap_or_default();
-        if let Err(err) = accounts
-            .remove(account::store(), uuid)
-            .and_then(|()| accounts.save())
-        {
-            self.say(err, true);
-            return;
-        }
-        let _ = accounts.remove(account::keychain(), uuid);
-        self.reload_accounts();
-        self.say(format!("Removed account {name}."), false);
-    }
-
-    pub(crate) fn open_fabric_versions(&mut self, target_instance: Option<String>) {
-        self.menu = None;
-        let mc = target_instance
+    fn render_top_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let accs = account::Accounts::load();
+        let active_acc = accs
+            .selected
             .as_deref()
-            .and_then(|id| self.find_instance(id))
-            .and_then(|i| i.java.as_ref())
-            .map(|j| j.minecraft.clone())
-            .or_else(|| {
-                self.selected()
-                    .and_then(|i| i.java.as_ref())
-                    .map(|j| j.minecraft.clone())
-            })
-            .or_else(|| self.mc_versions.as_ref().map(|v| v.latest_release.clone()))
-            .unwrap_or_default();
-        self.fabric_dlg = FabricDialogState {
-            mc_version: mc,
-            target_instance,
-            versions: Vec::new(),
-            selected: None,
-            loading: false,
-            error: None,
-        };
-        self.dialog = Some(Dialog::FabricVersions);
-        self.field = Some(Field::FabricMcVersion);
-        if self.fabric_dlg.mc_version.is_empty() {
-            self.fetch_mc_versions(false);
-        } else {
-            self.fetch_fabric_versions();
-        }
-    }
-
-    pub(crate) fn fetch_fabric_versions(&mut self) {
-        let mc = self.fabric_dlg.mc_version.trim().to_owned();
-        if mc.is_empty() || self.fabric_dlg.loading {
-            return;
-        }
-        self.fabric_dlg.loading = true;
-        self.fabric_dlg.error = None;
-        let slot = Arc::clone(&self.fabric_slot);
-        std::thread::spawn(move || {
-            let res = loaders::versions(LoaderKind::Fabric, &mc, &backend::get_bytes)
-                .map(|list| (mc, list));
-            if let Ok(mut out) = slot.lock() {
-                *out = Some(res);
-            }
-        });
-    }
-
-    pub(crate) fn clear_metadata_cache(&mut self) {
-        self.menu = None;
-        let cache = backend::data_dir()
-            .join("minecraft")
-            .join("version_manifest_v2.json");
-        let _ = std::fs::remove_file(cache);
-        self.mc_versions = None;
-        self.mc_error = None;
-        self.fabric_dlg.versions.clear();
-        self.say("Cleared cached Minecraft and Fabric version metadata.", false);
-    }
-
-    pub(crate) fn open_launcher_log(&mut self) {
-        self.menu = None;
-        self.launcher_log = read_tail(log::path(), 400);
-        self.dialog = Some(Dialog::LauncherLog);
-        self.field = None;
-    }
-
-    pub(crate) fn open_dir(&mut self, path: PathBuf, create: bool) {
-        self.menu = None;
-        if create {
-            let _ = std::fs::create_dir_all(&path);
-        }
-        if let Err(err) = log::open_folder(&path) {
-            self.say(err, true);
-        }
-    }
-
-    pub(crate) fn open_web(&mut self, url: &str) {
-        self.menu = None;
-        if let Err(err) = log::open_url(url) {
-            self.say(err, true);
-        }
-    }
-
-    pub(crate) fn close_dialog(&mut self) {
-        self.dialog = None;
-        self.field = None;
-        self.prompt_error = None;
-    }
-
-    // ----- Keyboard input -----------------------------------------------------------------------
-
-    fn active_field_mut(&mut self) -> Option<&mut String> {
-        let field = self.field?;
-        match field {
-            Field::NewName => Some(&mut self.new_form.name),
-            Field::NewGroup => Some(&mut self.new_form.group),
-            Field::NewVersionFilter => Some(&mut self.new_form.filter),
-            Field::ModFilter => Some(&mut self.edit.mod_filter),
-            Field::EditName => Some(&mut self.edit.name),
-            Field::EditGroup => Some(&mut self.edit.group),
-            Field::EditMemory => Some(&mut self.edit.memory_mb),
-            Field::EditJvmArgs => Some(&mut self.edit.jvm_args),
-            Field::EditWinW => Some(&mut self.edit.win_w),
-            Field::EditWinH => Some(&mut self.edit.win_h),
-            Field::EditPreLaunch => Some(&mut self.edit.pre_launch),
-            Field::EditWrapper => Some(&mut self.edit.wrapper),
-            Field::PromptText => Some(&mut self.prompt_text),
-            Field::FabricMcVersion => Some(&mut self.fabric_dlg.mc_version),
-        }
-    }
-
-    fn on_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
-        let k = &ev.keystroke;
-        let ctrl = k.modifiers.control || k.modifiers.platform;
-
-        if k.key == "escape" {
-            if self.menu.take().is_some() {
-                cx.notify();
-                return;
-            }
-            if self.field.take().is_some() {
-                cx.notify();
-                return;
-            }
-            if self.dialog.is_some() {
-                self.close_dialog();
-                cx.notify();
-            }
-            return;
-        }
-
-        // Focused text box input.
-        if let Some(which) = self.field {
-            if k.key == "enter" {
-                match self.dialog {
-                    Some(Dialog::AddInstance) => self.submit_add_instance(),
-                    Some(Dialog::Rename | Dialog::ChangeGroup | Dialog::CopyInstance) => {
-                        self.submit_prompt()
-                    }
-                    Some(Dialog::FabricVersions) => self.fetch_fabric_versions(),
-                    Some(Dialog::EditInstance) if self.edit.page == EditPage::Settings => {
-                        self.save_edit_settings()
-                    }
-                    _ => {}
-                }
-                cx.notify();
-                return;
-            }
-            if k.key == "backspace" {
-                if ctrl {
-                    if let Some(buf) = self.active_field_mut() {
-                        buf.clear();
-                    }
-                } else if let Some(buf) = self.active_field_mut() {
-                    buf.pop();
-                }
-                if which == Field::NewName {
-                    self.new_form.name_touched = true;
-                }
-                cx.notify();
-                return;
-            }
-            if ctrl && k.key == "v" {
-                if let Some(clip) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                    let clean: String = clip
-                        .chars()
-                        .filter(|c| !c.is_control())
-                        .take(260)
-                        .collect();
-                    if let Some(buf) = self.active_field_mut() {
-                        buf.push_str(&clean);
-                    }
-                    if which == Field::NewName {
-                        self.new_form.name_touched = true;
-                    }
-                    cx.notify();
-                }
-                return;
-            }
-            if !ctrl && !k.modifiers.alt {
-                let typed = k.key_char.as_deref().or_else(|| {
-                    if k.key == "space" {
-                        Some(" ")
-                    } else if k.key.len() == 1 {
-                        Some(k.key.as_str())
-                    } else {
-                        None
-                    }
-                });
-                if let Some(ch) = typed {
-                    let clean: String = ch.chars().filter(|c| !c.is_control()).collect();
-                    if !clean.is_empty() {
-                        if let Some(buf) = self.active_field_mut() {
-                            if buf.chars().count() < 260 {
-                                buf.push_str(&clean);
-                            }
-                        }
-                        if which == Field::NewName {
-                            self.new_form.name_touched = true;
-                        }
-                        cx.notify();
-                        return;
-                    }
-                }
-            }
-            return;
-        }
-
-        // Dialog-level Enter when no field is focused.
-        if self.dialog.is_some() {
-            if k.key == "enter" {
-                match self.dialog {
-                    Some(Dialog::AddInstance) => self.submit_add_instance(),
-                    Some(Dialog::ConfirmDelete) => self.submit_prompt(),
-                    _ => {}
-                }
-                cx.notify();
-            }
-            return;
-        }
-
-        // JLac MainWindow shortcuts.
-        if ctrl && !k.modifiers.alt && !k.modifiers.shift {
-            match k.key.as_str() {
-                "n" => {
-                    self.open_add_instance();
-                    cx.notify();
-                }
-                "k" => {
-                    self.kill_running();
-                    cx.notify();
-                }
-                "i" => {
-                    if let Some(id) = self.selected_id.clone() {
-                        self.open_edit(&id, EditPage::Version);
-                        cx.notify();
-                    }
-                }
-                "g" => {
-                    if let Some(id) = self.selected_id.clone() {
-                        self.open_prompt(Dialog::ChangeGroup, &id);
-                        cx.notify();
-                    }
-                }
-                "d" => {
-                    if let Some(id) = self.selected_id.clone() {
-                        self.open_prompt(Dialog::CopyInstance, &id);
-                        cx.notify();
-                    }
-                }
-                _ => {}
-            }
-            return;
-        }
-
-        match k.key.as_str() {
-            "enter" => {
-                self.launch_selected();
-                cx.notify();
-            }
-            "f2" => {
-                if let Some(id) = self.selected_id.clone() {
-                    self.open_prompt(Dialog::Rename, &id);
-                    cx.notify();
-                }
-            }
-            "f5" => {
-                self.reload_instances();
-                self.reload_accounts();
-                self.say("Refreshed instances.", false);
-                cx.notify();
-            }
-            "delete" => {
-                if let Some(id) = self.selected_id.clone() {
-                    self.open_prompt(Dialog::ConfirmDelete, &id);
-                    cx.notify();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // ----- MainWindow rendering -----------------------------------------------------------------
-
-    fn render_top_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
-        let account_label = self
-            .accounts
-            .selected()
+            .and_then(|u| accs.accounts.iter().find(|a| a.uuid == u))
+            .or_else(|| accs.accounts.first())
             .map(|a| a.name.clone())
-            .unwrap_or_else(|| "Accounts".into());
+            .unwrap_or_else(|| "Accounts".to_owned());
 
         div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .gap(px(4.))
-            .w_full()
-            .h(px(40.))
-            .px(px(6.))
+            .h(px(44.))
+            .px(px(10.))
             .bg(t.window)
             .border_b_1()
             .border_color(t.divider)
+            .flex()
+            .items_center()
+            .gap(px(4.))
             .child(
                 div()
+                    .px(px(6.))
                     .flex()
                     .items_center()
-                    .gap(px(2.))
+                    .gap(px(8.))
+                    .child(brand_mark(22.))
                     .child(
-                        tool_button("tb-add", "add", "Add Instance...", false, false, t)
-                            .on_click(cx.listener(Self::on_add_instance_click)),
-                    )
-                    .child(vsep(t))
-                    .child(
-                        tool_button(
-                            "tb-folders",
-                            "folder",
-                            "Folders",
-                            true,
-                            self.menu == Some(Menu::Folders),
-                            t,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.menu = if this.menu == Some(Menu::Folders) {
-                                None
-                            } else {
-                                Some(Menu::Folders)
-                            };
-                            cx.notify();
-                        })),
-                    )
-                    .child(
-                        tool_button("tb-settings", "settings", "Settings...", false, false, t)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_settings(SettingsPage::Ui);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        tool_button(
-                            "tb-help",
-                            "help",
-                            "Help",
-                            true,
-                            self.menu == Some(Menu::Help),
-                            t,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.menu = if this.menu == Some(Menu::Help) {
-                                None
-                            } else {
-                                Some(Menu::Help)
-                            };
-                            cx.notify();
-                        })),
-                    )
-                    .child(
-                        tool_button("tb-update", "update", "Update...", false, false, t)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_web(RELEASES_URL);
-                                cx.notify();
-                            })),
+                        div()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(t.ink)
+                            .child(format!("FNH {}", crate::VERSION)),
                     ),
             )
+            .child(toolbar_separator(t))
             .child(
-                tool_button(
-                    "tb-accounts",
-                    "account",
-                    account_label,
+                toolbar_button(
+                    "tb-add-inst",
+                    "add",
+                    "Add Instance",
+                    false,
+                    false,
                     true,
-                    self.menu == Some(Menu::Accounts),
                     t,
                 )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.reload_accounts();
-                    this.menu = if this.menu == Some(Menu::Accounts) {
-                        None
-                    } else {
-                        Some(Menu::Accounts)
-                    };
-                    cx.notify();
+                .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
+                    this.flyout = None;
+                    if reset::is_reset_click(ev) {
+                        match reset::spawn_reset_worker() {
+                            Ok(()) => std::process::exit(0),
+                            Err(e) => {
+                                this.app.update(cx, |a, cx| {
+                                    a.notice = Some(format!("Factory reset failed: {e}"));
+                                    cx.notify();
+                                });
+                            }
+                        }
+                        return;
+                    }
+                    this.app.update(cx, |a, cx| a.open_new_instance_window(cx));
+                })),
+            )
+            .child(toolbar_separator(t))
+            .child(
+                toolbar_button(
+                    "tb-folders",
+                    "folder",
+                    "Folders",
+                    true,
+                    self.flyout == Some(TopFlyout::Folders),
+                    true,
+                    t,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.toggle_flyout(TopFlyout::Folders, cx);
+                })),
+            )
+            .child(
+                toolbar_button("tb-settings", "settings", "Settings", false, false, true, t)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.flyout = None;
+                        this.app.update(cx, |a, cx| {
+                            a.open_settings_window(SettingsPage::Launcher, cx);
+                        });
+                    })),
+            )
+            .child(
+                toolbar_button(
+                    "tb-view",
+                    "grid",
+                    "View",
+                    true,
+                    self.flyout == Some(TopFlyout::View),
+                    true,
+                    t,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.toggle_flyout(TopFlyout::View, cx);
+                })),
+            )
+            .child(
+                toolbar_button(
+                    "tb-help",
+                    "help",
+                    "Help",
+                    true,
+                    self.flyout == Some(TopFlyout::Help),
+                    true,
+                    t,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.toggle_flyout(TopFlyout::Help, cx);
+                })),
+            )
+            .child(div().flex_1())
+            .child(
+                div().w(px(210.)).child(
+                    text_input(
+                        "main-search",
+                        &self.search,
+                        "Search instances (Ctrl+F)...",
+                        self.search_focused,
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.search_focused = true;
+                        this.flyout = None;
+                        window.focus(&this.focus, cx);
+                        cx.notify();
+                    })),
+                ),
+            )
+            .child(toolbar_separator(t))
+            .child(
+                toolbar_button(
+                    "tb-account",
+                    "account",
+                    &active_acc,
+                    true,
+                    self.flyout == Some(TopFlyout::Account),
+                    true,
+                    t,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.toggle_flyout(TopFlyout::Account, cx);
                 })),
             )
     }
 
-    fn render_instance_view(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.instances.is_empty() {
+    fn render_flyout(&self, which: TopFlyout, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let prefs = self.app.read(cx).prefs.clone();
+        let (left_px, right_align, frame) = match which {
+            TopFlyout::Folders => (
+                210.,
+                false,
+                menu_frame(240., t)
+                    .child(
+                        menu_row("fl-inst", Some("folder"), "View Instances Folder", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_folder(&paths::instances_dir());
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        menu_row("fl-icons", Some("image"), "View Custom Icons Folder", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_folder(&paths::icons_dir());
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        menu_row("fl-java", Some("java"), "View Java Runtimes Folder", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_folder(&paths::java_dir());
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        menu_row("fl-logs", Some("log"), "View Launcher Logs Folder", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_folder(&paths::logs_dir());
+                                cx.notify();
+                            })),
+                    )
+                    .child(menu_separator(t))
+                    .child(
+                        menu_row("fl-root", Some("folder"), "Open FNH Root Folder", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_folder(&paths::root());
+                                cx.notify();
+                            })),
+                    ),
+            ),
+            TopFlyout::View => (
+                360.,
+                false,
+                menu_frame(230., t)
+                    .child(
+                        menu_row(
+                            "vw-grid",
+                            Some("grid"),
+                            if prefs.view_mode == ViewMode::Grid {
+                                "✓ Grid View"
+                            } else {
+                                "Grid View"
+                            },
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            this.app.update(cx, |a, cx| {
+                                a.prefs.view_mode = ViewMode::Grid;
+                                a.prefs.save();
+                                cx.notify();
+                            });
+                        })),
+                    )
+                    .child(
+                        menu_row(
+                            "vw-list",
+                            Some("list"),
+                            if prefs.view_mode == ViewMode::List {
+                                "✓ List View"
+                            } else {
+                                "List View"
+                            },
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            this.app.update(cx, |a, cx| {
+                                a.prefs.view_mode = ViewMode::List;
+                                a.prefs.save();
+                                cx.notify();
+                            });
+                        })),
+                    )
+                    .child(menu_separator(t))
+                    .children(SortMode::ALL.into_iter().enumerate().map(|(i, sm)| {
+                        let active = prefs.sort_mode == sm;
+                        let lbl = if active {
+                            format!("✓ Sort: {}", sm.label())
+                        } else {
+                            format!("Sort: {}", sm.label())
+                        };
+                        menu_row(format!("vw-sort-{i}"), None, &lbl, None, true, t).on_click(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                this.app.update(cx, |a, cx| {
+                                    a.prefs.sort_mode = sm;
+                                    a.prefs.save();
+                                    a.sort_instances();
+                                    cx.notify();
+                                });
+                            }),
+                        )
+                    }))
+                    .child(menu_separator(t))
+                    .child(
+                        menu_row(
+                            "vw-appr",
+                            Some("appearance"),
+                            "Appearance & Icon Size...",
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            this.app.update(cx, |a, cx| {
+                                a.open_settings_window(SettingsPage::Appearance, cx);
+                            });
+                        })),
+                    ),
+            ),
+            TopFlyout::Help => (
+                425.,
+                false,
+                menu_frame(240., t)
+                    .child(
+                        menu_row("hlp-llog", Some("log"), "View Launcher Log", None, true, t)
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                this.app.update(cx, |a, cx| {
+                                    a.open_utility_window(UtilityMode::LauncherLog, cx);
+                                });
+                            })),
+                    )
+                    .child(
+                        menu_row(
+                            "hlp-fabv",
+                            Some("fabric"),
+                            "Fabric Loader Versions",
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            this.app
+                                .update(cx, |a, cx| a.open_fabric_versions_window(cx));
+                        })),
+                    )
+                    .child(
+                        menu_row(
+                            "hlp-rel",
+                            Some("download"),
+                            "Check Latest FNH Release",
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            let _ = log::open_url("https://github.com/bufferclick/fnh/releases/latest");
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        menu_row("hlp-site", Some("globe"), "FNH Website", None, true, t).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let _ = log::open_url("https://fnh.is-cool.dev");
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(menu_separator(t))
+                    .child(
+                        menu_row("hlp-about", Some("info"), "About FNH", None, true, t).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                this.app.update(cx, |a, cx| {
+                                    a.open_utility_window(UtilityMode::About { tab: 0 }, cx);
+                                });
+                            }),
+                        ),
+                    ),
+            ),
+            TopFlyout::Account => {
+                let accs = account::Accounts::load();
+                let mut f = menu_frame(240., t);
+                for (i, a) in accs.accounts.iter().enumerate() {
+                    let is_sel = accs.selected.as_deref() == Some(a.uuid.as_str());
+                    let lbl = if is_sel {
+                        format!("✓ {}", a.name)
+                    } else {
+                        a.name.clone()
+                    };
+                    let uuid_pick = a.uuid.clone();
+                    f = f.child(
+                        menu_row(format!("acc-m-{i}"), Some("account"), &lbl, None, true, t)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.flyout = None;
+                                let mut cur = account::Accounts::load();
+                                cur.selected = Some(uuid_pick.clone());
+                                let _ = cur.save();
+                                cx.notify();
+                            })),
+                    );
+                }
+                if !accs.accounts.is_empty() {
+                    f = f.child(menu_separator(t));
+                }
+                f = f
+                    .child(
+                        menu_row(
+                            "acc-signin",
+                            Some("add"),
+                            "Sign in with Microsoft",
+                            None,
+                            !job::busy(),
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            if !job::busy() {
+                                job::sign_in_now();
+                            }
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        menu_row(
+                            "acc-manage",
+                            Some("settings"),
+                            "Manage Accounts...",
+                            None,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.flyout = None;
+                            this.app.update(cx, |a, cx| {
+                                a.open_settings_window(SettingsPage::Accounts, cx);
+                            });
+                        })),
+                    );
+                (0., true, f)
+            }
+        };
+
+        let mut pos = div().absolute().top(px(46.)).child(frame);
+        pos = if right_align {
+            pos.right(px(10.))
+        } else {
+            pos.left(px(left_px))
+        };
+        pos
+    }
+
+    fn render_instances_pane(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let fh = self.app.read(cx);
+        let prefs = fh.prefs.clone();
+        let selected_id = fh.selected_id.clone();
+        let q = self.search.trim().to_ascii_lowercase();
+
+        let visible: Vec<Instance> = fh
+            .instances
+            .iter()
+            .filter(|i| {
+                q.is_empty()
+                    || i.name.to_ascii_lowercase().contains(&q)
+                    || i.group
+                        .as_deref()
+                        .is_some_and(|g| g.to_ascii_lowercase().contains(&q))
+                    || instance_summary(i).to_ascii_lowercase().contains(&q)
+            })
+            .cloned()
+            .collect();
+
+        if visible.is_empty() {
+            let has_any = !fh.instances.is_empty();
             return div()
-                .id("instance-view-empty")
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .bg(t.card)
                 .flex()
                 .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .min_h(px(0.))
                 .items_center()
                 .justify_center()
                 .gap(px(12.))
-                .p(px(28.))
-                .bg(t.layer)
-                .child(look::brand_mark(52.))
+                .p(px(24.))
+                .child(brand_mark(48.))
                 .child(
                     div()
                         .text_size(px(15.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(t.ink)
-                        .child("Welcome to FNH"),
-                )
-                .child(
-                    div()
-                        .max_w(px(360.))
-                        .text_center()
-                        .text_size(px(12.5))
-                        .text_color(t.ink_secondary)
-                        .child(
-                            "No instances yet. Click \"Add Instance...\" to create a Fabric or Horizon instance.",
-                        ),
-                )
-                .child(
-                    div().mt(px(4.)).child(
-                        push_button(
-                            "empty-add-instance",
-                            "Add Instance...",
-                            ButtonKind::Accent,
-                            true,
-                            t,
-                        )
-                        .on_click(cx.listener(Self::on_add_instance_click)),
-                    ),
-                );
-        }
-
-        let sections = group_instances(&self.instances);
-        let has_named_groups = sections.iter().any(|(name, _)| !name.is_empty());
-
-        let mut children: Vec<AnyElement> = Vec::new();
-        for (idx, (group_name, items)) in sections.into_iter().enumerate() {
-            if has_named_groups {
-                let label = if group_name.is_empty() {
-                    "Ungrouped".to_owned()
-                } else {
-                    group_name.clone()
-                };
-                let key = label.clone();
-                let collapsed = self.prefs.is_collapsed(&key);
-                let toggle_key = key.clone();
-                let hover = t.subtle_hover;
-                children.push(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("grp-hdr-{idx}")))
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .h(px(26.))
-                                .px(px(6.))
-                                .rounded(px(4.))
-                                .cursor_pointer()
-                                .hover(move |s| s.bg(hover))
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.prefs.toggle_group(&toggle_key);
-                                    this.prefs.save();
-                                    cx.notify();
-                                }))
-                                .child(icon(
-                                    if collapsed {
-                                        "chevron-right"
-                                    } else {
-                                        "chevron-down"
-                                    },
-                                    14.,
-                                    t.ink_secondary,
-                                ))
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .text_size(px(12.5))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(t.ink)
-                                        .child(label),
-                                )
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .text_size(px(11.5))
-                                        .text_color(t.ink_tertiary)
-                                        .child(format!("({})", items.len())),
-                                )
-                                .child(div().flex_1().h(px(1.)).ml(px(4.)).bg(t.divider)),
-                        )
-                        .when(!collapsed, |sec| {
-                            sec.child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .gap(px(6.))
-                                    .px(px(4.))
-                                    .children(
-                                        items
-                                            .into_iter()
-                                            .map(|inst| self.render_tile(inst, t, cx)),
-                                    ),
-                            )
-                        })
-                        .into_any_element(),
-                );
-            } else {
-                children.push(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.))
-                        .children(items.into_iter().map(|inst| self.render_tile(inst, t, cx)))
-                        .into_any_element(),
-                );
-            }
-        }
-
-        div()
-            .id("instance-view")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .min_h(px(0.))
-            .gap(px(12.))
-            .p(px(10.))
-            .bg(t.layer)
-            .overflow_y_scroll()
-            .on_click(cx.listener(|this, _, _, cx| {
-                if this.menu.take().is_some() {
-                    cx.notify();
-                    return;
-                }
-                this.select_instance(None);
-                cx.notify();
-            }))
-            .children(children)
-    }
-
-    fn render_tile(
-        &self,
-        instance: &Instance,
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let selected = self.selected_id.as_deref() == Some(instance.id.as_str());
-        let running = self.status.busy
-            && self.status.instance_id.as_deref() == Some(instance.id.as_str());
-        let click_id = instance.id.clone();
-        let right_id = instance.id.clone();
-        let hover = t.subtle_hover;
-
-        div()
-            .id(SharedString::from(format!("inst-{}", instance.id)))
-            .flex()
-            .flex_col()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
-            .w(px(104.))
-            .pt(px(10.))
-            .pb(px(8.))
-            .px(px(6.))
-            .rounded(px(4.))
-            .bg(if selected {
-                t.tile_selected
-            } else {
-                gpui::transparent_black()
-            })
-            .border_1()
-            .border_color(if selected {
-                t.tile_selected_border
-            } else {
-                gpui::transparent_black()
-            })
-            .cursor_pointer()
-            .when(!selected, |el| el.hover(move |s| s.bg(hover)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.menu = None;
-                let double = match event {
-                    ClickEvent::Mouse(m) => m.down.click_count >= 2,
-                    _ => false,
-                };
-                if double {
-                    this.launch_id(&click_id);
-                } else {
-                    this.select_instance(Some(click_id.clone()));
-                }
-                cx.notify();
-            }))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.select_instance(Some(right_id.clone()));
-                    let vw = f32::from(window.viewport_size().width);
-                    let vh = f32::from(window.viewport_size().height);
-                    let x = f32::from(event.position.x).clamp(6., (vw - 210.).max(6.));
-                    let y = f32::from(event.position.y).clamp(6., (vh - 330.).max(6.));
-                    this.menu = Some(Menu::Instance { id: right_id.clone(), x, y });
-                    cx.notify();
-                }),
-            )
-            .child(instance_icon(instance, 48., running, t))
-            .child(
-                div()
-                    .w_full()
-                    .max_h(px(33.))
-                    .overflow_hidden()
-                    .text_center()
-                    .text_size(px(12.))
-                    .line_height(px(15.5))
-                    .font_weight(if selected {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::NORMAL
-                    })
-                    .text_color(t.ink)
-                    .child(instance.name.clone()),
-            )
-            .into_any_element()
-    }
-
-    fn render_right_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.selected();
-        let has_sel = selected.is_some();
-        let can_launch = has_sel && !self.status.busy;
-        let can_kill = job::can_kill();
-        let running_selected = selected.is_some_and(|inst| {
-            self.status.busy && self.status.instance_id.as_deref() == Some(inst.id.as_str())
-        });
-        let hover = t.subtle_hover;
-
-        let header: AnyElement = if let Some(inst) = selected {
-            let colour_id = inst.id.clone();
-            let rename_id = inst.id.clone();
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(6.))
-                .w_full()
-                .pt(px(6.))
-                .pb(px(4.))
-                .child(
-                    div()
-                        .id("sb-icon")
-                        .p(px(4.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(hover))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.cycle_instance_colour(&colour_id);
-                            cx.notify();
-                        }))
-                        .child(instance_icon(inst, 56., running_selected, t)),
-                )
-                .child(
-                    div()
-                        .id("sb-rename")
-                        .w_full()
-                        .px(px(6.))
-                        .py(px(3.))
-                        .rounded(px(4.))
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(hover))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_prompt(Dialog::Rename, &rename_id);
-                            cx.notify();
-                        }))
-                        .text_center()
-                        .text_size(px(12.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.ink)
-                        .child(inst.name.clone()),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .px(px(6.))
-                        .text_center()
-                        .text_size(px(11.))
-                        .text_color(t.ink_secondary)
-                        .truncate()
-                        .child(instance_subtitle(inst)),
-                )
-                .into_any_element()
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(8.))
-                .w_full()
-                .pt(px(10.))
-                .pb(px(6.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(56.))
-                        .rounded(px(10.))
-                        .bg(t.control)
-                        .border_1()
-                        .border_color(t.control_border)
-                        .child(icon("cube", 26., t.ink_tertiary)),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .px(px(6.))
-                        .text_center()
-                        .text_size(px(12.))
-                        .text_color(t.ink_secondary)
-                        .child("No Instance Selected"),
-                )
-                .into_any_element()
-        };
-
-        div()
-            .id("instance-toolbar")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(166.))
-            .min_h(px(0.))
-            .p(px(6.))
-            .gap(px(2.))
-            .bg(t.window)
-            .overflow_y_scroll()
-            .child(header)
-            .child(div().my(px(4.)).child(hsep(t)))
-            .child(
-                wide_action("act-launch", "play", "Launch", true, can_launch, t).when(
-                    can_launch,
-                    |b| {
-                        b.on_click(cx.listener(|this, _, _, cx| {
-                            this.launch_selected();
-                            cx.notify();
-                        }))
-                    },
-                ),
-            )
-            .child(
-                wide_action("act-kill", "kill", "Kill", false, can_kill, t).when(can_kill, |b| {
-                    b.on_click(cx.listener(|this, _, _, cx| {
-                        this.kill_running();
-                        cx.notify();
-                    }))
-                }),
-            )
-            .child(div().my(px(4.)).child(hsep(t)))
-            .child(
-                wide_action("act-edit", "edit", "Edit...", false, has_sel, t).when(has_sel, |b| {
-                    b.on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(id) = this.selected_id.clone() {
-                            this.open_edit(&id, EditPage::Version);
-                            cx.notify();
-                        }
-                    }))
-                }),
-            )
-            .child(
-                wide_action("act-group", "group", "Change Group...", false, has_sel, t).when(
-                    has_sel,
-                    |b| {
-                        b.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(id) = this.selected_id.clone() {
-                                this.open_prompt(Dialog::ChangeGroup, &id);
-                                cx.notify();
-                            }
-                        }))
-                    },
-                ),
-            )
-            .child(
-                wide_action("act-folder", "folder", "Folder", false, has_sel, t).when(
-                    has_sel,
-                    |b| {
-                        b.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
-                                this.open_dir(home, true);
-                                cx.notify();
-                            }
-                        }))
-                    },
-                ),
-            )
-            .child(
-                wide_action("act-copy", "copy", "Copy...", false, has_sel, t).when(has_sel, |b| {
-                    b.on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(id) = this.selected_id.clone() {
-                            this.open_prompt(Dialog::CopyInstance, &id);
-                            cx.notify();
-                        }
-                    }))
-                }),
-            )
-            .child(
-                wide_action("act-delete", "delete", "Delete", false, has_sel, t).when(
-                    has_sel,
-                    |b| {
-                        b.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(id) = this.selected_id.clone() {
-                                this.open_prompt(Dialog::ConfirmDelete, &id);
-                                cx.notify();
-                            }
-                        }))
-                    },
-                ),
-            )
-    }
-
-    fn render_task_banner(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.status.busy && !self.status.failed {
-            return None;
-        }
-        let is_err = self.status.failed;
-        let message = if self.status.line.is_empty() {
-            self.status.title.clone()
-        } else if self.status.title.is_empty() || is_err {
-            self.status.line.clone()
-        } else {
-            format!("{} — {}", self.status.title, self.status.line)
-        };
-
-        Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_between()
-                .gap(px(12.))
-                .w_full()
-                .px(px(12.))
-                .py(px(6.))
-                .bg(t.control)
-                .border_t_1()
-                .border_color(t.divider)
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .flex_1()
-                        .min_w(px(0.))
-                        .child(icon(
-                            if is_err { "info" } else { "play" },
-                            14.,
-                            if is_err { t.danger } else { t.accent },
-                        ))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .truncate()
-                                .text_size(px(12.))
-                                .text_color(if is_err { t.danger } else { t.ink })
-                                .child(message),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(8.))
-                        .when_some(self.status.fraction, |row, frac| {
-                            row.child(progress_bar(frac, 140., t))
-                        })
-                        .when(self.status.code.is_some(), |row| {
-                            row.child(
-                                push_button("banner-code", "Sign In...", ButtonKind::Accent, true, t)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.dialog = Some(Dialog::SignIn);
-                                        cx.notify();
-                                    })),
-                            )
-                        })
-                        .when(job::can_kill(), |row| {
-                            row.child(
-                                push_button("banner-kill", "Kill", ButtonKind::Standard, true, t)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.kill_running();
-                                        cx.notify();
-                                    })),
-                            )
-                        })
-                        .when(is_err, |row| {
-                            row.child(
-                                push_button("banner-log", "View Log", ButtonKind::Standard, true, t)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.open_launcher_log();
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                push_button(
-                                    "banner-dismiss",
-                                    "Dismiss",
-                                    ButtonKind::Subtle,
-                                    true,
-                                    t,
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    job::clear();
-                                    this.status = job::status().unwrap_or_default();
-                                    cx.notify();
-                                })),
-                            )
+                        .child(if has_any {
+                            "No instances match your search"
+                        } else {
+                            "Welcome to FNH 1.6"
                         }),
-                ),
-        )
+                )
+                .child(
+                    div()
+                        .max_w(px(420.))
+                        .text_size(px(12.5))
+                        .text_color(t.ink_secondary)
+                        .child(if has_any {
+                            "Try clearing the search box in the top right."
+                        } else {
+                            "Create an isolated Fabric, Vanilla, or Horizon instance to get started. Each instance has its own mods, worlds, screenshots, settings, and live console window."
+                        }),
+                )
+                .when(!has_any, |d| {
+                    d.child(
+                        accent_button("empty-add-inst", "Add Instance...", true, t).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.app.update(cx, |a, cx| a.open_new_instance_window(cx));
+                            }),
+                        ),
+                    )
+                });
+        }
+
+        // Group instances cleanly (named groups alphabetically, then "Ungrouped")
+        let mut bucket_map: HashMap<String, Vec<Instance>> = HashMap::new();
+        for inst_item in visible {
+            let grp = inst_item
+                .group
+                .as_deref()
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .unwrap_or("Ungrouped")
+                .to_owned();
+            bucket_map.entry(grp).or_default().push(inst_item);
+        }
+        let mut group_names: Vec<String> = bucket_map.keys().cloned().collect();
+        group_names.sort_by(|a, b| match (a == "Ungrouped", b == "Ungrouped") {
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            _ => a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()),
+        });
+
+        let icon_sz = prefs.icon_size.clamp(32, 128) as f32;
+        let is_grid = prefs.view_mode == ViewMode::Grid;
+        let active_job_inst = job::active_instance();
+
+        div().flex_1().min_w_0().min_h_0().flex().flex_col().child(div()
+            .id("main-instances-scroll")
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .bg(t.card)
+            .p(px(14.))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                if this.flyout.is_some() || this.search_focused {
+                    this.flyout = None;
+                    this.search_focused = false;
+                    cx.notify();
+                }
+            }))
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .children(group_names.into_iter().enumerate().map(|(gi, gname)| {
+                let items = bucket_map.remove(&gname).unwrap_or_default();
+                let collapsed = prefs.is_group_collapsed(&gname);
+                let g_toggle = gname.clone();
+                let hdr_text = if prefs.show_group_counts {
+                    format!("{gname} ({})", items.len())
+                } else {
+                    gname.clone()
+                };
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("grp-hdr-{gi}")))
+                            .cursor_pointer()
+                            .py(px(3.))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                let g = g_toggle.clone();
+                                this.app.update(cx, |a, cx| {
+                                    a.prefs.toggle_group(&g);
+                                    a.prefs.save();
+                                    cx.notify();
+                                });
+                            }))
+                            .child(icons::icon(
+                                if collapsed {
+                                    "chevron_right"
+                                } else {
+                                    "chevron_down"
+                                },
+                                14.,
+                                t.ink_secondary,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.ink_secondary)
+                                    .child(hdr_text),
+                            )
+                            .child(div().flex_1().h(px(1.)).bg(t.divider)),
+                    )
+                    .when(!collapsed, |sec| {
+                        if is_grid {
+                            let tile_w = (icon_sz + 56.).max(108.);
+                            sec.child(
+                                div().flex().flex_wrap().gap(px(10.)).children(
+                                    items.into_iter().enumerate().map(|(ii, item)| {
+                                        let is_sel =
+                                            selected_id.as_deref() == Some(item.id.as_str());
+                                        let is_running = active_job_inst.as_deref()
+                                            == Some(item.id.as_str())
+                                            && job::busy();
+                                        let cfg = self.app.read(cx).cfgs.get(&item.id);
+                                        let icon_key = cfg.icon_key.unwrap_or_else(|| {
+                                            inst_icons::default_key_for(&item).to_owned()
+                                        });
+                                        let id_click = item.id.clone();
+                                        let item_drop = item.clone();
+                                        let dbl_edits = prefs.double_click_edits;
+                                        let show_pt = prefs.show_instance_playtime
+                                            && item.played.as_secs() > 0;
+                                        let pt_str =
+                                            prefs.format_playtime(item.played.as_secs());
+
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "inst-tile-{gi}-{ii}"
+                                            )))
+                                            .w(px(tile_w))
+                                            .p(px(8.))
+                                            .rounded(px(6.))
+                                            .cursor_pointer()
+                                            .border_1()
+                                            .border_color(if is_sel {
+                                                t.tile_selected_border
+                                            } else {
+                                                gpui::transparent_black()
+                                            })
+                                            .bg(if is_sel {
+                                                t.tile_selected
+                                            } else {
+                                                gpui::transparent_black()
+                                            })
+                                            .hover(|s| {
+                                                if is_sel {
+                                                    s
+                                                } else {
+                                                    s.bg(t.subtle_hover)
+                                                }
+                                            })
+                                            .drag_over::<ExternalPaths>({
+                                                let acc = t.accent;
+                                                let bg = t.tile_selected;
+                                                move |s, _, _, _| s.border_color(acc).bg(bg)
+                                            })
+                                            .on_drop(cx.listener(
+                                                move |this, paths: &ExternalPaths, _, cx| {
+                                                    let files: Vec<PathBuf> =
+                                                        paths.paths().to_vec();
+                                                    if files.len() == 1
+                                                        && inst_icons::is_image_file(&files[0])
+                                                    {
+                                                        if let Ok(key) =
+                                                            inst_icons::import_custom_icon(
+                                                                &files[0],
+                                                            )
+                                                        {
+                                                            let id_t = item_drop.id.clone();
+                                                            this.app.update(cx, |a, cx| {
+                                                                a.apply_picked_icon(
+                                                                    IconTarget::Instance(id_t),
+                                                                    key,
+                                                                    cx,
+                                                                );
+                                                                a.notice = Some(format!(
+                                                                    "Updated icon for '{}'.",
+                                                                    item_drop.name
+                                                                ));
+                                                            });
+                                                            return;
+                                                        }
+                                                    }
+                                                    let res =
+                                                        content::add_mod_files(&item_drop, &files);
+                                                    this.app.update(cx, |a, cx| {
+                                                        a.notice = Some(match res {
+                                                            Ok(m) => m,
+                                                            Err(e) => e,
+                                                        });
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ))
+                                            .on_click(cx.listener(
+                                                move |this, ev: &ClickEvent, _, cx| {
+                                                    this.flyout = None;
+                                                    this.search_focused = false;
+                                                    let dbl = matches!(
+                                                        ev,
+                                                        ClickEvent::Mouse(m)
+                                                            if m.up.click_count >= 2
+                                                    );
+                                                    let id_c = id_click.clone();
+                                                    this.app.update(cx, |a, cx| {
+                                                        a.select_instance(&id_c);
+                                                        if dbl {
+                                                            if dbl_edits {
+                                                                a.open_instance_window(
+                                                                    &id_c,
+                                                                    InstancePage::Version,
+                                                                    cx,
+                                                                );
+                                                            } else {
+                                                                a.launch_instance(
+                                                                    &id_c,
+                                                                    LaunchExtras::default(),
+                                                                    cx,
+                                                                );
+                                                            }
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ))
+                                            .flex()
+                                            .flex_col()
+                                            .items_center()
+                                            .gap(px(6.))
+                                            .child(inst_icons::render_icon(&icon_key, icon_sz))
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .text_size(px(12.5))
+                                                    .font_weight(if is_sel {
+                                                        FontWeight::SEMIBOLD
+                                                    } else {
+                                                        FontWeight::NORMAL
+                                                    })
+                                                    .text_color(t.ink)
+                                                    .truncate()
+                                                    .flex()
+                                                    .justify_center()
+                                                    .child(item.name.clone()),
+                                            )
+                                            .when(is_running, |d| {
+                                                d.child(
+                                                    div()
+                                                        .text_size(px(10.5))
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(t.accent)
+                                                        .child("Running"),
+                                                )
+                                            })
+                                            .when(!is_running && show_pt, |d| {
+                                                d.child(
+                                                    div()
+                                                        .text_size(px(10.5))
+                                                        .text_color(t.ink_tertiary)
+                                                        .child(pt_str),
+                                                )
+                                            })
+                                    }),
+                                ),
+                            )
+                        } else {
+                            // List View
+                            let row_icon = icon_sz.clamp(24., 48.);
+                            sec.child(
+                                div().flex().flex_col().gap(px(3.)).children(
+                                    items.into_iter().enumerate().map(|(ii, item)| {
+                                        let is_sel =
+                                            selected_id.as_deref() == Some(item.id.as_str());
+                                        let cfg = self.app.read(cx).cfgs.get(&item.id);
+                                        let icon_key = cfg.icon_key.unwrap_or_else(|| {
+                                            inst_icons::default_key_for(&item).to_owned()
+                                        });
+                                        let id_click = item.id.clone();
+                                        let dbl_edits = prefs.double_click_edits;
+                                        let summary = instance_summary(&item);
+                                        let pt = prefs.format_playtime(item.played.as_secs());
+
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "inst-row-{gi}-{ii}"
+                                            )))
+                                            .px(px(10.))
+                                            .py(px(6.))
+                                            .rounded(px(4.))
+                                            .cursor_pointer()
+                                            .border_1()
+                                            .border_color(if is_sel {
+                                                t.tile_selected_border
+                                            } else {
+                                                gpui::transparent_black()
+                                            })
+                                            .bg(if is_sel {
+                                                t.tile_selected
+                                            } else {
+                                                gpui::transparent_black()
+                                            })
+                                            .hover(|s| {
+                                                if is_sel {
+                                                    s
+                                                } else {
+                                                    s.bg(t.subtle_hover)
+                                                }
+                                            })
+                                            .on_click(cx.listener(
+                                                move |this, ev: &ClickEvent, _, cx| {
+                                                    this.flyout = None;
+                                                    this.search_focused = false;
+                                                    let dbl = matches!(
+                                                        ev,
+                                                        ClickEvent::Mouse(m)
+                                                            if m.up.click_count >= 2
+                                                    );
+                                                    let id_c = id_click.clone();
+                                                    this.app.update(cx, |a, cx| {
+                                                        a.select_instance(&id_c);
+                                                        if dbl {
+                                                            if dbl_edits {
+                                                                a.open_instance_window(
+                                                                    &id_c,
+                                                                    InstancePage::Version,
+                                                                    cx,
+                                                                );
+                                                            } else {
+                                                                a.launch_instance(
+                                                                    &id_c,
+                                                                    LaunchExtras::default(),
+                                                                    cx,
+                                                                );
+                                                            }
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ))
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .gap(px(10.))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(10.))
+                                                    .min_w_0()
+                                                    .child(inst_icons::render_icon(
+                                                        &icon_key, row_icon,
+                                                    ))
+                                                    .child(
+                                                        div()
+                                                            .min_w_0()
+                                                            .flex()
+                                                            .flex_col()
+                                                            .child(
+                                                                div()
+                                                                    .text_size(px(13.))
+                                                                    .font_weight(
+                                                                        FontWeight::SEMIBOLD,
+                                                                    )
+                                                                    .text_color(t.ink)
+                                                                    .truncate()
+                                                                    .child(item.name.clone()),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_size(px(11.5))
+                                                                    .text_color(t.ink_secondary)
+                                                                    .truncate()
+                                                                    .child(summary),
+                                                            ),
+                                                    ),
+                                            )
+                                            .when(prefs.show_instance_playtime, |d| {
+                                                d.child(
+                                                    div()
+                                                        .text_size(px(11.5))
+                                                        .text_color(t.ink_tertiary)
+                                                        .child(pt),
+                                                )
+                                            })
+                                    }),
+                                ),
+                            )
+                        }
+                    })
+            })))
     }
 
-    fn render_status_bar(&self, t: &Theme) -> Div {
-        let total: Duration = self.instances.iter().map(|i| i.played).sum();
-        let (left_text, left_colour) = if let Some((msg, err)) = &self.notice {
-            (msg.clone(), if *err { t.danger } else { t.ink_secondary })
-        } else if let Some(inst) = self.selected() {
-            (instance_status_line(inst), t.ink_secondary)
-        } else {
-            ("No instance selected".to_owned(), t.ink_secondary)
+    fn render_wide_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let sel = self.app.read(cx).selected_instance();
+        let has = sel.is_some();
+        let is_busy = job::busy();
+        let can_launch = has && !is_busy;
+        let can_kill = sel
+            .as_ref()
+            .is_some_and(|i| job::active_instance().as_deref() == Some(i.id.as_str()) && job::can_kill());
+
+        let header = match &sel {
+            Some(inst) => {
+                let cfg = self.app.read(cx).cfgs.get(&inst.id);
+                let icon_key = cfg
+                    .icon_key
+                    .unwrap_or_else(|| inst_icons::default_key_for(inst).to_owned());
+                let id_icon = inst.id.clone();
+                let key_open = icon_key.clone();
+                div()
+                    .p(px(8.))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .id("wb-inst-icon")
+                            .p(px(6.))
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(t.subtle_hover))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                let id_c = id_icon.clone();
+                                let k_c = key_open.clone();
+                                this.app.update(cx, |a, cx| {
+                                    a.open_icon_picker(IconTarget::Instance(id_c), &k_c, cx);
+                                });
+                            }))
+                            .child(inst_icons::render_icon(&icon_key, 56.)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.ink)
+                            .truncate()
+                            .flex()
+                            .justify_center()
+                            .child(inst.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_size(px(11.))
+                            .text_color(t.ink_tertiary)
+                            .truncate()
+                            .flex()
+                            .justify_center()
+                            .child(instance_summary(inst)),
+                    )
+            }
+            None => div()
+                .p(px(12.))
+                .text_size(px(12.))
+                .text_color(t.ink_tertiary)
+                .child("No instance selected"),
+        };
+
+        div().w(px(196.)).flex_shrink_0().h_full().flex().flex_col().child(div()
+            .id("widebar-scroll")
+            .w(px(196.))
+            .flex_shrink_0()
+            .overflow_y_scroll()
+            .bg(t.sidebar)
+            .border_l_1()
+            .border_color(t.divider)
+            .p(px(8.))
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(header)
+            .child(wide_bar_separator(t))
+            .child({
+                let s_l = sel.clone();
+                wide_bar_action("wb-launch", "play", "Launch", can_launch, true, t).when_some(
+                    s_l.filter(|_| can_launch),
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.launch_instance(&id, LaunchExtras::default(), cx);
+                            });
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_lo = sel.clone();
+                wide_bar_action("wb-offline", "account", "Launch Offline", can_launch, false, t)
+                    .when_some(s_lo.filter(|_| can_launch), |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.launch_instance(
+                                    &id,
+                                    LaunchExtras {
+                                        offline: true,
+                                        ..LaunchExtras::default()
+                                    },
+                                    cx,
+                                );
+                            });
+                        }))
+                    })
+            })
+            .when(can_kill, |d| {
+                d.child(
+                    wide_bar_action("wb-kill", "stop", "Kill", true, false, t).on_click(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            job::kill();
+                            this.app.update(cx, |a, cx| {
+                                a.notice = Some("Stopped running game.".into());
+                                cx.notify();
+                            });
+                        }),
+                    ),
+                )
+            })
+            .child(wide_bar_separator(t))
+            .child({
+                let s_ed = sel.clone();
+                wide_bar_action("wb-edit", "edit", "Edit", has, false, t).when_some(
+                    s_ed,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.open_instance_window(&id, InstancePage::Version, cx);
+                            });
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_log = sel.clone();
+                wide_bar_action("wb-log", "log", "Minecraft Log", has, false, t).when_some(
+                    s_log,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.open_instance_window(&id, InstancePage::Log, cx);
+                            });
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_mods = sel.clone();
+                wide_bar_action("wb-mods", "mods", "Mods", has, false, t).when_some(
+                    s_mods,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.open_instance_window(&id, InstancePage::Mods, cx);
+                            });
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_wld = sel.clone();
+                wide_bar_action("wb-worlds", "worlds", "Worlds", has, false, t).when_some(
+                    s_wld,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.open_instance_window(&id, InstancePage::Worlds, cx);
+                            });
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_cfg = sel.clone();
+                wide_bar_action("wb-instcfg", "settings", "Instance Settings", has, false, t)
+                    .when_some(s_cfg, |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let id = inst.id.clone();
+                            this.app.update(cx, |a, cx| {
+                                a.open_instance_window(&id, InstancePage::Settings, cx);
+                            });
+                        }))
+                    })
+            })
+            .child(wide_bar_separator(t))
+            .child({
+                let s_grp = sel.clone();
+                wide_bar_action("wb-group", "tag", "Change Group", has, false, t).when_some(
+                    s_grp,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let mode = UtilityMode::Group {
+                                id: inst.id.clone(),
+                                value: inst.group.clone().unwrap_or_default(),
+                            };
+                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_ren = sel.clone();
+                wide_bar_action("wb-rename", "rename", "Rename", has, false, t).when_some(
+                    s_ren,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let mode = UtilityMode::Rename {
+                                id: inst.id.clone(),
+                                value: inst.name.clone(),
+                            };
+                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_fld = sel.clone();
+                wide_bar_action("wb-folder", "folder", "Folder", has, false, t).when_some(
+                    s_fld,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let _ = std::fs::create_dir_all(&inst.home);
+                            if let Err(e) = log::open_folder(&inst.home) {
+                                this.app.update(cx, |a, cx| {
+                                    a.notice = Some(e);
+                                    cx.notify();
+                                });
+                            }
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_cp = sel.clone();
+                wide_bar_action("wb-copy", "copy", "Copy Instance", has, false, t).when_some(
+                    s_cp,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let mode = UtilityMode::Copy {
+                                id: inst.id.clone(),
+                                value: format!("{} (Copy)", inst.name),
+                            };
+                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                        }))
+                    },
+                )
+            })
+            .child({
+                let s_sc = sel.clone();
+                wide_bar_action("wb-shortcut", "link", "Create Shortcut", has, false, t)
+                    .when_some(s_sc, |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let mode = UtilityMode::Shortcut {
+                                id: inst.id.clone(),
+                                name: inst.name.clone(),
+                                target: ShortcutTarget::Desktop,
+                                offline: false,
+                            };
+                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                        }))
+                    })
+            })
+            .child({
+                let s_del = sel;
+                wide_bar_action("wb-delete", "delete", "Delete", has, false, t).when_some(
+                    s_del,
+                    |b, inst| {
+                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.request_delete(&inst, cx);
+                        }))
+                    },
+                )
+            }))
+    }
+
+    fn render_status_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let fh = self.app.read(cx);
+        let prefs = &fh.prefs;
+        let count = fh.instances.len();
+        let total_secs: u64 = fh.instances.iter().map(|i| i.played.as_secs()).sum();
+        let total_str = prefs.format_playtime(total_secs);
+        let sel_summary = fh
+            .selected_instance()
+            .map(|i| format!("{} — {}", i.name, instance_summary(&i)))
+            .unwrap_or_else(|| "Ready".to_owned());
+
+        let st = job::status();
+        let left_el = match st {
+            Some(s) if s.busy || s.failed => {
+                let msg = if let Some(frac) = s.fraction {
+                    format!(
+                        "{}: {} ({:.0}%)",
+                        s.title,
+                        s.line,
+                        (frac.clamp(0.0, 1.0) * 100.0)
+                    )
+                } else {
+                    format!("{}: {}", s.title, s.line)
+                };
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .text_size(px(11.5))
+                            .text_color(if s.failed { t.danger } else { t.accent })
+                            .child(msg),
+                    )
+                    .when_some(s.code, |d, (code, link)| {
+                        let c_cp = code.clone();
+                        let url = log::sign_in_url(&link, &code);
+                        d.child(
+                            chip("sb-copy-code", format!("Code {code} (Copy & Open)"), true, t)
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(c_cp.clone()));
+                                    let _ = log::open_url(&url);
+                                }),
+                        )
+                    })
+                    .when(s.failed, |d| {
+                        d.child(
+                            push_button("sb-dismiss-err", "Dismiss", true, t)
+                                .on_click(|_, _, _| job::clear()),
+                        )
+                    })
+            }
+            _ => div()
+                .text_size(px(11.5))
+                .text_color(t.ink_secondary)
+                .child(sel_summary),
         };
 
         div()
+            .h(px(28.))
+            .px(px(12.))
+            .bg(t.footer)
+            .border_t_1()
+            .border_color(t.divider)
             .flex()
-            .flex_none()
             .items_center()
             .justify_between()
             .gap(px(12.))
-            .w_full()
-            .h(px(26.))
-            .px(px(10.))
-            .bg(t.window)
-            .border_t_1()
-            .border_color(t.divider)
-            .text_size(px(11.5))
+            .child(left_el)
             .child(
                 div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .truncate()
-                    .text_color(left_colour)
-                    .child(left_text),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(div().w(px(1.)).h(px(14.)).bg(t.divider))
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .text_color(t.ink_secondary)
-                            .child(format!("Total playtime: {}", look::playtime(total))),
-                    ),
-            )
-    }
-
-    fn render_menu_overlay(&self, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let menu = self.menu.as_ref()?;
-        let has_sel = self.selected().is_some();
-
-        let positioned = match menu {
-            Menu::Folders => {
-                let rows = vec![
-                    menu_item(
-                        "m-f-inst",
-                        Some("folder"),
-                        "View Instance Folder",
-                        None,
-                        false,
-                        has_sel,
-                        t,
-                    )
-                    .when(has_sel, |el| {
-                        el.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
-                                this.open_dir(home, true);
-                                cx.notify();
-                            }
-                        }))
-                    })
-                    .into_any_element(),
-                    menu_item(
-                        "m-f-mods",
-                        Some("mods"),
-                        "View Instance Mods Folder",
-                        None,
-                        false,
-                        has_sel,
-                        t,
-                    )
-                    .when(has_sel, |el| {
-                        el.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
-                                this.open_dir(home.join("mods"), true);
-                                cx.notify();
-                            }
-                        }))
-                    })
-                    .into_any_element(),
-                    menu_item(
-                        "m-f-saves",
-                        Some("world"),
-                        "View Instance Saves Folder",
-                        None,
-                        false,
-                        has_sel,
-                        t,
-                    )
-                    .when(has_sel, |el| {
-                        el.on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(home) = this.selected().map(|i| i.home.clone()) {
-                                this.open_dir(home.join("saves"), true);
-                                cx.notify();
-                            }
-                        }))
-                    })
-                    .into_any_element(),
-                    menu_sep(t),
-                    menu_item(
-                        "m-f-root",
-                        Some("folder"),
-                        "View Launcher Root Folder",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_dir(backend::data_dir(), true);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "m-f-game",
-                        Some("cube"),
-                        "View Instances Root Folder",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_dir(backend::game_home(), true);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "m-f-logs",
-                        Some("log"),
-                        "View Launcher Logs Folder",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_dir(backend::data_dir().join("fh"), true);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                ];
-                div()
-                    .absolute()
-                    .top(px(38.))
-                    .left(px(134.))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(look::flyout_card(236., rows, t))
-            }
-            Menu::Help => {
-                let rows = vec![
-                    menu_item(
-                        "m-h-cache",
-                        Some("refresh"),
-                        "Clear Metadata Cache",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.clear_metadata_cache();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "m-h-fabric",
-                        Some("fabric"),
-                        "Fabric Versions...",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_fabric_versions(None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "m-h-log",
-                        Some("log"),
-                        "View Launcher Log...",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_launcher_log();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_sep(t),
-                    menu_item(
-                        "m-h-site",
-                        Some("external"),
-                        "FNH Website",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_web(SITE_URL);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "m-h-repo",
-                        Some("external"),
-                        "Source Code (GitHub)",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_web(REPO_URL);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_sep(t),
-                    menu_item("m-h-about", Some("info"), "About FNH", None, false, true, t)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.menu = None;
-                            this.dialog = Some(Dialog::About);
-                            this.field = None;
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                ];
-                div()
-                    .absolute()
-                    .top(px(38.))
-                    .left(px(310.))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(look::flyout_card(224., rows, t))
-            }
-            Menu::Accounts => {
-                let mut rows: Vec<AnyElement> = Vec::new();
-                if self.accounts.accounts.is_empty() {
-                    rows.push(
-                        menu_item(
-                            "m-a-empty",
-                            Some("account"),
-                            "No Default Account",
-                            None,
-                            false,
-                            false,
-                            t,
-                        )
-                        .into_any_element(),
-                    );
-                } else {
-                    let active = self.accounts.selected.as_deref();
-                    for (idx, acc) in self.accounts.accounts.iter().enumerate() {
-                        let uuid = acc.uuid.clone();
-                        let is_active = active == Some(acc.uuid.as_str());
-                        rows.push(
-                            menu_item(
-                                format!("m-a-{idx}"),
-                                Some("account"),
-                                acc.name.clone(),
-                                None,
-                                is_active,
-                                true,
-                                t,
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.switch_account(&uuid);
-                                cx.notify();
-                            }))
-                            .into_any_element(),
-                        );
-                    }
-                }
-                rows.push(menu_sep(t));
-                rows.push(
-                    menu_item(
-                        "m-a-add",
-                        Some("add"),
-                        "Add Microsoft...",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.start_microsoft_sign_in();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                );
-                rows.push(
-                    menu_item(
-                        "m-a-manage",
-                        Some("settings"),
-                        "Manage Accounts...",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_accounts_dialog();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                );
-                div()
-                    .absolute()
-                    .top(px(38.))
-                    .right(px(6.))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(look::flyout_card(224., rows, t))
-            }
-            Menu::Instance { id, x, y } => {
-                let id_launch = id.clone();
-                let id_edit = id.clone();
-                let id_mods = id.clone();
-                let id_group = id.clone();
-                let id_rename = id.clone();
-                let id_colour = id.clone();
-                let id_folder = id.clone();
-                let id_copy = id.clone();
-                let id_delete = id.clone();
-                let can_launch = !self.status.busy;
-                let can_kill = job::can_kill()
-                    && job::active_instance().as_deref() == Some(id.as_str());
-                let rows = vec![
-                    menu_item(
-                        "ctx-launch",
-                        Some("play"),
-                        "Launch",
-                        Some("Enter"),
-                        false,
-                        can_launch,
-                        t,
-                    )
-                    .when(can_launch, |el| {
-                        el.on_click(cx.listener(move |this, _, _, cx| {
-                            this.launch_id(&id_launch);
-                            cx.notify();
-                        }))
-                    })
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-kill",
-                        Some("kill"),
-                        "Kill",
-                        Some("Ctrl+K"),
-                        false,
-                        can_kill,
-                        t,
-                    )
-                    .when(can_kill, |el| {
-                        el.on_click(cx.listener(|this, _, _, cx| {
-                            this.kill_running();
-                            cx.notify();
-                        }))
-                    })
-                    .into_any_element(),
-                    menu_sep(t),
-                    menu_item(
-                        "ctx-edit",
-                        Some("edit"),
-                        "Edit...",
-                        Some("Ctrl+I"),
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_edit(&id_edit, EditPage::Version);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-mods",
-                        Some("mods"),
-                        "Manage Mods...",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_edit(&id_mods, EditPage::Mods);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-group",
-                        Some("group"),
-                        "Change Group...",
-                        Some("Ctrl+G"),
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_prompt(Dialog::ChangeGroup, &id_group);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-rename",
-                        Some("edit"),
-                        "Rename...",
-                        Some("F2"),
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_prompt(Dialog::Rename, &id_rename);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-colour",
-                        Some("palette"),
-                        "Change Icon Colour",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.menu = None;
-                        this.cycle_instance_colour(&id_colour);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_sep(t),
-                    menu_item(
-                        "ctx-folder",
-                        Some("folder"),
-                        "Folder",
-                        None,
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(home) = this.find_instance(&id_folder).map(|i| i.home.clone()) {
-                            this.open_dir(home, true);
-                            cx.notify();
-                        }
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-copy",
-                        Some("copy"),
-                        "Copy...",
-                        Some("Ctrl+D"),
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_prompt(Dialog::CopyInstance, &id_copy);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                    menu_item(
-                        "ctx-delete",
-                        Some("delete"),
-                        "Delete",
-                        Some("Del"),
-                        false,
-                        true,
-                        t,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_prompt(Dialog::ConfirmDelete, &id_delete);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-                ];
-                div()
-                    .absolute()
-                    .left(px(*x))
-                    .top(px(*y))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(look::flyout_card(206., rows, t))
-            }
-        };
-
-        Some(
-            div()
-                .id("menu-backdrop")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.menu = None;
-                        cx.notify();
+                    .font_family(MONO_FONT)
+                    .text_size(px(11.))
+                    .text_color(t.ink_tertiary)
+                    .child(if prefs.show_total_playtime {
+                        format!("{count} instance(s)  ·  Total played: {total_str}")
+                    } else {
+                        format!("{count} instance(s)")
                     }),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(|this, _, _, cx| {
-                        this.menu = None;
-                        cx.notify();
-                    }),
-                )
-                .child(positioned)
-                .into_any_element(),
-        )
+            )
     }
 }
 
-impl Render for Fh {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = Theme::resolve(self.prefs.theme, self.prefs.accent, window.appearance());
+impl Focusable for MainWindow {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
 
-        let top = self.render_top_toolbar(&t, cx);
-        let center = self.render_instance_view(&t, cx);
-        let right = self.render_right_toolbar(&t, cx);
-        let banner = self.render_task_banner(&t, cx);
-        let status = self.prefs.status_bar.then(|| self.render_status_bar(&t));
-        let menu = self.render_menu_overlay(&t, cx);
-        let dialog = self.render_dialog(&t, cx);
+impl Render for MainWindow {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let prefs = self.app.read(cx).prefs.clone();
+        let notice = self.app.read(cx).notice.clone();
+        let t = Theme::resolve(prefs.theme_mode, prefs.accent, window.appearance());
 
         div()
-            .id("fh-root")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| this.on_key(ev, cx)))
+            .on_key_down(cx.listener(Self::on_key_down))
             .relative()
-            .flex()
-            .flex_col()
             .size_full()
             .bg(t.window)
-            .text_color(t.ink)
             .font_family(UI_FONT)
-            .overflow_hidden()
-            .child(top)
+            .text_color(t.ink)
+            .flex()
+            .flex_col()
+            .child(self.render_top_toolbar(&t, cx))
+            .when_some(notice, |d, msg| {
+                d.child(
+                    div()
+                        .px(px(12.))
+                        .py(px(6.))
+                        .bg(t.layer)
+                        .border_b_1()
+                        .border_color(t.divider)
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap(px(8.))
+                        .child(div().flex_1().child(status_banner(&msg, false, &t)))
+                        .child(
+                            push_button("dismiss-notice", "Dismiss", true, &t).on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.app.update(cx, |a, cx| {
+                                        a.notice = None;
+                                        cx.notify();
+                                    });
+                                }),
+                            ),
+                        ),
+                )
+            })
             .child(
                 div()
-                    .flex()
                     .flex_1()
-                    .min_h(px(0.))
-                    .min_w(px(0.))
-                    .child(center)
-                    .child(div().flex_none().w(px(1.)).h_full().bg(t.divider))
-                    .child(right),
+                    .min_h_0()
+                    .flex()
+                    .child(self.render_instances_pane(&t, cx))
+                    .child(self.render_wide_bar(&t, cx)),
             )
-            .when_some(banner, |root, bar| root.child(bar))
-            .when_some(status, |root, bar| root.child(bar))
-            .when_some(menu, |root, overlay| root.child(overlay))
-            .when_some(dialog, |root, modal| root.child(modal))
-    }
-}
-
-// ----- Free helpers -----------------------------------------------------------------------------
-
-fn take_slot<T>(slot: &AsyncSlot<T>) -> Option<Result<T, String>> {
-    slot.lock().ok().and_then(|mut guard| guard.take())
-}
-
-/// Lists all real instances on disk (hiding the untouched synthetic default entry on fresh
-/// installs and after a factory reset) and applies the user's sort order.
-fn load_visible_instances(sort: SortMode) -> Vec<Instance> {
-    let show_default = reset::has_default_horizon_data(&backend::data_dir(), &backend::game_home());
-    let mut all: Vec<Instance> = inst::list()
-        .into_iter()
-        .filter(|i| show_default || i.kind != InstanceKind::Default)
-        .collect();
-    match sort {
-        SortMode::Name => {
-            all.sort_by_key(|i| i.name.to_ascii_lowercase());
-        }
-        SortMode::LastLaunched => {
-            all.sort_by(|a, b| {
-                let ta = a
-                    .last_played
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let tb = b
-                    .last_played
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                tb.cmp(&ta)
-                    .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()))
-            });
-        }
-    }
-    all
-}
-
-/// Groups instances into ordered `(group_name, items)` buckets, with named groups A–Z followed by
-/// `""` (`Ungrouped`).
-fn group_instances(instances: &[Instance]) -> Vec<(String, Vec<&Instance>)> {
-    let mut named: Vec<(String, Vec<&Instance>)> = Vec::new();
-    let mut ungrouped: Vec<&Instance> = Vec::new();
-    for inst in instances {
-        match inst.group.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
-            Some(group) => {
-                if let Some((_, bucket)) = named
-                    .iter_mut()
-                    .find(|(existing, _)| existing.eq_ignore_ascii_case(group))
-                {
-                    bucket.push(inst);
-                } else {
-                    named.push((group.to_owned(), vec![inst]));
-                }
-            }
-            None => ungrouped.push(inst),
-        }
-    }
-    named.sort_by_key(|(name, _)| name.to_ascii_lowercase());
-    if !ungrouped.is_empty() {
-        named.push((String::new(), ungrouped));
-    }
-    named
-}
-
-/// Short version label shown under the selected instance in `instanceToolBar`.
-pub(crate) fn instance_subtitle(instance: &Instance) -> String {
-    match &instance.java {
-        Some(java) => match &java.loader {
-            Some(loader) => format!("{} · {}", java.minecraft, loader.kind.name()),
-            None => format!("Minecraft {}", java.minecraft),
-        },
-        None => match &instance.version {
-            Some(pinned) => format!("Horizon {pinned}"),
-            None => "Horizon".into(),
-        },
-    }
-}
-
-/// JLac status-bar line describing the selected instance.
-pub(crate) fn instance_status_line(instance: &Instance) -> String {
-    let kind = match &instance.java {
-        Some(java) => match &java.loader {
-            Some(loader) => format!(
-                "Minecraft {} ({} {})",
-                java.minecraft,
-                loader.kind.name(),
-                loader.version
-            ),
-            None => format!("Minecraft {} (Vanilla)", java.minecraft),
-        },
-        None => match &instance.version {
-            Some(pinned) => format!("Horizon ({pinned})"),
-            None => "Horizon (latest)".into(),
-        },
-    };
-    if instance.played.is_zero() {
-        format!("{kind}, never played")
-    } else {
-        format!("{kind}, played for {}", look::playtime(instance.played))
-    }
-}
-
-/// Lists `.jar` and `.jar.disabled` mods inside `home/mods`.
-pub(crate) fn list_mods(home: &Path) -> Vec<ModEntry> {
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(home.join("mods")).into_iter().flatten().flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
-            continue;
-        };
-        let lower = file_name.to_ascii_lowercase();
-        let (enabled, display) = if lower.ends_with(".jar") {
-            (true, file_name[..file_name.len() - 4].to_owned())
-        } else if lower.ends_with(".jar.disabled") {
-            (false, file_name[..file_name.len() - 13].to_owned())
-        } else {
-            continue;
-        };
-        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-        out.push(ModEntry {
-            file_name,
-            display,
-            path,
-            enabled,
-            size,
-        });
-    }
-    out.sort_by_key(|m| m.display.to_ascii_lowercase());
-    out
-}
-
-/// Reads the trailing `keep` lines of a text file for console/log tabs.
-pub(crate) fn read_tail(path: &Path, keep: usize) -> Vec<String> {
-    let Ok(bytes) = std::fs::read(path) else {
-        return Vec::new();
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    let all: Vec<&str> = text.lines().collect();
-    let start = all.len().saturating_sub(keep);
-    all[start..].iter().map(|line| (*line).to_owned()).collect()
-}
-
-/// Human-readable file size (`412 KB`, `3.4 MB`).
-pub(crate) fn format_bytes(bytes: u64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-    const GB: f64 = MB * 1024.0;
-    let b = bytes as f64;
-    if bytes < 1024 {
-        format!("{bytes} B")
-    } else if b < MB {
-        format!("{:.0} KB", b / KB)
-    } else if b < GB {
-        format!("{:.1} MB", b / MB)
-    } else {
-        format!("{:.2} GB", b / GB)
-    }
-}
-
-/// Human-readable Minecraft release category for the `Add Instance` version table.
-pub(crate) fn mc_kind_label(kind: McKind) -> &'static str {
-    match kind {
-        McKind::Release => "Release",
-        McKind::Snapshot => "Snapshot",
-        McKind::OldBeta => "Beta",
-        McKind::OldAlpha => "Alpha",
+            .when(prefs.show_status_bar, |d| d.child(self.render_status_bar(&t, cx)))
+            .when_some(self.flyout, |d, which| {
+                d.child(self.render_flyout(which, &t, cx))
+            })
     }
 }

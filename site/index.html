@@ -55,45 +55,48 @@
 
   <section id="what">
     <h2>What it is</h2>
-    <p>FNH is a single program, not an installer and not a web page. Unzip it, double-click it, and a
-      window opens on the instances the Horizon launcher already has.</p>
-    <p>It shares the launcher's data folder and the launcher's own code, so builds, worlds, options and the
-      Microsoft sign-in are the ones you already have. The two can be installed side by side, and FNH
-      writes nothing to an instance the launcher would not write itself.</p>
+    <p>FNH is a single native desktop program by <strong>Buffer</strong>, not an installer and not a web page.
+      Unzip it, double-click <code>FH.exe</code>, and manage isolated Fabric, Minecraft: Java Edition, and
+      Horizon instances from a multi-window Windows 11 shell modelled on JLac.</p>
+    <p>Every instance lives under its own isolated folder inside <code>%APPDATA%\FnH</code> with dedicated
+      mods, resource packs, shader packs, worlds, servers, screenshots, <code>options.txt</code> settings, and
+      live game console window.</p>
   </section>
 
   <section id="features">
     <h2>Features</h2>
     <dl class="features">
       <div>
-        <dt>Windows 11 UI</dt>
-        <dd>Modeled directly on JLac's Windows 11 (WinUI 3) layout and palette — grouped instance grid, top
-          toolbar, right action bar, status bar with playtime, and automatic Light and Dark modes.</dd>
+        <dt>Multi-window Windows 11 UI</dt>
+        <dd>Modelled on Buffer's JLac (WinUI 3): grouped instance grid &amp; list views, 9-page global Settings
+          window, 11-page per-instance editor window, 61 built-in icons + custom icon picker, and Dark, OLED Dark,
+          Light &amp; System themes.</dd>
       </div>
       <div>
-        <dt>Version, Mods, Worlds, Logs</dt>
-        <dd>Pin or update Fabric Loader, enable or disable <code>mods/*.jar</code> files, inspect saved worlds,
-          read <code>latest.log</code>, and tune memory and JVM flags per instance.</dd>
+        <dt>Modrinth, Horizon Registry &amp; Auto-Port</dt>
+        <dd>Browse and install mods, resource packs, and shaders directly inside FNH, or drag-and-drop
+          <code>.jar</code>, <code>.hmod</code>, <code>.hnmod</code>, and mod folders (Fabric jars dropped on
+          Horizon auto-port via <code>horizon-port-pack</code>).</dd>
       </div>
       <div>
         <dt>Fabric &amp; Horizon instances</dt>
         <dd>Create Minecraft: Java Edition instances with Fabric (or vanilla) from Mojang's version list, or
-          spin up isolated Horizon instances in one click.</dd>
+          spin up isolated Horizon instances with channel/build pinning and wgpu tuning.</dd>
       </div>
       <div>
-        <dt>Microsoft sign-in</dt>
-        <dd>The device-code flow in the window: the code goes on your clipboard and Microsoft's page opens
-          with it filled in. No app registration, nothing to configure.</dd>
+        <dt>Microsoft sign-in &amp; offline play</dt>
+        <dd>One-click Microsoft device-code flow copies the code to your clipboard and opens the sign-in page
+          automatically, alongside instant offline launch support.</dd>
       </div>
       <div>
-        <dt>Signed in when you join a server</dt>
-        <dd>The game is started with a read-once session file, the same hand-off the launcher's Play makes,
-          so servers do not ask you to sign in again.</dd>
+        <dt>Worlds, Servers &amp; options.txt</dt>
+        <dd>Join worlds or servers in one click, install datapacks, export world <code>.zip</code> backups,
+          edit <code>servers.dat</code>, and tune <code>options.txt</code> before launching.</dd>
       </div>
       <div>
-        <dt>A log of every step</dt>
-        <dd>Each launch writes what it did — including the game's command line — to
-          <code>%APPDATA%\horizon-launcher\fh\fh.log</code>.</dd>
+        <dt>Live console &amp; launcher log</dt>
+        <dd>Real-time game stdout/stderr viewer with search and level filters, plus full launch diagnostics in
+          <code>%APPDATA%\FnH\logs\fh.log</code>.</dd>
       </div>
     </dl>
   </section>
@@ -131,8 +134,9 @@
       <a href="https://github.com/bufferclick/fnh/blob/main/fh/README.md">Documentation</a>
       <a href="https://github.com/bufferclick/fnh/blob/main/LICENSE">Licence</a>
     </p>
-    <p class="legal">FNH is not an official Minecraft product and is not approved by or associated with Mojang
-      or Microsoft. Horizon is made by the Horizon Team; FNH is a front end for it, styled after JLac.</p>
+    <p class="legal">Created by Buffer (MIT licence). FNH is not an official Minecraft product and is not
+      approved by or associated with Mojang or Microsoft. Horizon is made by the Horizon Team; FNH is styled
+      after Buffer's JLac.</p>
   </div>
 </footer>
 
