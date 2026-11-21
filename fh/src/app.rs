@@ -9,8 +9,9 @@ use std::time::Duration;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable,
-    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, WindowHandle, div, px,
+    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    WindowHandle, div, px,
 };
 use horizon_launcher::account;
 use horizon_launcher::browser::Kind as BrowseKind;
@@ -22,9 +23,10 @@ use crate::inst_icons;
 use crate::job::{self, LaunchExtras};
 use crate::log;
 use crate::look::{
-    MONO_FONT, Theme, UI_FONT, accent_button, apply_text_key, apply_window_icon, brand_mark, chip,
-    instance_summary, menu_frame, menu_row, menu_separator, push_button, status_banner, text_input,
-    toolbar_button, toolbar_separator, wide_bar_action, wide_bar_separator,
+    MONO_FONT, Theme, UI_FONT, accent_button, apply_inline_rename_key, apply_text_key,
+    apply_window_icon, brand_mark, chip, danger_button, inline_rename_input, instance_summary,
+    menu_frame, menu_row, menu_separator, push_button, status_banner, text_input, toolbar_button,
+    toolbar_separator, wide_bar_action, wide_bar_separator,
 };
 use crate::paths;
 use crate::prefs::{InstanceCfgStore, Prefs, SortMode, ViewMode};
@@ -444,7 +446,7 @@ impl Fh {
 }
 
 // ================================================================================================
-// MainWindow ("FNH 1.6")
+// MainWindow ("FnH")
 // ================================================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -461,6 +463,10 @@ pub struct MainWindow {
     search: String,
     search_focused: bool,
     flyout: Option<TopFlyout>,
+    /// Prism-style inline rename `(instance_id, text_buffer, select_all)`.
+    inline_rename: Option<(String, String, bool)>,
+    /// Right-click context menu `(instance_id, x, y)`.
+    ctx_menu: Option<(String, f32, f32)>,
 }
 
 impl MainWindow {
@@ -495,10 +501,13 @@ impl MainWindow {
             search: String::new(),
             search_focused: false,
             flyout: None,
+            inline_rename: None,
+            ctx_menu: None,
         }
     }
 
     fn toggle_flyout(&mut self, which: TopFlyout, cx: &mut Context<Self>) {
+        self.ctx_menu = None;
         if self.flyout == Some(which) {
             self.flyout = None;
         } else {
@@ -507,12 +516,128 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn on_key_down(&mut self, ev: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn start_inline_rename(
+        &mut self,
+        inst: &Instance,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_inline_rename(cx);
+        self.flyout = None;
+        self.ctx_menu = None;
+        self.search_focused = false;
+        let id = inst.id.clone();
+        self.app.update(cx, |a, _| a.select_instance(&id));
+        self.inline_rename = Some((inst.id.clone(), inst.name.clone(), true));
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn commit_inline_rename(&mut self, cx: &mut Context<Self>) {
+        let Some((id, buf, _)) = self.inline_rename.take() else {
+            return;
+        };
+        let trimmed = buf.trim().to_owned();
+        if !trimmed.is_empty() {
+            let changed = inst::find(&id)
+                .ok()
+                .is_none_or(|cur| cur.name.trim() != trimmed);
+            if changed {
+                match inst::rename(&id, &trimmed) {
+                    Ok(()) => {
+                        self.app.update(cx, |a, cx| {
+                            a.reload_instances();
+                            a.select_instance(&id);
+                            cx.notify();
+                        });
+                    }
+                    Err(e) => {
+                        self.app.update(cx, |a, cx| {
+                            a.notice = Some(e);
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn step_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let q = self.search.trim().to_ascii_lowercase();
+        let ids: Vec<String> = self
+            .app
+            .read(cx)
+            .instances
+            .iter()
+            .filter(|i| {
+                q.is_empty()
+                    || i.name.to_ascii_lowercase().contains(&q)
+                    || i.group
+                        .as_deref()
+                        .is_some_and(|g| g.to_ascii_lowercase().contains(&q))
+                    || instance_summary(i).to_ascii_lowercase().contains(&q)
+            })
+            .map(|i| i.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let cur_idx = self
+            .app
+            .read(cx)
+            .selected_id
+            .as_deref()
+            .and_then(|sel| ids.iter().position(|id| id == sel))
+            .unwrap_or(0);
+        let next = (cur_idx as isize + delta).clamp(0, ids.len() as isize - 1) as usize;
+        let next_id = ids[next].clone();
+        self.app.update(cx, |a, cx| {
+            a.select_instance(&next_id);
+            cx.notify();
+        });
+    }
+
+    fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = ev.keystroke.key.as_str();
         let ctrl = ev.keystroke.modifiers.control || ev.keystroke.modifiers.platform;
 
+        // Global Ctrl+K kills any running game or active preparation immediately!
+        if ctrl && key.eq_ignore_ascii_case("k") {
+            if job::can_kill() {
+                job::kill();
+                self.app.update(cx, |a, cx| {
+                    a.notice = Some("Stopped running game.".into());
+                    cx.notify();
+                });
+            }
+            return;
+        }
+
+        // Prism-style inline rename box active:
+        if self.inline_rename.is_some() {
+            if key == "escape" {
+                self.inline_rename = None;
+                cx.notify();
+                return;
+            }
+            if key == "enter" {
+                self.commit_inline_rename(cx);
+                return;
+            }
+            if let Some((_, ref mut buf, ref mut sel_all)) = self.inline_rename {
+                if apply_inline_rename_key(buf, sel_all, ev, cx) {
+                    cx.notify();
+                }
+            }
+            return;
+        }
+
         if key == "escape" {
-            if self.flyout.is_some() {
+            if self.ctx_menu.is_some() {
+                self.ctx_menu = None;
+                cx.notify();
+            } else if self.flyout.is_some() {
                 self.flyout = None;
                 cx.notify();
             } else if self.search_focused {
@@ -533,7 +658,32 @@ impl MainWindow {
         }
         if ctrl && key.eq_ignore_ascii_case("f") {
             self.search_focused = true;
+            self.flyout = None;
+            self.ctx_menu = None;
             cx.notify();
+            return;
+        }
+        if ctrl && key.eq_ignore_ascii_case("e") {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                self.app.update(cx, |a, cx| {
+                    a.open_instance_window(&sel.id, InstancePage::Version, cx);
+                });
+            }
+            return;
+        }
+        if ctrl && key.eq_ignore_ascii_case("m") {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                self.app.update(cx, |a, cx| {
+                    a.open_instance_window(&sel.id, InstancePage::Mods, cx);
+                });
+            }
+            return;
+        }
+        if ctrl && key.eq_ignore_ascii_case("o") {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                let _ = std::fs::create_dir_all(&sel.home);
+                let _ = log::open_folder(&sel.home);
+            }
             return;
         }
 
@@ -541,6 +691,22 @@ impl MainWindow {
             if apply_text_key(&mut self.search, ev, false, cx) {
                 cx.notify();
             }
+            return;
+        }
+
+        if key.eq_ignore_ascii_case("f2") {
+            if let Some(sel) = self.app.read(cx).selected_instance() {
+                self.start_inline_rename(&sel, window, cx);
+            }
+            return;
+        }
+
+        if key == "left" || key == "up" {
+            self.step_selection(-1, cx);
+            return;
+        }
+        if key == "right" || key == "down" {
+            self.step_selection(1, cx);
             return;
         }
 
@@ -1070,7 +1236,7 @@ impl MainWindow {
                         .child(if has_any {
                             "No instances match your search"
                         } else {
-                            "Welcome to FNH 1.6"
+                            "Welcome to FnH"
                         }),
                 )
                 .child(
@@ -1126,12 +1292,13 @@ impl MainWindow {
             .overflow_y_scroll()
             .bg(t.card)
             .p(px(14.))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                if this.flyout.is_some() || this.search_focused {
-                    this.flyout = None;
-                    this.search_focused = false;
-                    cx.notify();
-                }
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.commit_inline_rename(cx);
+                this.flyout = None;
+                this.ctx_menu = None;
+                this.search_focused = false;
+                window.focus(&this.focus, cx);
+                cx.notify();
             }))
             .flex()
             .flex_col()
@@ -1200,12 +1367,19 @@ impl MainWindow {
                                             inst_icons::default_key_for(&item).to_owned()
                                         });
                                         let id_click = item.id.clone();
+                                        let id_ctx = item.id.clone();
+                                        let item_name_click = item.clone();
                                         let item_drop = item.clone();
                                         let dbl_edits = prefs.double_click_edits;
                                         let show_pt = prefs.show_instance_playtime
                                             && item.played.as_secs() > 0;
                                         let pt_str =
                                             prefs.format_playtime(item.played.as_secs());
+                                        let renaming_state = self
+                                            .inline_rename
+                                            .as_ref()
+                                            .filter(|(rid, _, _)| rid == &item.id)
+                                            .map(|(_, buf, sa)| (buf.clone(), *sa));
 
                                         div()
                                             .id(SharedString::from(format!(
@@ -1276,10 +1450,44 @@ impl MainWindow {
                                                     });
                                                 },
                                             ))
+                                            .on_mouse_down(
+                                                MouseButton::Right,
+                                                cx.listener(
+                                                    move |this, ev: &MouseDownEvent, window, cx| {
+                                                        cx.stop_propagation();
+                                                        this.commit_inline_rename(cx);
+                                                        this.flyout = None;
+                                                        this.search_focused = false;
+                                                        let id_r = id_ctx.clone();
+                                                        this.app.update(cx, |a, _| {
+                                                            a.select_instance(&id_r);
+                                                        });
+                                                        this.ctx_menu = Some((
+                                                            id_r,
+                                                            f32::from(ev.position.x),
+                                                            f32::from(ev.position.y),
+                                                        ));
+                                                        window.focus(&this.focus, cx);
+                                                        cx.notify();
+                                                    },
+                                                ),
+                                            )
                                             .on_click(cx.listener(
-                                                move |this, ev: &ClickEvent, _, cx| {
+                                                move |this, ev: &ClickEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    if this
+                                                        .inline_rename
+                                                        .as_ref()
+                                                        .is_some_and(|(rid, _, _)| rid != &id_click)
+                                                    {
+                                                        this.commit_inline_rename(cx);
+                                                    } else if this.inline_rename.is_some() {
+                                                        this.commit_inline_rename(cx);
+                                                    }
                                                     this.flyout = None;
+                                                    this.ctx_menu = None;
                                                     this.search_focused = false;
+                                                    window.focus(&this.focus, cx);
                                                     let dbl = matches!(
                                                         ev,
                                                         ClickEvent::Mouse(m)
@@ -1312,9 +1520,42 @@ impl MainWindow {
                                             .items_center()
                                             .gap(px(6.))
                                             .child(inst_icons::render_icon(&icon_key, icon_sz))
-                                            .child(
+                                            .child(if let Some((buf, sel_all)) = renaming_state {
+                                                inline_rename_input(
+                                                    format!("tile-ren-{gi}-{ii}"),
+                                                    &buf,
+                                                    sel_all,
+                                                    true,
+                                                    t,
+                                                )
+                                                .on_mouse_down(
+                                                    MouseButton::Left,
+                                                    |_, _, cx| cx.stop_propagation(),
+                                                )
+                                                .on_click(cx.listener(
+                                                    |this, _: &ClickEvent, window, cx| {
+                                                        cx.stop_propagation();
+                                                        if let Some((_, _, sa)) =
+                                                            &mut this.inline_rename
+                                                        {
+                                                            *sa = false;
+                                                        }
+                                                        window.focus(&this.focus, cx);
+                                                        cx.notify();
+                                                    },
+                                                ))
+                                                .into_any_element()
+                                            } else {
                                                 div()
+                                                    .id(SharedString::from(format!(
+                                                        "inst-tile-name-{gi}-{ii}"
+                                                    )))
                                                     .w_full()
+                                                    .px(px(3.))
+                                                    .py(px(1.))
+                                                    .rounded(px(3.))
+                                                    .cursor_text()
+                                                    .hover(|s| s.bg(t.subtle_hover))
                                                     .text_size(px(12.5))
                                                     .font_weight(if is_sel {
                                                         FontWeight::SEMIBOLD
@@ -1325,8 +1566,19 @@ impl MainWindow {
                                                     .truncate()
                                                     .flex()
                                                     .justify_center()
-                                                    .child(item.name.clone()),
-                                            )
+                                                    .on_click(cx.listener(
+                                                        move |this, _: &ClickEvent, window, cx| {
+                                                            cx.stop_propagation();
+                                                            this.start_inline_rename(
+                                                                &item_name_click,
+                                                                window,
+                                                                cx,
+                                                            );
+                                                        },
+                                                    ))
+                                                    .child(item.name.clone())
+                                                    .into_any_element()
+                                            })
                                             .when(is_running, |d| {
                                                 d.child(
                                                     div()
@@ -1360,9 +1612,16 @@ impl MainWindow {
                                             inst_icons::default_key_for(&item).to_owned()
                                         });
                                         let id_click = item.id.clone();
+                                        let id_ctx = item.id.clone();
+                                        let item_name_click = item.clone();
                                         let dbl_edits = prefs.double_click_edits;
                                         let summary = instance_summary(&item);
                                         let pt = prefs.format_playtime(item.played.as_secs());
+                                        let renaming_state = self
+                                            .inline_rename
+                                            .as_ref()
+                                            .filter(|(rid, _, _)| rid == &item.id)
+                                            .map(|(_, buf, sa)| (buf.clone(), *sa));
 
                                         div()
                                             .id(SharedString::from(format!(
@@ -1390,10 +1649,38 @@ impl MainWindow {
                                                     s.bg(t.subtle_hover)
                                                 }
                                             })
+                                            .on_mouse_down(
+                                                MouseButton::Right,
+                                                cx.listener(
+                                                    move |this, ev: &MouseDownEvent, window, cx| {
+                                                        cx.stop_propagation();
+                                                        this.commit_inline_rename(cx);
+                                                        this.flyout = None;
+                                                        this.search_focused = false;
+                                                        let id_r = id_ctx.clone();
+                                                        this.app.update(cx, |a, _| {
+                                                            a.select_instance(&id_r);
+                                                        });
+                                                        this.ctx_menu = Some((
+                                                            id_r,
+                                                            f32::from(ev.position.x),
+                                                            f32::from(ev.position.y),
+                                                        ));
+                                                        window.focus(&this.focus, cx);
+                                                        cx.notify();
+                                                    },
+                                                ),
+                                            )
                                             .on_click(cx.listener(
-                                                move |this, ev: &ClickEvent, _, cx| {
+                                                move |this, ev: &ClickEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    if this.inline_rename.is_some() {
+                                                        this.commit_inline_rename(cx);
+                                                    }
                                                     this.flyout = None;
+                                                    this.ctx_menu = None;
                                                     this.search_focused = false;
+                                                    window.focus(&this.focus, cx);
                                                     let dbl = matches!(
                                                         ev,
                                                         ClickEvent::Mouse(m)
@@ -1440,14 +1727,87 @@ impl MainWindow {
                                                             .flex()
                                                             .flex_col()
                                                             .child(
-                                                                div()
-                                                                    .text_size(px(13.))
-                                                                    .font_weight(
-                                                                        FontWeight::SEMIBOLD,
-                                                                    )
-                                                                    .text_color(t.ink)
-                                                                    .truncate()
-                                                                    .child(item.name.clone()),
+                                                                if let Some((buf, sel_all)) =
+                                                                    renaming_state
+                                                                {
+                                                                    div()
+                                                                        .w(px(220.))
+                                                                        .child(
+                                                                            inline_rename_input(
+                                                                                format!(
+                                                                                    "row-ren-{gi}-{ii}"
+                                                                                ),
+                                                                                &buf,
+                                                                                sel_all,
+                                                                                false,
+                                                                                t,
+                                                                            )
+                                                                            .on_mouse_down(
+                                                                                MouseButton::Left,
+                                                                                |_, _, cx| {
+                                                                                    cx.stop_propagation()
+                                                                                },
+                                                                            )
+                                                                            .on_click(cx.listener(
+                                                                                |this,
+                                                                                 _: &ClickEvent,
+                                                                                 window,
+                                                                                 cx| {
+                                                                                    cx.stop_propagation();
+                                                                                    if let Some((
+                                                                                        _,
+                                                                                        _,
+                                                                                        sa,
+                                                                                    )) =
+                                                                                        &mut this
+                                                                                            .inline_rename
+                                                                                    {
+                                                                                        *sa = false;
+                                                                                    }
+                                                                                    window.focus(
+                                                                                        &this.focus,
+                                                                                        cx,
+                                                                                    );
+                                                                                    cx.notify();
+                                                                                },
+                                                                            )),
+                                                                        )
+                                                                        .into_any_element()
+                                                                } else {
+                                                                    div()
+                                                                        .id(SharedString::from(
+                                                                            format!(
+                                                                                "inst-row-name-{gi}-{ii}"
+                                                                            ),
+                                                                        ))
+                                                                        .px(px(3.))
+                                                                        .rounded(px(3.))
+                                                                        .cursor_text()
+                                                                        .hover(|s| {
+                                                                            s.bg(t.subtle_hover)
+                                                                        })
+                                                                        .text_size(px(13.))
+                                                                        .font_weight(
+                                                                            FontWeight::SEMIBOLD,
+                                                                        )
+                                                                        .text_color(t.ink)
+                                                                        .truncate()
+                                                                        .on_click(cx.listener(
+                                                                            move |this,
+                                                                                  _: &ClickEvent,
+                                                                                  window,
+                                                                                  cx| {
+                                                                                cx.stop_propagation();
+                                                                                this.start_inline_rename(
+                                                                                    &item_name_click,
+                                                                                    window,
+                                                                                    cx,
+                                                                                );
+                                                                            },
+                                                                        ))
+                                                                        .child(item.name.clone())
+                                                                        .into_any_element()
+                                                                },
                                                             )
                                                             .child(
                                                                 div()
@@ -1479,9 +1839,7 @@ impl MainWindow {
         let has = sel.is_some();
         let is_busy = job::busy();
         let can_launch = has && !is_busy;
-        let can_kill = sel
-            .as_ref()
-            .is_some_and(|i| job::active_instance().as_deref() == Some(i.id.as_str()) && job::can_kill());
+        let can_kill = job::can_kill();
 
         let header = match &sel {
             Some(inst) => {
@@ -1491,16 +1849,23 @@ impl MainWindow {
                     .unwrap_or_else(|| inst_icons::default_key_for(inst).to_owned());
                 let id_icon = inst.id.clone();
                 let key_open = icon_key.clone();
+                let inst_for_name = inst.clone();
+                let renaming_wb = self
+                    .inline_rename
+                    .as_ref()
+                    .filter(|(rid, _, _)| rid == &inst.id)
+                    .map(|(_, buf, sa)| (buf.clone(), *sa));
+
                 div()
-                    .p(px(8.))
+                    .p(px(4.))
                     .flex()
                     .flex_col()
                     .items_center()
-                    .gap(px(6.))
+                    .gap(px(4.))
                     .child(
                         div()
                             .id("wb-inst-icon")
-                            .p(px(6.))
+                            .p(px(4.))
                             .rounded(px(6.))
                             .cursor_pointer()
                             .hover(|s| s.bg(t.subtle_hover))
@@ -1511,19 +1876,42 @@ impl MainWindow {
                                     a.open_icon_picker(IconTarget::Instance(id_c), &k_c, cx);
                                 });
                             }))
-                            .child(inst_icons::render_icon(&icon_key, 56.)),
+                            .child(inst_icons::render_icon(&icon_key, 48.)),
                     )
-                    .child(
+                    .child(if let Some((buf, sel_all)) = renaming_wb {
+                        inline_rename_input("wb-ren-input", &buf, sel_all, true, t)
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if let Some((_, _, sa)) = &mut this.inline_rename {
+                                    *sa = false;
+                                }
+                                window.focus(&this.focus, cx);
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    } else {
                         div()
+                            .id("wb-inst-name")
                             .w_full()
+                            .px(px(4.))
+                            .py(px(1.))
+                            .rounded(px(3.))
+                            .cursor_text()
+                            .hover(|s| s.bg(t.subtle_hover))
                             .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.ink)
                             .truncate()
                             .flex()
                             .justify_center()
-                            .child(inst.name.clone()),
-                    )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.start_inline_rename(&inst_for_name, window, cx);
+                            }))
+                            .child(inst.name.clone())
+                            .into_any_element()
+                    })
                     .child(
                         div()
                             .w_full()
@@ -1536,46 +1924,297 @@ impl MainWindow {
                     )
             }
             None => div()
-                .p(px(12.))
+                .p(px(10.))
                 .text_size(px(12.))
                 .text_color(t.ink_tertiary)
                 .child("No instance selected"),
         };
 
-        div().w(px(196.)).flex_shrink_0().h_full().flex().flex_col().child(div()
-            .id("widebar-scroll")
+        div()
             .w(px(196.))
             .flex_shrink_0()
-            .overflow_y_scroll()
-            .bg(t.sidebar)
-            .border_l_1()
-            .border_color(t.divider)
-            .p(px(8.))
+            .h_full()
+            .min_h_0()
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .child(header)
-            .child(wide_bar_separator(t))
-            .child({
-                let s_l = sel.clone();
-                wide_bar_action("wb-launch", "play", "Launch", can_launch, true, t).when_some(
-                    s_l.filter(|_| can_launch),
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
+            .child(
+                div()
+                    .id("widebar-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .w(px(196.))
+                    .flex_shrink_0()
+                    .overflow_y_scroll()
+                    .bg(t.sidebar)
+                    .border_l_1()
+                    .border_color(t.divider)
+                    .p(px(6.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.5))
+                    .child(header)
+                    .child(wide_bar_separator(t))
+                    .child({
+                        let s_l = sel.clone();
+                        wide_bar_action("wb-launch", "play", "Launch", can_launch, true, t)
+                            .when_some(s_l.filter(|_| can_launch), |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    window.focus(&this.focus, cx);
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.launch_instance(&id, LaunchExtras::default(), cx);
+                                    });
+                                }))
+                            })
+                    })
+                    .child({
+                        let s_lo = sel.clone();
+                        wide_bar_action(
+                            "wb-offline",
+                            "account",
+                            "Launch Offline",
+                            can_launch,
+                            false,
+                            t,
+                        )
+                        .when_some(s_lo.filter(|_| can_launch), |b, inst| {
+                            b.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                window.focus(&this.focus, cx);
+                                let id = inst.id.clone();
+                                this.app.update(cx, |a, cx| {
+                                    a.launch_instance(
+                                        &id,
+                                        LaunchExtras {
+                                            offline: true,
+                                            ..LaunchExtras::default()
+                                        },
+                                        cx,
+                                    );
+                                });
+                            }))
+                        })
+                    })
+                    .when(can_kill, |d| {
+                        d.child(
+                            danger_button("wb-kill", "Kill (Ctrl+K)", true, t).on_click(
+                                cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    window.focus(&this.focus, cx);
+                                    job::kill();
+                                    this.app.update(cx, |a, cx| {
+                                        a.notice = Some("Stopped running game.".into());
+                                        cx.notify();
+                                    });
+                                }),
+                            ),
+                        )
+                    })
+                    .child(wide_bar_separator(t))
+                    .child({
+                        let s_ed = sel.clone();
+                        wide_bar_action("wb-edit", "edit", "Edit", has, false, t).when_some(
+                            s_ed,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Version, cx);
+                                    });
+                                }))
+                            },
+                        )
+                    })
+                    .child({
+                        let s_log = sel.clone();
+                        wide_bar_action("wb-log", "log", "Minecraft Log", has, false, t)
+                            .when_some(s_log, |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Log, cx);
+                                    });
+                                }))
+                            })
+                    })
+                    .child({
+                        let s_mods = sel.clone();
+                        wide_bar_action("wb-mods", "mods", "Mods", has, false, t).when_some(
+                            s_mods,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Mods, cx);
+                                    });
+                                }))
+                            },
+                        )
+                    })
+                    .child({
+                        let s_wld = sel.clone();
+                        wide_bar_action("wb-worlds", "world", "Worlds", has, false, t).when_some(
+                            s_wld,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Worlds, cx);
+                                    });
+                                }))
+                            },
+                        )
+                    })
+                    .child({
+                        let s_cfg = sel.clone();
+                        wide_bar_action("wb-instcfg", "settings", "Instance Settings", has, false, t)
+                            .when_some(s_cfg, |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst.id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Settings, cx);
+                                    });
+                                }))
+                            })
+                    })
+                    .child(wide_bar_separator(t))
+                    .child({
+                        let s_grp = sel.clone();
+                        wide_bar_action("wb-group", "group", "Change Group", has, false, t)
+                            .when_some(s_grp, |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let mode = UtilityMode::Group {
+                                        id: inst.id.clone(),
+                                        value: inst.group.clone().unwrap_or_default(),
+                                    };
+                                    this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                                }))
+                            })
+                    })
+                    .child({
+                        let s_ren = sel.clone();
+                        wide_bar_action("wb-rename", "edit", "Rename", has, false, t).when_some(
+                            s_ren,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.start_inline_rename(&inst, window, cx);
+                                }))
+                            },
+                        )
+                    })
+                    .child({
+                        let s_fld = sel.clone();
+                        wide_bar_action("wb-folder", "folder", "Folder", has, false, t).when_some(
+                            s_fld,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let _ = std::fs::create_dir_all(&inst.home);
+                                    if let Err(e) = log::open_folder(&inst.home) {
+                                        this.app.update(cx, |a, cx| {
+                                            a.notice = Some(e);
+                                            cx.notify();
+                                        });
+                                    }
+                                }))
+                            },
+                        )
+                    })
+                    .child({
+                        let s_cp = sel.clone();
+                        wide_bar_action("wb-copy", "copy", "Copy Instance", has, false, t)
+                            .when_some(s_cp, |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let mode = UtilityMode::Copy {
+                                        id: inst.id.clone(),
+                                        value: format!("{} (Copy)", inst.name),
+                                    };
+                                    this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                                }))
+                            })
+                    })
+                    .child({
+                        let s_sc = sel.clone();
+                        wide_bar_action("wb-shortcut", "shortcut", "Create Shortcut", has, false, t)
+                            .when_some(s_sc, |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let mode = UtilityMode::Shortcut {
+                                        id: inst.id.clone(),
+                                        name: inst.name.clone(),
+                                        target: ShortcutTarget::Desktop,
+                                        offline: false,
+                                    };
+                                    this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                                }))
+                            })
+                    })
+                    .child({
+                        let s_del = sel;
+                        wide_bar_action("wb-delete", "delete", "Delete", has, false, t).when_some(
+                            s_del,
+                            |b, inst| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.request_delete(&inst, cx);
+                                }))
+                            },
+                        )
+                    }),
+            )
+    }
+
+    fn render_context_menu(
+        &self,
+        inst_id: &str,
+        x: f32,
+        y: f32,
+        vp_w: f32,
+        vp_h: f32,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let inst = self
+            .app
+            .read(cx)
+            .instances
+            .iter()
+            .find(|i| i.id == inst_id)
+            .cloned()?;
+        let can_launch = !job::busy();
+        let can_kill = job::can_kill();
+
+        let menu_w = 224.0_f32;
+        let menu_h = 330.0_f32;
+        let left = x.clamp(8.0, (vp_w - menu_w - 8.0).max(8.0));
+        let top = y.clamp(8.0, (vp_h - menu_h - 8.0).max(8.0));
+
+        let i_launch = inst.clone();
+        let i_off = inst.clone();
+        let i_edit = inst.clone();
+        let i_mods = inst.clone();
+        let i_log = inst.clone();
+        let i_ren = inst.clone();
+        let i_icon = inst.clone();
+        let i_fld = inst.clone();
+        let i_cp = inst.clone();
+        let i_del = inst;
+
+        let frame = menu_frame(menu_w, t)
+            .child(
+                menu_row("ctx-launch", Some("play"), "Launch", Some("Enter"), can_launch, t)
+                    .when(can_launch, |r| {
+                        r.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.ctx_menu = None;
+                            let id = i_launch.id.clone();
                             this.app.update(cx, |a, cx| {
                                 a.launch_instance(&id, LaunchExtras::default(), cx);
                             });
                         }))
-                    },
-                )
-            })
-            .child({
-                let s_lo = sel.clone();
-                wide_bar_action("wb-offline", "account", "Launch Offline", can_launch, false, t)
-                    .when_some(s_lo.filter(|_| can_launch), |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
+                    }),
+            )
+            .child(
+                menu_row("ctx-offline", Some("account"), "Launch Offline", None, can_launch, t)
+                    .when(can_launch, |r| {
+                        r.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.ctx_menu = None;
+                            let id = i_off.id.clone();
                             this.app.update(cx, |a, cx| {
                                 a.launch_instance(
                                     &id,
@@ -1587,179 +2226,119 @@ impl MainWindow {
                                 );
                             });
                         }))
-                    })
-            })
-            .when(can_kill, |d| {
-                d.child(
-                    wide_bar_action("wb-kill", "kill", "Kill", true, false, t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                    }),
+            )
+            .when(can_kill, |f| {
+                f.child(
+                    menu_row("ctx-kill", Some("kill"), "Kill Running Game", Some("Ctrl+K"), true, t)
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.ctx_menu = None;
                             job::kill();
                             this.app.update(cx, |a, cx| {
                                 a.notice = Some("Stopped running game.".into());
                                 cx.notify();
                             });
-                        }),
-                    ),
+                        })),
                 )
             })
-            .child(wide_bar_separator(t))
-            .child({
-                let s_ed = sel.clone();
-                wide_bar_action("wb-edit", "edit", "Edit", has, false, t).when_some(
-                    s_ed,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
-                            this.app.update(cx, |a, cx| {
-                                a.open_instance_window(&id, InstancePage::Version, cx);
-                            });
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_log = sel.clone();
-                wide_bar_action("wb-log", "log", "Minecraft Log", has, false, t).when_some(
-                    s_log,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
-                            this.app.update(cx, |a, cx| {
-                                a.open_instance_window(&id, InstancePage::Log, cx);
-                            });
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_mods = sel.clone();
-                wide_bar_action("wb-mods", "mods", "Mods", has, false, t).when_some(
-                    s_mods,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
-                            this.app.update(cx, |a, cx| {
-                                a.open_instance_window(&id, InstancePage::Mods, cx);
-                            });
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_wld = sel.clone();
-                wide_bar_action("wb-worlds", "world", "Worlds", has, false, t).when_some(
-                    s_wld,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
-                            this.app.update(cx, |a, cx| {
-                                a.open_instance_window(&id, InstancePage::Worlds, cx);
-                            });
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_cfg = sel.clone();
-                wide_bar_action("wb-instcfg", "settings", "Instance Settings", has, false, t)
-                    .when_some(s_cfg, |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let id = inst.id.clone();
-                            this.app.update(cx, |a, cx| {
-                                a.open_instance_window(&id, InstancePage::Settings, cx);
-                            });
-                        }))
-                    })
-            })
-            .child(wide_bar_separator(t))
-            .child({
-                let s_grp = sel.clone();
-                wide_bar_action("wb-group", "group", "Change Group", has, false, t).when_some(
-                    s_grp,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mode = UtilityMode::Group {
-                                id: inst.id.clone(),
-                                value: inst.group.clone().unwrap_or_default(),
-                            };
-                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_ren = sel.clone();
-                wide_bar_action("wb-rename", "edit", "Rename", has, false, t).when_some(
-                    s_ren,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mode = UtilityMode::Rename {
-                                id: inst.id.clone(),
-                                value: inst.name.clone(),
-                            };
-                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_fld = sel.clone();
-                wide_bar_action("wb-folder", "folder", "Folder", has, false, t).when_some(
-                    s_fld,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let _ = std::fs::create_dir_all(&inst.home);
-                            if let Err(e) = log::open_folder(&inst.home) {
-                                this.app.update(cx, |a, cx| {
-                                    a.notice = Some(e);
-                                    cx.notify();
-                                });
-                            }
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_cp = sel.clone();
-                wide_bar_action("wb-copy", "copy", "Copy Instance", has, false, t).when_some(
-                    s_cp,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mode = UtilityMode::Copy {
-                                id: inst.id.clone(),
-                                value: format!("{} (Copy)", inst.name),
-                            };
-                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
-                        }))
-                    },
-                )
-            })
-            .child({
-                let s_sc = sel.clone();
-                wide_bar_action("wb-shortcut", "shortcut", "Create Shortcut", has, false, t)
-                    .when_some(s_sc, |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let mode = UtilityMode::Shortcut {
-                                id: inst.id.clone(),
-                                name: inst.name.clone(),
-                                target: ShortcutTarget::Desktop,
-                                offline: false,
-                            };
-                            this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
-                        }))
-                    })
-            })
-            .child({
-                let s_del = sel;
-                wide_bar_action("wb-delete", "delete", "Delete", has, false, t).when_some(
-                    s_del,
-                    |b, inst| {
-                        b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.request_delete(&inst, cx);
-                        }))
-                    },
-                )
-            }))
+            .child(menu_separator(t))
+            .child(
+                menu_row("ctx-edit", Some("edit"), "Edit Instance...", Some("Ctrl+E"), true, t)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let id = i_edit.id.clone();
+                        this.app.update(cx, |a, cx| {
+                            a.open_instance_window(&id, InstancePage::Version, cx);
+                        });
+                    })),
+            )
+            .child(
+                menu_row("ctx-mods", Some("mods"), "Mods...", Some("Ctrl+M"), true, t).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let id = i_mods.id.clone();
+                        this.app.update(cx, |a, cx| {
+                            a.open_instance_window(&id, InstancePage::Mods, cx);
+                        });
+                    }),
+                ),
+            )
+            .child(
+                menu_row("ctx-log", Some("log"), "Minecraft Log...", None, true, t).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let id = i_log.id.clone();
+                        this.app.update(cx, |a, cx| {
+                            a.open_instance_window(&id, InstancePage::Log, cx);
+                        });
+                    }),
+                ),
+            )
+            .child(menu_separator(t))
+            .child(
+                menu_row("ctx-ren", Some("edit"), "Rename", Some("F2"), true, t).on_click(
+                    cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.ctx_menu = None;
+                        this.start_inline_rename(&i_ren, window, cx);
+                    }),
+                ),
+            )
+            .child(
+                menu_row("ctx-icon", Some("image"), "Change Icon...", None, true, t).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let key = this
+                            .app
+                            .read(cx)
+                            .cfgs
+                            .get(&i_icon.id)
+                            .icon_key
+                            .unwrap_or_else(|| inst_icons::default_key_for(&i_icon).to_owned());
+                        let id = i_icon.id.clone();
+                        this.app.update(cx, |a, cx| {
+                            a.open_icon_picker(IconTarget::Instance(id), &key, cx);
+                        });
+                    }),
+                ),
+            )
+            .child(
+                menu_row("ctx-folder", Some("folder"), "Open Folder", Some("Ctrl+O"), true, t)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let _ = std::fs::create_dir_all(&i_fld.home);
+                        let _ = log::open_folder(&i_fld.home);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                menu_row("ctx-copy", Some("copy"), "Copy Instance...", None, true, t).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        let mode = UtilityMode::Copy {
+                            id: i_cp.id.clone(),
+                            value: format!("{} (Copy)", i_cp.name),
+                        };
+                        this.app.update(cx, |a, cx| a.open_utility_window(mode, cx));
+                    }),
+                ),
+            )
+            .child(menu_separator(t))
+            .child(
+                menu_row("ctx-del", Some("delete"), "Delete Instance...", Some("Del"), true, t)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.ctx_menu = None;
+                        this.request_delete(&i_del, cx);
+                    })),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(frame),
+        )
     }
 
     fn render_status_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
@@ -1786,12 +2365,17 @@ impl MainWindow {
                 } else {
                     format!("{}: {}", s.title, s.line)
                 };
+                let failed_inst = s.instance_id.clone();
                 div()
+                    .min_w_0()
+                    .flex_1()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .child(
                         div()
+                            .min_w_0()
+                            .truncate()
                             .text_size(px(11.5))
                             .text_color(if s.failed { t.danger } else { t.accent })
                             .child(msg),
@@ -1805,6 +2389,32 @@ impl MainWindow {
                                     cx.write_to_clipboard(ClipboardItem::new_string(c_cp.clone()));
                                     let _ = log::open_url(&url);
                                 }),
+                        )
+                    })
+                    .when(s.busy && job::can_kill(), |d| {
+                        d.child(
+                            danger_button("sb-kill-run", "Kill (Ctrl+K)", true, t).on_click(
+                                cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    window.focus(&this.focus, cx);
+                                    job::kill();
+                                    this.app.update(cx, |a, cx| {
+                                        a.notice = Some("Stopped running game.".into());
+                                        cx.notify();
+                                    });
+                                }),
+                            ),
+                        )
+                    })
+                    .when_some(failed_inst.filter(|_| s.failed), |d, inst_id| {
+                        d.child(
+                            push_button("sb-view-log", "View Log", true, t).on_click(cx.listener(
+                                move |this, _: &ClickEvent, _, cx| {
+                                    let id = inst_id.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&id, InstancePage::Log, cx);
+                                    });
+                                },
+                            )),
                         )
                     })
                     .when(s.failed, |d| {
@@ -1821,7 +2431,7 @@ impl MainWindow {
         };
 
         div()
-            .h(px(28.))
+            .h(px(32.))
             .px(px(12.))
             .bg(t.footer)
             .border_t_1()
@@ -1833,6 +2443,7 @@ impl MainWindow {
             .child(left_el)
             .child(
                 div()
+                    .flex_none()
                     .font_family(MONO_FONT)
                     .text_size(px(11.))
                     .text_color(t.ink_tertiary)
@@ -1856,10 +2467,25 @@ impl Render for MainWindow {
         let prefs = self.app.read(cx).prefs.clone();
         let notice = self.app.read(cx).notice.clone();
         let t = Theme::resolve(prefs.theme_mode, prefs.accent, window.appearance());
+        let vp = window.viewport_size();
+        let vp_w = f32::from(vp.width);
+        let vp_h = f32::from(vp.height);
+        let ctx_menu_el = self
+            .ctx_menu
+            .as_ref()
+            .and_then(|(id, x, y)| self.render_context_menu(id, *x, *y, vp_w, vp_h, &t, cx));
 
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    if this.ctx_menu.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
             .relative()
             .size_full()
             .bg(t.window)
@@ -1905,5 +2531,6 @@ impl Render for MainWindow {
             .when_some(self.flyout, |d, which| {
                 d.child(self.render_flyout(which, &t, cx))
             })
+            .when_some(ctx_menu_el, |d, el| d.child(el))
     }
 }

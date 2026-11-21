@@ -1172,15 +1172,16 @@ impl SettingsWindow {
                         .text_size(px(p.console_font_size as f32))
                         .children(
                             [
-                                "[FNH] FNH v1.6 (made by Buffer) — ready.",
-                                "[12:00:01] [Render thread/INFO]: Loading Minecraft 1.21.11 with Fabric Loader 0.20.1",
-                                "[12:00:02] [Worker-Main/WARN]: Resource pack declares newer pack_format",
-                                "[12:00:03] [Render thread/ERROR]: Example error highlight preview",
+                                format!("[FnH] FnH v{} (made by Buffer) — ready.", crate::VERSION),
+                                "[12:00:01] [Render thread/INFO]: Loading Minecraft 1.21.11 with Fabric Loader 0.20.1".to_owned(),
+                                "[12:00:02] [Worker-Main/WARN]: Resource pack declares newer pack_format".to_owned(),
+                                "[12:00:03] [Render thread/ERROR]: Example error highlight preview".to_owned(),
                             ]
                             .into_iter()
                             .map(|l| {
+                                let color = log_line_color(&l, p.console_highlight_levels, t);
                                 div()
-                                    .text_color(log_line_color(l, p.console_highlight_levels, t))
+                                    .text_color(color)
                                     .child(l)
                             }),
                         ),

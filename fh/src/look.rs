@@ -329,7 +329,7 @@ pub fn wide_bar_action(
             .items_center()
             .gap(px(8.))
             .w_full()
-            .h(px(30.))
+            .h(px(28.))
             .px(px(10.))
             .rounded(px(4.))
             .bg(t.accent)
@@ -349,7 +349,7 @@ pub fn wide_bar_action(
         .items_center()
         .gap(px(8.))
         .w_full()
-        .h(px(28.))
+        .h(px(26.))
         .px(px(10.))
         .rounded(px(4.))
         .text_size(px(12.5))
@@ -364,7 +364,7 @@ pub fn wide_bar_separator(t: &Theme) -> Div {
         .flex_none()
         .w_full()
         .h(px(1.))
-        .my(px(4.))
+        .my(px(2.5))
         .bg(t.divider)
 }
 
@@ -681,6 +681,51 @@ pub fn text_input(
         )
 }
 
+/// Prism-Launcher-style inline rename editor (`QLineEdit` inside an instance tile, sidebar header,
+/// or mod row): thin 1px border, full-text highlight when `select_all` is active so typing
+/// immediately replaces the selected name while arrow keys keep it for editing.
+pub fn inline_rename_input(
+    id: impl Into<SharedString>,
+    value: &str,
+    select_all: bool,
+    centered: bool,
+    t: &Theme,
+) -> Stateful<Div> {
+    let text_el = if select_all && !value.is_empty() {
+        div()
+            .px(px(2.))
+            .rounded(px(2.))
+            .bg(t.accent)
+            .text_color(t.on_accent)
+            .child(value.to_owned())
+    } else {
+        div()
+            .flex()
+            .items_center()
+            .text_color(t.ink)
+            .child(value.to_owned())
+            .child(div().w(px(1.5)).h(px(13.)).ml(px(1.)).bg(t.accent))
+    };
+
+    div()
+        .id(id.into())
+        .flex()
+        .items_center()
+        .when(centered, |d| d.justify_center())
+        .w_full()
+        .h(px(22.))
+        .px(px(5.))
+        .rounded(px(3.))
+        .bg(t.input_bg)
+        .border_1()
+        .border_color(t.accent)
+        .text_size(px(12.))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_text()
+        .overflow_x_hidden()
+        .child(text_el)
+}
+
 /// WinUI 3 `CheckBox` row (with optional secondary description).
 pub fn checkbox_row(
     id: impl Into<SharedString>,
@@ -969,6 +1014,120 @@ pub fn apply_text_key(
                     s = s.to_ascii_uppercase();
                 }
                 buf.push_str(&s);
+                return true;
+            }
+            false
+        }
+    }
+}
+
+/// Keyboard handler for `inline_rename_input` supporting full-selection replacement (like Prism
+/// Launcher's `QLineEdit` when clicking an instance/mod name or pressing `F2`), `Ctrl+A`, `Ctrl+C`,
+/// `Ctrl+V`, `Backspace`/`Delete`, and arrow keys to collapse selection to the end of the text.
+pub fn apply_inline_rename_key(
+    buf: &mut String,
+    select_all: &mut bool,
+    event: &gpui::KeyDownEvent,
+    cx: &mut gpui::App,
+) -> bool {
+    let ks = &event.keystroke;
+    let key = ks.key.as_str();
+    let ctrl = ks.modifiers.control || ks.modifiers.platform;
+
+    if ctrl {
+        if key.eq_ignore_ascii_case("a") {
+            *select_all = !buf.is_empty();
+            return true;
+        }
+        if key.eq_ignore_ascii_case("c") {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(buf.clone()));
+            return true;
+        }
+        if key.eq_ignore_ascii_case("v") {
+            if let Some(item) = cx.read_from_clipboard() {
+                if let Some(text) = item.text() {
+                    let one_line: String = text
+                        .chars()
+                        .filter(|c| !matches!(c, '\r' | '\n'))
+                        .collect();
+                    if *select_all {
+                        *buf = one_line;
+                        *select_all = false;
+                    } else {
+                        buf.push_str(&one_line);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+        if key == "backspace" {
+            if *select_all {
+                buf.clear();
+                *select_all = false;
+            } else {
+                let trimmed = buf.trim_end_matches(' ');
+                let cut = trimmed
+                    .rfind(|c: char| c.is_whitespace() || matches!(c, '/' | '\\' | '-'))
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                buf.truncate(cut);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    match key {
+        "left" | "right" | "home" | "end" => {
+            if *select_all {
+                *select_all = false;
+                return true;
+            }
+            false
+        }
+        "backspace" | "delete" => {
+            if *select_all {
+                buf.clear();
+                *select_all = false;
+            } else if key == "backspace" {
+                buf.pop();
+            } else {
+                buf.clear();
+            }
+            true
+        }
+        "space" => {
+            if *select_all {
+                *buf = " ".to_owned();
+                *select_all = false;
+            } else {
+                buf.push(' ');
+            }
+            true
+        }
+        _ => {
+            if let Some(ch) = &ks.key_char {
+                if !ch.chars().any(char::is_control) {
+                    if *select_all {
+                        *buf = ch.clone();
+                        *select_all = false;
+                    } else {
+                        buf.push_str(ch);
+                    }
+                    return true;
+                }
+            } else if key.len() == 1 && !ks.modifiers.alt {
+                let mut s = key.to_owned();
+                if ks.modifiers.shift {
+                    s = s.to_ascii_uppercase();
+                }
+                if *select_all {
+                    *buf = s;
+                    *select_all = false;
+                } else {
+                    buf.push_str(&s);
+                }
                 return true;
             }
             false

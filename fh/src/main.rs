@@ -182,8 +182,7 @@ fn run(
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             let shared = cx.new(|_| app::Fh::new(after_reset, updated_from.clone()));
-            let bounds = Bounds::centered(None, size(px(980.), px(660.)), cx);
-            let title = format!("FNH {VERSION}");
+            let bounds = Bounds::centered(None, size(px(980.), px(680.)), cx);
 
             let shared_for_main = shared.clone();
             let main_handle = cx
@@ -192,7 +191,7 @@ fn run(
                         window_bounds: Some(WindowBounds::Windowed(bounds)),
                         window_min_size: Some(size(px(740.), px(480.))),
                         titlebar: Some(TitlebarOptions {
-                            title: Some(title.into()),
+                            title: Some("FnH".into()),
                             ..Default::default()
                         }),
                         app_id: Some("fnh".into()),
@@ -234,15 +233,14 @@ fn run(
 mod tests {
     use super::VERSION;
 
-    /// `fh/VERSION` and `fh/Cargo.toml` must agree on the release number (`1.7` vs `1.7.0`).
+    /// `fh/VERSION` and `fh/Cargo.toml` must agree on the release number (`1.7.1` or `1.7` vs `1.7.0`).
     #[test]
     fn the_version_is_the_one_the_release_is_tagged_with() {
         assert_eq!(VERSION, VERSION.trim(), "VERSION has no padding");
+        let pkg = env!("CARGO_PKG_VERSION");
         assert!(
-            env!("CARGO_PKG_VERSION").starts_with(&format!("{VERSION}.")),
-            "Cargo.toml's {} and VERSION's {} are the same release",
-            env!("CARGO_PKG_VERSION"),
-            VERSION
+            pkg == VERSION || pkg.starts_with(&format!("{VERSION}.")),
+            "Cargo.toml's {pkg} and VERSION's {VERSION} are the same release"
         );
     }
 }
