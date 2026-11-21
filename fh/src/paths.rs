@@ -90,6 +90,13 @@ pub fn logs_dir() -> PathBuf {
     dir
 }
 
+/// Ephemeral download & self-update staging folder (`<FnH>/cache`).
+pub fn cache_dir() -> PathBuf {
+    let dir = root().join("cache");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Auto-downloaded Mojang Java runtimes folder.
 pub fn java_dir() -> PathBuf {
     let dir = horizon_launcher::java::runtimes_dir();

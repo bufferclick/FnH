@@ -120,16 +120,16 @@ impl InstancePage {
     pub fn icon(self) -> &'static str {
         match self {
             Self::Log => "log",
-            Self::Version => "version",
+            Self::Version => "cube",
             Self::Mods => "mods",
-            Self::ResourcePacks => "packs",
-            Self::ShaderPacks => "shaders",
-            Self::Notes => "notes",
-            Self::Worlds => "worlds",
-            Self::Servers => "servers",
-            Self::Screenshots => "screenshots",
+            Self::ResourcePacks => "pack",
+            Self::ShaderPacks => "shader",
+            Self::Notes => "note",
+            Self::Worlds => "world",
+            Self::Servers => "server",
+            Self::Screenshots => "camera",
             Self::Settings => "settings",
-            Self::OtherLogs => "file",
+            Self::OtherLogs => "terminal",
         }
     }
 }
@@ -252,6 +252,7 @@ impl InstanceWindow {
         let opts = secondary_window_options(title, 980., 680., 760., 520., cx);
 
         cx.open_window(opts, move |window, cx| {
+            crate::look::apply_window_icon();
             cx.new(|cx| {
                 let focus = cx.focus_handle();
                 window.focus(&focus, cx);
@@ -2678,7 +2679,7 @@ impl InstanceWindow {
                                     .justify_center()
                                     .child(match thumb {
                                         Some(im) => img(im).w_full().h_full().into_any_element(),
-                                        None => icons::icon("screenshots", 24., t.ink_tertiary)
+                                        None => icons::icon("camera", 24., t.ink_tertiary)
                                             .into_any_element(),
                                     }),
                             )

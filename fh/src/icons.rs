@@ -173,6 +173,34 @@ pub const ALL: &[(&str, &str)] = &[
         "list",
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg>"#,
     ),
+    (
+        "grid",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/></svg>"#,
+    ),
+    (
+        "appearance",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2v16a8 8 0 0 1 0-16Z"/></svg>"#,
+    ),
+    (
+        "globe",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.9 9h-3.02a15.7 15.7 0 0 0-1.18-6.01A8.03 8.03 0 0 1 18.9 11ZM12 4.04c.83 1.2 1.54 3.48 1.86 6.96h-3.72c.32-3.48 1.03-5.76 1.86-6.96ZM4.1 13h3.02c.16 2.27.58 4.38 1.18 6.01A8.03 8.03 0 0 1 4.1 13Zm3.02-2H4.1a8.03 8.03 0 0 1 4.2-6.01A15.7 15.7 0 0 0 7.12 11ZM12 19.96c-.83-1.2-1.54-3.48-1.86-6.96h3.72c-.32 3.48-1.03 5.76-1.86 6.96Zm2.7-.95c.6-1.63 1.02-3.74 1.18-6.01h3.02a8.03 8.03 0 0 1-4.2 6.01Z"/></svg>"#,
+    ),
+    (
+        "warning",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2.5 1.8 20.2a1.2 1.2 0 0 0 1.04 1.8h18.32a1.2 1.2 0 0 0 1.04-1.8L12 2.5Zm-1 6.7h2v5.6h-2V9.2Zm0 7.4h2v2h-2v-2Z"/></svg>"#,
+    ),
+    (
+        "shield",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4 5.5v6.1c0 5.05 3.41 9.77 8 10.9 4.59-1.13 8-5.85 8-10.9V5.5L12 2Zm-1.2 13.6-3.3-3.3 1.4-1.4 1.9 1.9 4.3-4.3 1.4 1.4-5.7 5.7Z"/></svg>"#,
+    ),
+    (
+        "wrench",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M21.2 6.8a5.5 5.5 0 0 1-7.4 6.1L7.1 19.6a1.8 1.8 0 0 1-2.5-2.5l6.7-6.7A5.5 5.5 0 0 1 17.4 3l-3.1 3.1 2.4 2.4 3.1-3.1c.6.4 1.1.9 1.4 1.4Z"/></svg>"#,
+    ),
+    (
+        "github",
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 12 2Z"/></svg>"#,
+    ),
 ];
 
 /// GPUI asset source serving `icons/<name>.svg`.
@@ -230,6 +258,55 @@ mod tests {
             let path = format!("icons/{name}.svg");
             let loaded = assets.load(&path).unwrap();
             assert!(loaded.is_some(), "asset lookup failed for {path}");
+        }
+    }
+
+    #[test]
+    fn all_page_nav_and_ui_icons_resolve() {
+        let assets = Assets;
+        for name in [
+            "add",
+            "folder",
+            "settings",
+            "grid",
+            "list",
+            "appearance",
+            "globe",
+            "warning",
+            "shield",
+            "wrench",
+            "github",
+            "help",
+            "account",
+            "play",
+            "kill",
+            "edit",
+            "copy",
+            "delete",
+            "group",
+            "shortcut",
+            "log",
+            "cube",
+            "mods",
+            "pack",
+            "shader",
+            "note",
+            "world",
+            "server",
+            "camera",
+            "terminal",
+            "chevron-right",
+            "chevron-down",
+            "download",
+            "info",
+            "fabric",
+            "horizon",
+        ] {
+            let path = format!("icons/{name}.svg");
+            assert!(
+                assets.load(&path).unwrap().is_some(),
+                "missing UI icon SVG: {name}"
+            );
         }
     }
 }

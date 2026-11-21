@@ -1,13 +1,12 @@
 name: fh
-# Builds FNH (fh/): JLac's window over the Horizon launcher's instances, one .exe that a player
-# unzips from fnh-<version>.zip and double-clicks. Windows x64 only — the only platform it exists
-# for — on a Windows runner, so the icon and the version resource in the .exe are the real Windows
-# ones, not a cross-build's guess.
+# Builds FNH (fh/): JLac's window over Fabric & Horizon instances, one .exe that a player unzips
+# from FnHLauncher.zip and double-clicks. Windows x64 only — the only platform it exists for — on a
+# Windows runner, so the icon and the version resource in the .exe are the real Windows ones, not a
+# cross-build's guess.
 #
 # The version is fh/VERSION (v1.4 first, one tenth per update: v1.5 … v1.9, then v1.10). The
-# release is tagged fnh-v<version> and its download is named fnh-<version>.zip, so what a player
-# saves is `fnh-1.4.zip`, not `FH.zip`. A tag that is already published is left alone, so a push
-# that changes nothing a player would notice publishes nothing; bumping VERSION publishes.
+# release is tagged fnh-v<version> and its download archive is always named FnHLauncher.zip so
+# players, fnh.is-cool.dev, and FNH's built-in self-updater always pull a single canonical zip.
 #
 # The release is created with --latest, so the newest FNH is the Latest release and the download
 # the website's button asks for (`releases/latest`).
@@ -133,19 +132,19 @@ jobs:
           print('subsystem', subsystem)
           raise SystemExit(0 if subsystem == 2 else 1)
           " target/release/FH.exe
-      - name: Package fnh-${{ env.VERSION }}.zip
+      - name: Package FnHLauncher.zip
         run: |
           set -euo pipefail
           rm -rf dist && mkdir -p dist/fnh
           cp target/release/FH.exe dist/fnh/
           sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/fnh/README.txt
           cd dist
-          powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'fnh-$VERSION.zip' -Force"
-          ls -l "fnh-$VERSION.zip"
+          powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'FnHLauncher.zip' -Force"
+          ls -l "FnHLauncher.zip"
       - uses: actions/upload-artifact@v7
         with:
-          name: FNH-${{ env.VERSION }}
-          path: fh/dist/fnh-${{ env.VERSION }}.zip
+          name: FnHLauncher-${{ env.VERSION }}
+          path: fh/dist/FnHLauncher.zip
           if-no-files-found: error
       - name: What failed, as a comment the failure can be read from
         # The runner's raw log is not reachable from every place a failure is read, and a commit
@@ -176,7 +175,7 @@ jobs:
             echo "::notice::$tag is published already: nothing to do (bump fh/VERSION)"
             exit 0
           fi
-          gh release create "$tag" "dist/fnh-$VERSION.zip" \
+          gh release create "$tag" "dist/FnHLauncher.zip" \
             --title "FNH v$VERSION" \
             --latest \
-            --notes "FNH (Fabric n Horizon) for Windows x64. Download \`fnh-$VERSION.zip\`, unzip it, and double-click \`FH.exe\`. It lists the Horizon launcher's instances with Overview, Mods, Worlds and Logs for each, makes new Horizon and Minecraft: Java Edition instances (vanilla or Fabric), and starts the game signed in. Requires Windows 10 or 11 on x64. [fnh.is-cool.dev](https://fnh.is-cool.dev) · [How it works](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"
+            --notes "FNH (Fabric n Horizon) v$VERSION for Windows x64 — made by Buffer. Download \`FnHLauncher.zip\`, unzip it, and double-click \`FH.exe\` (or update automatically from inside FnH). Includes fixed 9x9 FnH icons everywhere, full Horizon v0.2 Content/WASM/Native SDK \`.hmod\` + GitHub & Registry support, a Fabric-style Crash & Mod Compatibility window with 1-click Disable Mod, and automatic startup self-updates. [fnh.is-cool.dev](https://fnh.is-cool.dev) · [Documentation](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"

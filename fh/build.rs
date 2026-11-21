@@ -1,6 +1,6 @@
 //! FNH's Windows resources: the icon (`icons/fh.ico`, drawn from `icons/fh.svg`), author credit
 //! (`Buffer`), and the version Explorer shows, read from `VERSION` so `FH.exe`, `--version` and
-//! the release tag (`fnh-v1.6`) stay in lockstep.
+//! the release tag (`fnh-v1.7`) stay in lockstep.
 fn main() {
     let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     let version = std::fs::read_to_string(format!("{dir}/VERSION"))
