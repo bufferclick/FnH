@@ -1288,17 +1288,39 @@ mod tests {
         remove_mod(&fabric_home, &mods[0]).unwrap();
         assert!(list_mods_in(&fabric_home, true).is_empty());
 
-        // 2. Horizon instance: add .hmod, add .hnmod, AND paste .hmod into legacy `mods/` folder.
+        // 2. Horizon instance: add Content .hmod, add Native SDK .hmod/.hnmod, AND paste .hmod into legacy `mods/` folder.
         let hz_home = base.join("horizon-inst");
         let hmod_src = staging.join("cool_blocks.hmod");
         let hnmod_src = staging.join("fast_chunk.hnmod");
-        fs::write(&hmod_src, b"hmod").unwrap();
-        fs::write(&hnmod_src, b"hnmod").unwrap();
+        let write_test_pkg = |dst: &Path, id: &str, native: bool| {
+            use std::io::Write;
+            let opts = zip::write::SimpleFileOptions::default();
+            let mut z = zip::ZipWriter::new(fs::File::create(dst).unwrap());
+            z.start_file("horizon-mod.toml", opts).unwrap();
+            if native {
+                write!(
+                    z,
+                    "id = \"{id}\"\nname = \"{id}\"\nversion = \"0.2.0\"\napi = \"0.2\"\n\n[native]\ncrate = \"{id}\"\n"
+                )
+                .unwrap();
+                z.start_file("Cargo.toml", opts).unwrap();
+                write!(z, "[package]\nname = \"{id}\"\nversion = \"0.2.0\"\n").unwrap();
+            } else {
+                write!(
+                    z,
+                    "id = \"{id}\"\nname = \"{id}\"\nversion = \"0.2.0\"\napi = \"0.2\"\n"
+                )
+                .unwrap();
+            }
+            z.finish().unwrap();
+        };
+        write_test_pkg(&hmod_src, "cool_blocks", false);
+        write_test_pkg(&hnmod_src, "fast_chunk", true);
         add_mod_files_to(&hz_home, false, &[hmod_src, hnmod_src]).unwrap();
 
         // Also simulate user manually pasting a `.hmod` into `<instance>/mods/`.
         fs::create_dir_all(hz_home.join("mods")).unwrap();
-        fs::write(hz_home.join("mods/pasted_mod.hmod"), b"hmod2").unwrap();
+        write_test_pkg(&hz_home.join("mods/pasted_mod.hmod"), "pasted_mod", false);
 
         let hz_mods = list_mods_in(&hz_home, false);
         assert_eq!(hz_mods.len(), 3);
