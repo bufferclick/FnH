@@ -543,8 +543,8 @@ impl MainWindow {
                 .ok()
                 .is_none_or(|cur| cur.name.trim() != trimmed);
             if changed {
-                match inst::rename(&id, &trimmed) {
-                    Ok(()) => {
+                match inst::edit(&id, |m| m.name = Some(trimmed.clone())) {
+                    Ok(_) => {
                         self.app.update(cx, |a, cx| {
                             a.reload_instances();
                             a.select_instance(&id);
