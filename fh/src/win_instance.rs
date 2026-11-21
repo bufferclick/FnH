@@ -20,8 +20,9 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable,
-     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathPromptOptions,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, WindowHandle, div, img, px,
+    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    WindowHandle, div, img, px,
 };
 use horizon_launcher::backend;
 use horizon_launcher::browser::Kind as BrowseKind;
@@ -39,9 +40,10 @@ use crate::inst_icons;
 use crate::job::{self, LaunchExtras};
 use crate::log;
 use crate::look::{
-    MONO_FONT, Theme, UI_FONT, accent_button, apply_text_key, checkbox_row, chip, danger_button,
-    group_box, instance_summary, log_line_color, page_nav_row, push_button, side_action_button,
-    status_banner, sub_tab, text_input,
+    MONO_FONT, Theme, UI_FONT, accent_button, apply_inline_rename_key, apply_text_key,
+    checkbox_row, chip, danger_button, group_box, inline_rename_input, instance_summary,
+    log_line_color, page_nav_row, push_button, side_action_button, status_banner, sub_tab,
+    text_input,
 };
 use crate::prefs::{GameOptions, GpuBackend, GpuPower, HorizonTrack};
 use crate::win_dialogs::secondary_window_options;
@@ -201,6 +203,7 @@ pub struct InstanceWindow {
     // Mods / Packs / Shaders
     mod_search: String,
     selected_mod: usize,
+    renaming_mod: Option<(ModItem, String, bool)>,
     pack_search: String,
     selected_pack: usize,
     shader_search: String,
@@ -248,7 +251,7 @@ impl InstanceWindow {
             .cloned()
             .or_else(|| inst::find(&instance_id).ok());
         let instance = inst_opt?;
-        let title = format!("Edit Instance ({}) - FNH", instance.name);
+        let title = format!("Edit Instance ({}) - FnH", instance.name);
         let opts = secondary_window_options(title, 980., 680., 760., 520., cx);
 
         cx.open_window(opts, move |window, cx| {
@@ -348,6 +351,7 @@ impl InstanceWindow {
                     ver_show_old: prefs.show_old_versions_default,
                     mod_search: String::new(),
                     selected_mod: 0,
+                    renaming_mod: None,
                     pack_search: String::new(),
                     selected_pack: 0,
                     shader_search: String::new(),
@@ -427,8 +431,90 @@ impl InstanceWindow {
         cx.notify();
     }
 
+    fn start_mod_rename(&mut self, item: &ModItem, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .renaming_mod
+            .as_ref()
+            .is_some_and(|(cur, _, _)| cur.path != item.path)
+        {
+            self.commit_mod_rename(cx);
+        }
+        self.active_field = None;
+        self.renaming_mod = Some((item.clone(), item.name.clone(), true));
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn commit_mod_rename(&mut self, cx: &mut Context<Self>) {
+        let Some((item, raw_name, _)) = self.renaming_mod.take() else {
+            return;
+        };
+        let trimmed = raw_name.trim();
+        if trimmed.is_empty() || trimmed == item.name {
+            cx.notify();
+            return;
+        }
+        if let Some(inst) = self.current_instance(cx) {
+            match content::rename_mod(&inst.home, &item, trimmed) {
+                Ok(new_name) => {
+                    self.notice = Some((format!("Renamed mod to '{new_name}'."), false));
+                }
+                Err(e) => self.notice = Some((e, true)),
+            }
+        }
+        cx.notify();
+    }
+
+    fn filtered_mods(&self, instance: &Instance) -> Vec<ModItem> {
+        let all_mods = content::list_mods(instance);
+        let q = self.mod_search.trim().to_ascii_lowercase();
+        all_mods
+            .into_iter()
+            .filter(|m| {
+                q.is_empty()
+                    || m.name.to_ascii_lowercase().contains(&q)
+                    || m.id.to_ascii_lowercase().contains(&q)
+                    || m.file_label.to_ascii_lowercase().contains(&q)
+            })
+            .collect()
+    }
+
     fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = ev.keystroke.key.as_str();
+        let km = &ev.keystroke.modifiers;
+
+        // Global Ctrl+K kills any running game or active prepare process
+        if (km.control || km.platform) && key.eq_ignore_ascii_case("k") {
+            if job::can_kill() {
+                job::kill();
+                self.notice = Some(("Stopped running game.".into(), false));
+                cx.notify();
+            }
+            return;
+        }
+
+        // Prism-style inline mod rename mode
+        if self.renaming_mod.is_some() {
+            match key {
+                "escape" => {
+                    self.renaming_mod = None;
+                    cx.notify();
+                    return;
+                }
+                "enter" => {
+                    self.commit_mod_rename(cx);
+                    return;
+                }
+                _ => {}
+            }
+            if let Some((_, buf, select_all)) = &mut self.renaming_mod {
+                if apply_inline_rename_key(buf, select_all, ev, cx) {
+                    cx.notify();
+                }
+            }
+            return;
+        }
+
         if key == "escape" {
             if self.active_field.is_some() {
                 self.active_field = None;
@@ -440,6 +526,53 @@ impl InstanceWindow {
         }
 
         let Some(field) = self.active_field else {
+            if self.page == InstancePage::Mods {
+                if let Some(inst) = self.current_instance(cx) {
+                    let mods = self.filtered_mods(&inst);
+                    if !mods.is_empty() {
+                        let sel = self.selected_mod.min(mods.len() - 1);
+                        match key {
+                            "f2" => {
+                                let m = mods[sel].clone();
+                                self.start_mod_rename(&m, window, cx);
+                                return;
+                            }
+                            "space" => {
+                                let m = &mods[sel];
+                                if let Err(e) = content::set_mod_enabled(&inst.home, m, !m.enabled)
+                                {
+                                    self.notice = Some((e, true));
+                                }
+                                cx.notify();
+                                return;
+                            }
+                            "delete" => {
+                                let m = &mods[sel];
+                                match content::remove_mod(&inst.home, m) {
+                                    Ok(()) => {
+                                        self.notice =
+                                            Some((format!("Removed '{}'.", m.name), false));
+                                    }
+                                    Err(e) => self.notice = Some((e, true)),
+                                }
+                                cx.notify();
+                                return;
+                            }
+                            "up" => {
+                                self.selected_mod = sel.saturating_sub(1);
+                                cx.notify();
+                                return;
+                            }
+                            "down" => {
+                                self.selected_mod = (sel + 1).min(mods.len() - 1);
+                                cx.notify();
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
             return;
         };
 
@@ -1413,17 +1546,7 @@ impl InstanceWindow {
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
-        let all_mods = content::list_mods(instance);
-        let q = self.mod_search.trim().to_ascii_lowercase();
-        let mods: Vec<ModItem> = all_mods
-            .into_iter()
-            .filter(|m| {
-                q.is_empty()
-                    || m.name.to_ascii_lowercase().contains(&q)
-                    || m.id.to_ascii_lowercase().contains(&q)
-                    || m.file_label.to_ascii_lowercase().contains(&q)
-            })
-            .collect();
+        let mods = self.filtered_mods(instance);
 
         let sel = self.selected_mod.min(mods.len().saturating_sub(1));
         let cur_mod = mods.get(sel).cloned();
@@ -1434,6 +1557,10 @@ impl InstanceWindow {
         let mods_dir = content::mods_folder(instance);
         let cfg_dir = instance.home.join("config");
         let home_toggle = instance.home.clone();
+        let home_en_all = instance.home.clone();
+        let home_dis_all = instance.home.clone();
+        let mods_en_all = mods.clone();
+        let mods_dis_all = mods.clone();
         let home_rm = instance.home.clone();
         let is_java = instance.java.is_some();
 
@@ -1494,6 +1621,12 @@ impl InstanceWindow {
                             .border_color(t.divider)
                             .bg(t.window)
                             .p(px(6.))
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.commit_mod_rename(cx);
+                                this.active_field = None;
+                                window.focus(&this.focus, cx);
+                                cx.notify();
+                            }))
                             .drag_over::<ExternalPaths>({
                                 let accent = t.accent;
                                 let sel_bg = t.tile_selected;
@@ -1519,6 +1652,14 @@ impl InstanceWindow {
                                 let selected = i == sel;
                                 let home_chk = instance.home.clone();
                                 let item_chk = m.clone();
+                                let item_ren = m.clone();
+                                let row_path = m.path.clone();
+                                let renaming_state = self
+                                    .renaming_mod
+                                    .as_ref()
+                                    .filter(|(rm, _, _)| rm.path == m.path)
+                                    .map(|(_, buf, sa)| (buf.clone(), *sa));
+
                                 div()
                                     .id(SharedString::from(format!("mod-row-{i}")))
                                     .px(px(10.))
@@ -1537,8 +1678,20 @@ impl InstanceWindow {
                                         t.layer
                                     })
                                     .hover(|s| s.bg(t.subtle_hover))
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                        cx.stop_propagation();
+                                        if this
+                                            .renaming_mod
+                                            .as_ref()
+                                            .is_some_and(|(rm, _, _)| rm.path != row_path)
+                                        {
+                                            this.commit_mod_rename(cx);
+                                        } else if this.renaming_mod.is_some() {
+                                            this.commit_mod_rename(cx);
+                                        }
+                                        this.active_field = None;
                                         this.selected_mod = i;
+                                        window.focus(&this.focus, cx);
                                         cx.notify();
                                     }))
                                     .flex()
@@ -1568,7 +1721,11 @@ impl InstanceWindow {
                                                     .items_center()
                                                     .justify_center()
                                                     .on_click(cx.listener(
-                                                        move |this, _: &ClickEvent, _, cx| {
+                                                        move |this, _: &ClickEvent, window, cx| {
+                                                            cx.stop_propagation();
+                                                            this.commit_mod_rename(cx);
+                                                            this.active_field = None;
+                                                            window.focus(&this.focus, cx);
                                                             if let Err(e) = content::set_mod_enabled(
                                                                 &home_chk,
                                                                 &item_chk,
@@ -1593,16 +1750,80 @@ impl InstanceWindow {
                                                     .flex()
                                                     .flex_col()
                                                     .child(
-                                                        div()
-                                                            .text_size(px(12.5))
-                                                            .font_weight(FontWeight::MEDIUM)
-                                                            .text_color(if m.enabled {
-                                                                t.ink
-                                                            } else {
-                                                                t.ink_tertiary
-                                                            })
-                                                            .truncate()
-                                                            .child(m.name.clone()),
+                                                        if let Some((buf, sel_all)) = renaming_state
+                                                        {
+                                                            div()
+                                                                .w(px(260.))
+                                                                .child(
+                                                                    inline_rename_input(
+                                                                        format!("mod-ren-{i}"),
+                                                                        &buf,
+                                                                        sel_all,
+                                                                        false,
+                                                                        t,
+                                                                    )
+                                                                    .on_mouse_down(
+                                                                        MouseButton::Left,
+                                                                        |_, _, cx| {
+                                                                            cx.stop_propagation()
+                                                                        },
+                                                                    )
+                                                                    .on_click(cx.listener(
+                                                                        |this,
+                                                                         _: &ClickEvent,
+                                                                         window,
+                                                                         cx| {
+                                                                            cx.stop_propagation();
+                                                                            if let Some((
+                                                                                _,
+                                                                                _,
+                                                                                sa,
+                                                                            )) = &mut this
+                                                                                .renaming_mod
+                                                                            {
+                                                                                *sa = false;
+                                                                            }
+                                                                            window.focus(
+                                                                                &this.focus,
+                                                                                cx,
+                                                                            );
+                                                                            cx.notify();
+                                                                        },
+                                                                    )),
+                                                                )
+                                                                .into_any_element()
+                                                        } else {
+                                                            div()
+                                                                .id(SharedString::from(format!(
+                                                                    "mod-name-{i}"
+                                                                )))
+                                                                .px(px(3.))
+                                                                .rounded(px(3.))
+                                                                .cursor_text()
+                                                                .hover(|s| s.bg(t.subtle_hover))
+                                                                .text_size(px(12.5))
+                                                                .font_weight(FontWeight::MEDIUM)
+                                                                .text_color(if m.enabled {
+                                                                    t.ink
+                                                                } else {
+                                                                    t.ink_tertiary
+                                                                })
+                                                                .truncate()
+                                                                .on_click(cx.listener(
+                                                                    move |this,
+                                                                          _: &ClickEvent,
+                                                                          window,
+                                                                          cx| {
+                                                                        cx.stop_propagation();
+                                                                        this.selected_mod = i;
+                                                                        this.start_mod_rename(
+                                                                            &item_ren, window, cx,
+                                                                        );
+                                                                    },
+                                                                ))
+                                                                .child(m.name.clone())
+                                                                .into_any_element()
+                                                        },
                                                     )
                                                     .child(
                                                         div()
@@ -1632,8 +1853,11 @@ impl InstanceWindow {
             // Right action column (JLac ModFolderPage sidebar)
             .child(
                 div()
+                    .id("mods-side-col")
                     .w(px(176.))
                     .flex_shrink_0()
+                    .min_h_0()
+                    .overflow_y_scroll()
                     .flex()
                     .flex_col()
                     .gap(px(6.))
@@ -1674,6 +1898,16 @@ impl InstanceWindow {
                         ),
                     )
                     .child({
+                        let m_ren = cur_mod.clone();
+                        side_btn("mod-rename", Some("edit"), "Rename (F2)", m_ren.is_some(), t)
+                            .when_some(m_ren, |b, m| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.start_mod_rename(&m, window, cx);
+                                }))
+                            })
+                    })
+                    .child({
                         let m_tog = cur_mod.clone();
                         let lbl = match &m_tog {
                             Some(m) if m.enabled => "Disable",
@@ -1693,6 +1927,35 @@ impl InstanceWindow {
                             },
                         )
                     })
+                    .child(
+                        side_btn("mod-en-all", None, "Enable All", !mods_en_all.is_empty(), t)
+                            .when(!mods_en_all.is_empty(), |b| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    for m in &mods_en_all {
+                                        if !m.enabled {
+                                            let _ = content::set_mod_enabled(&home_en_all, m, true);
+                                        }
+                                    }
+                                    cx.notify();
+                                    let _ = this;
+                                }))
+                            }),
+                    )
+                    .child(
+                        side_btn("mod-dis-all", None, "Disable All", !mods_dis_all.is_empty(), t)
+                            .when(!mods_dis_all.is_empty(), |b| {
+                                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    for m in &mods_dis_all {
+                                        if m.enabled {
+                                            let _ =
+                                                content::set_mod_enabled(&home_dis_all, m, false);
+                                        }
+                                    }
+                                    cx.notify();
+                                    let _ = this;
+                                }))
+                            }),
+                    )
                     .child({
                         let m_rm = cur_mod.clone();
                         danger_button("mod-rm", "Remove", m_rm.is_some(), t).when_some(

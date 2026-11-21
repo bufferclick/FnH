@@ -375,8 +375,39 @@ pub fn list_mods_in(home: &Path, is_java: bool) -> Vec<ModItem> {
         }
     }
 
+    let custom_names = load_custom_mod_names(home);
+    if !custom_names.is_empty() {
+        for row in &mut rows {
+            if let Some(custom) = custom_names
+                .get(&row.file_label)
+                .or_else(|| custom_names.get(&row.id))
+                .filter(|s| !s.trim().is_empty())
+            {
+                row.name = custom.clone();
+            }
+        }
+    }
+
     rows.sort_by_key(|m| m.name.to_ascii_lowercase());
     rows
+}
+
+const CUSTOM_MOD_NAMES_FILE: &str = ".fnh-mod-names.json";
+
+fn load_custom_mod_names(home: &Path) -> std::collections::BTreeMap<String, String> {
+    fs::read_to_string(home.join(CUSTOM_MOD_NAMES_FILE))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_custom_mod_names(home: &Path, map: &std::collections::BTreeMap<String, String>) {
+    let path = home.join(CUSTOM_MOD_NAMES_FILE);
+    if map.is_empty() {
+        let _ = fs::remove_file(path);
+    } else if let Ok(json) = serde_json::to_string_pretty(map) {
+        let _ = fs::write(path, json);
+    }
 }
 
 fn read_local_folder_mod_meta(dir: &Path, fallback_id: &str) -> (String, String, String, Option<String>) {
@@ -664,8 +695,72 @@ pub fn set_mod_enabled(home: &Path, item: &ModItem, on: bool) -> Result<(), Stri
     }
 }
 
+/// Renames a mod's display name (and optionally its `.jar`/`.hmod` filename on disk when the user
+/// enters a valid file name with an extension), persisting cleanly across Enable/Disable toggles.
+pub fn rename_mod(home: &Path, item: &ModItem, new_name: &str) -> Result<String, String> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err("Mod name cannot be empty.".into());
+    }
+
+    let mut names = load_custom_mod_names(home);
+    let mut key = item.file_label.clone();
+
+    // If the user explicitly typed a safe `.jar` / `.hmod` / `.hnmod` filename for an untracked local file,
+    // rename the underlying file on disk too (like Prism Launcher's file rename).
+    let lower = trimmed.to_ascii_lowercase();
+    let safe_filename = !trimmed.chars().any(|c| {
+        matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    });
+    if safe_filename && item.browser_slug.is_none() && item.path.is_file() {
+        let matching_ext = match item.format {
+            ModFormat::JavaJar => lower.ends_with(".jar"),
+            ModFormat::HorizonMod => lower.ends_with(".hmod"),
+            ModFormat::HorizonNative => lower.ends_with(".hmod") || lower.ends_with(".hnmod"),
+            ModFormat::HorizonFolder => false,
+        };
+        if matching_ext && trimmed != item.file_label {
+            if let Some(parent) = item.path.parent() {
+                let disk_name = if item.format == ModFormat::JavaJar && !item.enabled {
+                    format!("{trimmed}{DISABLED_SUFFIX}")
+                } else {
+                    trimmed.to_owned()
+                };
+                let dst = parent.join(&disk_name);
+                if dst.exists() {
+                    return Err(format!("A mod file named '{trimmed}' already exists."));
+                }
+                fs::rename(&item.path, &dst).map_err(|e| format!("{}: {e}", item.path.display()))?;
+                names.remove(&item.file_label);
+                key = trimmed.to_owned();
+            }
+        }
+    }
+
+    let display = trimmed
+        .strip_suffix(".jar")
+        .or_else(|| trimmed.strip_suffix(".hmod"))
+        .or_else(|| trimmed.strip_suffix(".hnmod"))
+        .unwrap_or(trimmed)
+        .trim()
+        .to_owned();
+    let final_display = if display.is_empty() {
+        trimmed.to_owned()
+    } else {
+        display
+    };
+
+    names.insert(key, final_display.clone());
+    save_custom_mod_names(home, &names);
+    Ok(final_display)
+}
+
 /// Removes a mod from `instance`.
 pub fn remove_mod(home: &Path, item: &ModItem) -> Result<(), String> {
+    let mut names = load_custom_mod_names(home);
+    if names.remove(&item.file_label).is_some() | names.remove(&item.id).is_some() {
+        save_custom_mod_names(home, &names);
+    }
     if let Some(slug) = &item.browser_slug {
         if item.format == ModFormat::JavaJar {
             if java_instance::remove(home, slug).is_ok() {
@@ -1285,6 +1380,9 @@ mod tests {
         set_mod_enabled(&fabric_home, &mods[0], true).unwrap();
         let mods = list_mods_in(&fabric_home, true);
         assert!(mods[0].enabled);
+        rename_mod(&fabric_home, &mods[0], "Example Mod (FPS)").unwrap();
+        let mods = list_mods_in(&fabric_home, true);
+        assert_eq!(mods[0].name, "Example Mod (FPS)");
         remove_mod(&fabric_home, &mods[0]).unwrap();
         assert!(list_mods_in(&fabric_home, true).is_empty());
 

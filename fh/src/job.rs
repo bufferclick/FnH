@@ -452,11 +452,11 @@ fn run_launch(
             log::line(&format!("Killing {} at user request.", instance.name));
             push_console(
                 &instance.id,
-                "[FNH] Kill requested — terminating game process…",
+                "[FNH] Kill requested — terminating game process tree…",
                 max_lines,
                 stop_ovf,
             );
-            let _ = child.kill();
+            kill_child_tree(&mut child);
             break child
                 .wait()
                 .map_err(|e| (format!("Stopped game: {e}"), false))?;
@@ -674,7 +674,7 @@ fn build_horizon_command(
 ) -> Result<Command, String> {
     // 1. Ensure a clean base Horizon client + game assets exist first.
     let base_tag = resolve_horizon_version(instance, prefs, cfg, emit)?;
-    prepare_horizon_version(&base_tag, emit)?;
+    prepare_horizon_version(instance, &base_tag, emit)?;
 
     let verify = if cfg.horizon_override_updates {
         cfg.horizon_verify_assets
@@ -916,19 +916,27 @@ fn resolve_horizon_version(
         emit(format!("Using installed Horizon build {matching}."));
         return Ok(matching.clone());
     }
-    if let Some(any) = installed.iter().find(|t| !t.starts_with("native-")) {
-        emit(format!("Using installed Horizon build {any}."));
-        return Ok(any.clone());
-    }
 
-    // 3. Download latest build for chosen track from GitHub.
+    // 3. Download latest build for chosen track from GitHub (only falling back to an installed
+    //    build from the other track if GitHub cannot be reached offline).
     emit(format!(
         "Fetching Horizon {} channel from GitHub…",
         if want_nightly { "Nightly" } else { "Release" }
     ));
-    let releases = backend::releases().map_err(|e| {
-        format!("No Horizon build is installed yet, and GitHub could not be reached: {e}")
-    })?;
+    let releases = match backend::releases() {
+        Ok(list) => list,
+        Err(e) => {
+            if let Some(any) = installed.iter().find(|t| !t.starts_with("native-")) {
+                emit(format!(
+                    "GitHub could not be reached ({e}); using installed Horizon build {any}."
+                ));
+                return Ok(any.clone());
+            }
+            return Err(format!(
+                "No Horizon build is installed yet, and GitHub could not be reached: {e}"
+            ));
+        }
+    };
     let picked = releases
         .iter()
         .find(|r| r.asset.is_some() && r.nightly.is_some() == want_nightly && !r.prerelease)
@@ -946,50 +954,76 @@ fn install_horizon_tag(tag: &str, emit: &dyn Fn(String)) -> Result<String, Strin
     Ok(installed)
 }
 
-/// Prepares Horizon assets from local `.minecraft` if present, automatically falling back to
-/// direct Mojang asset download for the signed-in Minecraft owner so fresh FNH setups always work.
-fn prepare_horizon_version(tag: &str, emit: &dyn Fn(String)) -> Result<(), String> {
-    if backend::check_prepared(tag) {
-        return Ok(());
+fn kill_child_tree(child: &mut std::process::Child) {
+    #[cfg(target_os = "windows")]
+    {
+        let mut tk = Command::new("taskkill");
+        process::hide_console(&mut tk);
+        let _ = tk
+            .args(["/F", "/T", "/PID", &child.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
-    emit(format!("Preparing Horizon {tag} assets…"));
-    horizon_launcher::mojang::CANCEL.store(false, Ordering::Relaxed);
+    let _ = child.kill();
+}
 
-    let mc_dir = backend::minecraft_dir(None)
-        .unwrap_or_else(|_| crate::paths::minecraft_dir());
-    let (preparer, mc_used) = match backend::preparer(
-        tag,
-        &mc_dir,
-        backend::MinecraftFrom::Install,
-        emit,
-    ) {
-        Ok(ok) => ok,
-        Err(_) => {
-            emit("Downloading required Minecraft assets from Mojang…".into());
-            let own_mc = crate::paths::minecraft_dir();
-            let _ = std::fs::create_dir_all(&own_mc);
-            backend::preparer(tag, &own_mc, backend::MinecraftFrom::Mojang, emit)?
-        }
-    };
-
+fn try_prepare_from(
+    tag: &str,
+    mc_dir: &std::path::Path,
+    from: backend::MinecraftFrom,
+    jobs_limit: Option<usize>,
+    emit: &dyn Fn(String),
+) -> Result<(), String> {
+    if KILL_REQUESTED.load(Ordering::Acquire) {
+        return Err("Preparation cancelled.".into());
+    }
+    let (preparer, mc_used) = backend::preparer(tag, mc_dir, from, emit)?;
     backend::sounds(tag, &mc_used, emit);
     backend::set_prepare_step(backend::PrepareStep::Prepare);
     emit("Building Horizon data tables…".into());
 
     match preparer {
         backend::Preparer::InProcess(options) => backend::prepare_in_process(&options, emit)?,
-        backend::Preparer::Process(cmd) => {
+        backend::Preparer::Process(mut cmd) => {
+            if let Some(n) = jobs_limit {
+                cmd.env("HORIZON_PREPARE_JOBS", n.to_string());
+            }
             let (tx, rx) = std::sync::mpsc::channel();
-            backend::spawn(backend::Job::Prepare, cmd, tx)?;
+            let running = backend::spawn(backend::Job::Prepare, cmd, tx)?;
+            let mut last_line = String::new();
             loop {
-                match rx.recv() {
-                    Ok(backend::Msg::Line(backend::Job::Prepare, line)) => emit(line),
-                    Ok(backend::Msg::Exit(backend::Job::Prepare, res)) => {
-                        res?;
-                        break;
+                if KILL_REQUESTED.swap(false, Ordering::AcqRel) {
+                    if let Ok(mut ch) = running.child.lock() {
+                        kill_child_tree(&mut ch);
                     }
+                    return Err("Preparation cancelled.".into());
+                }
+                match rx.recv_timeout(Duration::from_millis(150)) {
+                    Ok(backend::Msg::Line(backend::Job::Prepare, line)) => {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            last_line = trimmed.to_owned();
+                        }
+                        emit(line);
+                    }
+                    Ok(backend::Msg::Exit(backend::Job::Prepare, res)) => match res {
+                        Ok(()) => break,
+                        Err(e) => {
+                            let detail = if e.starts_with("Exited with") && !last_line.is_empty() {
+                                format!("{e}: {last_line}")
+                            } else {
+                                e
+                            };
+                            return Err(detail);
+                        }
+                    },
                     Ok(_) => {}
-                    Err(_) => return Err("Horizon preparation stopped unexpectedly.".into()),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("Horizon preparation stopped unexpectedly.".into());
+                    }
                 }
             }
         }
@@ -1001,6 +1035,86 @@ fn prepare_horizon_version(tag: &str, emit: &dyn Fn(String)) -> Result<(), Strin
             "{tag} did not finish preparing — check the console log for details."
         ));
     }
+    Ok(())
+}
+
+/// Prepares Horizon assets from local `.minecraft` if present and complete, automatically
+/// falling back to a clean Mojang asset/library download (`<FnH>/launcher/minecraft`) whenever a
+/// local `.minecraft` or Prism folder is incomplete or fails preparation (`Exited with exit code: 1`).
+fn prepare_horizon_version(
+    instance: &Instance,
+    tag: &str,
+    emit: &dyn Fn(String),
+) -> Result<(), String> {
+    if backend::check_prepared(tag) {
+        return Ok(());
+    }
+    emit(format!("Preparing Horizon {tag} assets…"));
+    horizon_launcher::mojang::CANCEL.store(false, Ordering::Relaxed);
+
+    let mc_dir = backend::minecraft_dir(None)
+        .unwrap_or_else(|_| crate::paths::minecraft_dir());
+
+    if let Err(install_err) =
+        try_prepare_from(tag, &mc_dir, backend::MinecraftFrom::Install, None, emit)
+    {
+        if install_err == "Preparation cancelled." || KILL_REQUESTED.load(Ordering::Acquire) {
+            return Err("Preparation cancelled.".into());
+        }
+
+        emit(format!(
+            "Local Minecraft files could not be prepared ({install_err}) — downloading clean Minecraft files from Mojang…"
+        ));
+
+        // Wipe any partial `.local` scratch or stale `linked-minecraft` junction before clean Mojang retry.
+        let vdir = backend::version_dir(tag);
+        let _ = std::fs::remove_dir_all(vdir.join(".local"));
+        let _ = std::fs::remove_dir_all(backend::data_dir().join("linked-minecraft"));
+
+        let own_mc = crate::paths::minecraft_dir();
+        let _ = std::fs::create_dir_all(&own_mc);
+
+        if let Err(mojang_err) =
+            try_prepare_from(tag, &own_mc, backend::MinecraftFrom::Mojang, Some(2), emit)
+        {
+            if mojang_err == "Preparation cancelled." || KILL_REQUESTED.load(Ordering::Acquire) {
+                return Err("Preparation cancelled.".into());
+            }
+
+            // One final sequential low-memory retry (`HORIZON_PREPARE_JOBS=1`) if an exporter JVM ran out of commit memory.
+            let _ = std::fs::remove_dir_all(vdir.join(".local").join("horizon-client"));
+            emit("Retrying Horizon preparation in single-worker low-memory mode…".into());
+            if let Err(final_err) =
+                try_prepare_from(tag, &own_mc, backend::MinecraftFrom::Mojang, Some(1), emit)
+            {
+                let (tail_lines, _) = console_snapshot(&instance.id, 120);
+                crash::push_diagnosis(crash::CrashDiagnosis {
+                    instance_id: instance.id.clone(),
+                    instance_name: instance.name.clone(),
+                    engine_label: format!("Horizon ({tag})"),
+                    is_horizon: true,
+                    kind: crash::CrashKind::GameCrash,
+                    headline: "Horizon Asset Preparation Failed".into(),
+                    summary: final_err.clone(),
+                    solutions: vec![
+                        "Make sure you are signed into a Microsoft account that owns Minecraft: Java Edition (top-right Accounts menu).".into(),
+                        "Check that your drive has at least 2 GB of free disk space and enough free RAM/pagefile for Java 25 to build Horizon's data tables.".into(),
+                        "Open Horizon Log / Instance Folder for the full preparation output.".into(),
+                    ],
+                    offending_mods: Vec::new(),
+                    raw_details: if tail_lines.is_empty() {
+                        final_err.clone()
+                    } else {
+                        tail_lines.join("\n")
+                    },
+                    crash_file: None,
+                    mods_dir: instance.home.join("horizon-mods"),
+                });
+                return Err(final_err);
+            }
+        }
+    }
+
     emit(format!("Horizon {tag} is ready."));
     Ok(())
 }
@@ -1029,7 +1143,7 @@ pub fn prefetch_instance(instance: Instance, prefs: Prefs, cfg: InstanceCfg) {
                     .map(|_| format!("{} files are downloaded and ready.", instance.name))
             } else {
                 let tag = resolve_horizon_version(&instance, &prefs, &cfg, &emit)?;
-                prepare_horizon_version(&tag, &emit)?;
+                prepare_horizon_version(&instance, &tag, &emit)?;
                 backend::complete_assets(&tag);
                 Ok(format!("{} ({tag}) is downloaded and prepared.", instance.name))
             }
@@ -1037,22 +1151,26 @@ pub fn prefetch_instance(instance: Instance, prefs: Prefs, cfg: InstanceCfg) {
         match res {
             Ok(msg) => {
                 push_console(&instance.id, format!("[FNH] {msg}"), max_lines, stop_ovf);
+                let seq = EVENT_SEQ.fetch_add(1, Ordering::Relaxed);
                 set(|s| {
                     s.busy = false;
                     s.done = true;
                     s.fraction = None;
                     s.title = "Ready".into();
                     s.line = msg;
+                    s.event_seq = seq;
                 });
             }
             Err(err) => {
                 push_console(&instance.id, format!("[ERROR] {err}"), max_lines, stop_ovf);
+                let seq = EVENT_SEQ.fetch_add(1, Ordering::Relaxed);
                 set(|s| {
                     s.busy = false;
                     s.failed = true;
                     s.fraction = None;
-                    s.title = "Download failed".into();
+                    s.title = format!("{} stopped", instance.name);
                     s.line = err;
+                    s.event_seq = seq;
                 });
             }
         }
