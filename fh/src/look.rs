@@ -183,38 +183,85 @@ impl Theme {
     }
 }
 
-/// FNH's crisp 9x9 pixel-grid brand logo (`F` + `H` in `#131254`, `n` in `#000000`).
+/// FNH's crisp 9x9 pixel-grid brand logo (`fh/icons/fh.svg` / `fh/icons/fh.ico`), rendered
+/// directly from the supersampled embedded `default.png` icon so every corner, navy stem, and
+/// black `n` stays razor-sharp at every window DPI and size.
 pub fn brand_mark(size: f32) -> Div {
-    let cell = (size / 9.0).max(1.0);
-    let box_px = cell * 9.0;
-    let rect = |x: f32, y: f32, w: f32, h: f32, col: u32| {
-        div()
-            .absolute()
-            .left(px(x * cell))
-            .top(px(y * cell))
-            .w(px(w * cell))
-            .h(px(h * cell))
-            .bg(hex(col))
-    };
-    div()
-        .relative()
-        .flex_none()
-        .size(px(box_px))
-        .rounded(px((size * 0.18).clamp(3.0, 10.0)))
-        .bg(hex(MARK_TILE))
-        .border_1()
-        .border_color(hex(MARK_RING))
-        .overflow_hidden()
-        .child(rect(1., 1., 1., 4., MARK_NAVY))
-        .child(rect(2., 1., 1., 1., MARK_NAVY))
-        .child(rect(2., 3., 1., 1., MARK_NAVY))
-        .child(rect(3., 5., 1., 3., MARK_INK))
-        .child(rect(4., 5., 1., 1., MARK_INK))
-        .child(rect(5., 6., 1., 2., MARK_INK))
-        .child(rect(6., 4., 1., 4., MARK_NAVY))
-        .child(rect(7., 6., 1., 1., MARK_NAVY))
-        .child(rect(8., 4., 1., 4., MARK_NAVY))
+    let _ = (MARK_TILE, MARK_RING, MARK_NAVY, MARK_INK);
+    crate::inst_icons::render_icon("default", size)
 }
+
+/// Applies FNH's embedded `fh.ico` (`ICON_SMALL` + `ICON_BIG`) to every OS window created on the
+/// UI thread on Windows so secondary windows (`Settings`, `Instance`, `Add Instance`, `Select Icon`,
+/// `Mod Browser`, `Crash Report`, `Updater`) always show FNH's crisp 9x9 icon in the titlebar and
+/// Alt-Tab switcher.
+#[cfg(windows)]
+pub fn apply_window_icon() {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumThreadWindows, GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL,
+        IMAGE_ICON, LR_SHARED, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, WM_SETICON,
+    };
+
+    static ICONS: OnceLock<(isize, isize)> = OnceLock::new();
+    let (small, big) = *ICONS.get_or_init(|| unsafe {
+        let hmod = GetModuleHandleW(std::ptr::null());
+        if hmod.is_null() {
+            return (0, 0);
+        }
+        // `winresource::WindowsResource::set_icon` embeds `fh.ico` at resource ID 1.
+        let res_id = 1usize as *const u16;
+        let sm = LoadImageW(
+            hmod,
+            res_id,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_SHARED,
+        ) as isize;
+        let lg = LoadImageW(
+            hmod,
+            res_id,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON),
+            LR_SHARED,
+        ) as isize;
+        (sm, lg)
+    });
+
+    if small == 0 && big == 0 {
+        return;
+    }
+
+    unsafe extern "system" fn set_on_hwnd(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pair = unsafe { &*(lparam as *const (isize, isize)) };
+        unsafe {
+            if pair.0 != 0 {
+                SendMessageW(hwnd, WM_SETICON, ICON_SMALL as WPARAM, pair.0 as LPARAM);
+            }
+            if pair.1 != 0 {
+                SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, pair.1 as LPARAM);
+            }
+        }
+        1
+    }
+
+    let pair = (small, big);
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(set_on_hwnd),
+            (&pair as *const (isize, isize)) as LPARAM,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub fn apply_window_icon() {}
 
 /// Top toolbar button (`QToolButton` ToolButtonTextBesideIcon, WinUI 3 subtle style).
 pub fn toolbar_button(

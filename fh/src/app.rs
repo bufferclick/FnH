@@ -22,18 +22,19 @@ use crate::inst_icons;
 use crate::job::{self, LaunchExtras};
 use crate::log;
 use crate::look::{
-    MONO_FONT, Theme, UI_FONT, accent_button, apply_text_key, brand_mark, chip, instance_summary,
-    menu_frame, menu_row, menu_separator, push_button, status_banner, text_input, toolbar_button,
-    toolbar_separator, wide_bar_action, wide_bar_separator,
+    MONO_FONT, Theme, UI_FONT, accent_button, apply_text_key, apply_window_icon, brand_mark, chip,
+    instance_summary, menu_frame, menu_row, menu_separator, push_button, status_banner, text_input,
+    toolbar_button, toolbar_separator, wide_bar_action, wide_bar_separator,
 };
 use crate::paths;
 use crate::prefs::{InstanceCfgStore, Prefs, SortMode, ViewMode};
 use crate::reset;
 use crate::win_dialogs::{
-    IconPickerWindow, ModBrowserWindow, NewInstanceWindow, UtilityMode, UtilityWindow,
+    CrashWindow, IconPickerWindow, ModBrowserWindow, NewInstanceWindow, UtilityMode, UtilityWindow,
 };
 use crate::win_instance::{InstancePage, InstanceWindow};
 use crate::win_settings::{SettingsPage, SettingsWindow};
+use crate::{crash, updater};
 
 /// Destination when `IconPickerWindow` confirms an icon key.
 #[derive(Clone)]
@@ -56,30 +57,41 @@ pub struct Fh {
     icon_picker_window: Option<WindowHandle<IconPickerWindow>>,
     mod_browser_windows: HashMap<String, WindowHandle<ModBrowserWindow>>,
     utility_window: Option<WindowHandle<UtilityWindow>>,
+    crash_window: Option<WindowHandle<CrashWindow>>,
 
     seen_event_seq: u64,
     was_busy: bool,
 }
 
 impl Fh {
-    pub fn new(after_reset: bool) -> Self {
+    pub fn new(after_reset: bool, updated_from: Option<String>) -> Self {
         let prefs = Prefs::load();
         prefs.apply_proxy_env();
         let cfgs = InstanceCfgStore::load();
+        let startup_notice = if after_reset {
+            Some("Factory reset complete — FNH has been restored to a clean slate.".to_owned())
+        } else {
+            updated_from.map(|old| {
+                format!(
+                    "Updated FnH from v{} to v{}!",
+                    updater::normalize_version(&old),
+                    crate::VERSION
+                )
+            })
+        };
         let mut s = Self {
             prefs,
             cfgs,
             instances: Vec::new(),
             selected_id: None,
-            notice: after_reset.then(|| {
-                "Factory reset complete — FNH has been restored to a clean slate.".to_owned()
-            }),
+            notice: startup_notice,
             instance_windows: HashMap::new(),
             settings_window: None,
             new_instance_window: None,
             icon_picker_window: None,
             mod_browser_windows: HashMap::new(),
             utility_window: None,
+            crash_window: None,
             seen_event_seq: 0,
             was_busy: false,
         };
@@ -90,6 +102,8 @@ impl Fh {
                 s.selected_id = Some(sel.id);
             }
         }
+        // Automatically check GitHub Releases for a newer version of FnH on startup!
+        updater::check_in_background(true);
         s
     }
 
@@ -363,11 +377,40 @@ impl Fh {
         });
     }
 
+    pub fn open_crash_window(&mut self, diag: crash::CrashDiagnosis, cx: &mut Context<Self>) {
+        if let Some(handle) = self.crash_window.take() {
+            let _ = handle.update(cx, |_, window, _| {
+                window.remove_window();
+            });
+        }
+        let me = cx.entity().clone();
+        cx.defer(move |cx| {
+            if let Some(h) = CrashWindow::open(me.clone(), diag, cx) {
+                me.update(cx, |app, _| {
+                    app.crash_window = Some(h);
+                });
+            }
+        });
+    }
+
     pub fn poll_job_events(&mut self, cx: &mut Context<Self>) {
         let st = job::status();
         let now_busy = st.as_ref().is_some_and(|s| s.busy);
         let mut changed = now_busy != self.was_busy;
         self.was_busy = now_busy;
+
+        // 1. Pop open "Do you want to update FnH?" if startup check discovered a newer GitHub release!
+        if updater::take_auto_prompt().is_some() {
+            self.open_utility_window(UtilityMode::Updater, cx);
+            changed = true;
+        }
+
+        // 2. Pop open Fabric-style Crash & Mod Compatibility Window for any pending diagnosis!
+        let pending_crashes = crash::take_pending_diagnoses();
+        if let Some(latest_diag) = pending_crashes.into_iter().last() {
+            self.open_crash_window(latest_diag, cx);
+            changed = true;
+        }
 
         if let Some(s) = st {
             if s.event_seq != self.seen_event_seq {
@@ -425,6 +468,7 @@ impl MainWindow {
         cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        apply_window_icon();
 
         let app_poll = app.clone();
         cx.spawn(async move |this, cx| {
@@ -649,6 +693,33 @@ impl MainWindow {
                     this.toggle_flyout(TopFlyout::Help, cx);
                 })),
             )
+            .child({
+                let upd_state = updater::state();
+                let (upd_lbl, upd_active) = match upd_state {
+                    updater::UpdateState::Available(ref u) => {
+                        (format!("Update (v{}!)", u.version), true)
+                    }
+                    updater::UpdateState::Downloading { percent, .. } => {
+                        (format!("Updating {percent}%"), true)
+                    }
+                    _ => ("Update".to_owned(), false),
+                };
+                toolbar_button("tb-update", "download", &upd_lbl, false, upd_active, true, t)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.flyout = None;
+                        if !matches!(
+                            updater::state(),
+                            updater::UpdateState::Available(_)
+                                | updater::UpdateState::Downloading { .. }
+                                | updater::UpdateState::Applying { .. }
+                        ) {
+                            updater::check_in_background(false);
+                        }
+                        this.app.update(cx, |a, cx| {
+                            a.open_utility_window(UtilityMode::Updater, cx);
+                        });
+                    }))
+            })
             .child(div().flex_1())
             .child(
                 div().w(px(210.)).child(
@@ -851,15 +922,17 @@ impl MainWindow {
                         menu_row(
                             "hlp-rel",
                             Some("download"),
-                            "Check Latest FNH Release",
+                            "Check for FNH Updates...",
                             None,
                             true,
                             t,
                         )
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.flyout = None;
-                            let _ = log::open_url("https://github.com/bufferclick/fnh/releases/latest");
-                            cx.notify();
+                            updater::check_in_background(false);
+                            this.app.update(cx, |a, cx| {
+                                a.open_utility_window(UtilityMode::Updater, cx);
+                            });
                         })),
                     )
                     .child(
@@ -1095,9 +1168,9 @@ impl MainWindow {
                             }))
                             .child(icons::icon(
                                 if collapsed {
-                                    "chevron_right"
+                                    "chevron-right"
                                 } else {
-                                    "chevron_down"
+                                    "chevron-down"
                                 },
                                 14.,
                                 t.ink_secondary,
@@ -1518,7 +1591,7 @@ impl MainWindow {
             })
             .when(can_kill, |d| {
                 d.child(
-                    wide_bar_action("wb-kill", "stop", "Kill", true, false, t).on_click(
+                    wide_bar_action("wb-kill", "kill", "Kill", true, false, t).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             job::kill();
                             this.app.update(cx, |a, cx| {
@@ -1574,7 +1647,7 @@ impl MainWindow {
             })
             .child({
                 let s_wld = sel.clone();
-                wide_bar_action("wb-worlds", "worlds", "Worlds", has, false, t).when_some(
+                wide_bar_action("wb-worlds", "world", "Worlds", has, false, t).when_some(
                     s_wld,
                     |b, inst| {
                         b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1601,7 +1674,7 @@ impl MainWindow {
             .child(wide_bar_separator(t))
             .child({
                 let s_grp = sel.clone();
-                wide_bar_action("wb-group", "tag", "Change Group", has, false, t).when_some(
+                wide_bar_action("wb-group", "group", "Change Group", has, false, t).when_some(
                     s_grp,
                     |b, inst| {
                         b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1616,7 +1689,7 @@ impl MainWindow {
             })
             .child({
                 let s_ren = sel.clone();
-                wide_bar_action("wb-rename", "rename", "Rename", has, false, t).when_some(
+                wide_bar_action("wb-rename", "edit", "Rename", has, false, t).when_some(
                     s_ren,
                     |b, inst| {
                         b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1663,7 +1736,7 @@ impl MainWindow {
             })
             .child({
                 let s_sc = sel.clone();
-                wide_bar_action("wb-shortcut", "link", "Create Shortcut", has, false, t)
+                wide_bar_action("wb-shortcut", "shortcut", "Create Shortcut", has, false, t)
                     .when_some(s_sc, |b, inst| {
                         b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             let mode = UtilityMode::Shortcut {

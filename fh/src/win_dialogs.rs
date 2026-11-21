@@ -10,12 +10,13 @@ use crate::content::{self, ShortcutTarget};
 use crate::icons::icon;
 use crate::inst_icons::{self, IconCategory, IconEntry};
 use crate::look::{
-    accent_button, apply_text_key, brand_mark, checkbox_row, chip, danger_button, group_box,
-    log_line_color, page_nav_row, push_button, side_action_button, status_banner, sub_tab,
-    text_input, Theme, MONO_FONT, UI_FONT,
+    accent_button, apply_text_key, apply_window_icon, brand_mark, checkbox_row, chip,
+    danger_button, group_box, log_line_color, page_nav_row, push_button, side_action_button,
+    status_banner, sub_tab, text_input, Theme, MONO_FONT, UI_FONT,
 };
 use crate::prefs::HorizonTrack;
-use crate::{job, log, paths, VERSION};
+use crate::win_instance::InstancePage;
+use crate::{crash, hmods, job, log, paths, updater, VERSION};
 use gpui::{
     div, prelude::*, px, size, App, Bounds, ClickEvent, ClipboardItem, Context, Entity,
     ExternalPaths, FocusHandle, FontWeight, InteractiveElement, KeyDownEvent, PathPromptOptions,
@@ -74,28 +75,31 @@ impl IconPickerWindow {
         cx: &mut App,
     ) -> Option<WindowHandle<Self>> {
         let opts = secondary_window_options("Select Icon - FNH", 720., 540., 540., 400., cx);
-        cx.open_window(opts, move |window, cx| {
-            cx.new(|cx| {
-                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
-                let focus = cx.focus_handle();
-                window.focus(&focus, cx);
-                Self {
-                    app,
-                    target,
-                    focus,
-                    category: IconCategory::Any,
-                    search: String::new(),
-                    search_focused: false,
-                    selected_key: if initial_key.is_empty() {
-                        "default".into()
-                    } else {
-                        initial_key
-                    },
-                    notice: None,
-                }
+        let res = cx
+            .open_window(opts, move |window, cx| {
+                cx.new(|cx| {
+                    cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    Self {
+                        app,
+                        target,
+                        focus,
+                        category: IconCategory::Any,
+                        search: String::new(),
+                        search_focused: false,
+                        selected_key: if initial_key.is_empty() {
+                            "default".into()
+                        } else {
+                            initial_key
+                        },
+                        notice: None,
+                    }
+                })
             })
-        })
-        .ok()
+            .ok();
+        apply_window_icon();
+        res
     }
 
     fn prompt_add_icons(&mut self, cx: &mut Context<Self>) {
@@ -515,6 +519,7 @@ impl NewInstanceWindow {
             })
         })
         .ok()
+        .inspect(|_| apply_window_icon())
     }
 
     pub fn set_icon(&mut self, key: String, cx: &mut Context<Self>) {
@@ -1352,6 +1357,7 @@ pub struct ModBrowserWindow {
     instance_id: String,
     kind: BrowseKind,
     source: SourceId,
+    github_mode: bool,
     sort: Sort,
     focus: FocusHandle,
     query: String,
@@ -1378,39 +1384,43 @@ impl ModBrowserWindow {
         };
         let inst_id = instance.id.clone();
 
-        cx.open_window(opts, move |window, cx| {
-            cx.new(|cx| {
-                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
-                let focus = cx.focus_handle();
-                window.focus(&focus, cx);
-                let mut win = Self {
-                    app,
-                    instance_id: inst_id,
-                    kind,
-                    source: default_source,
-                    sort: Sort::Downloads,
-                    focus,
-                    query: String::new(),
-                    search_focused: true,
-                    results: Arc::new(Mutex::new(None)),
-                    selected: 0,
-                    installing: Arc::new(Mutex::new(None)),
-                    notice: Arc::new(Mutex::new(None)),
-                };
-                win.run_search(cx);
-                cx.spawn(async move |this, cx| loop {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_millis(220))
-                        .await;
-                    if this.update(cx, |_, cx| cx.notify()).is_err() {
-                        break;
-                    }
+        let res = cx
+            .open_window(opts, move |window, cx| {
+                cx.new(|cx| {
+                    cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    let mut win = Self {
+                        app,
+                        instance_id: inst_id,
+                        kind,
+                        source: default_source,
+                        github_mode: false,
+                        sort: Sort::Downloads,
+                        focus,
+                        query: String::new(),
+                        search_focused: true,
+                        results: Arc::new(Mutex::new(None)),
+                        selected: 0,
+                        installing: Arc::new(Mutex::new(None)),
+                        notice: Arc::new(Mutex::new(None)),
+                    };
+                    win.run_search(cx);
+                    cx.spawn(async move |this, cx| loop {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(220))
+                            .await;
+                        if this.update(cx, |_, cx| cx.notify()).is_err() {
+                            break;
+                        }
+                    })
+                    .detach();
+                    win
                 })
-                .detach();
-                win
             })
-        })
-        .ok()
+            .ok();
+        apply_window_icon();
+        res
     }
 
     fn current_instance(&self, cx: &App) -> Option<Instance> {
@@ -1484,6 +1494,56 @@ impl ModBrowserWindow {
         app.update(cx, |_, cx| cx.notify());
         cx.notify();
     }
+
+    fn install_github(&mut self, cx: &mut Context<Self>) {
+        if self.installing.lock().ok().is_some_and(|s| s.is_some()) {
+            return;
+        }
+        let Some(inst) = self.current_instance(cx) else {
+            return;
+        };
+        let spec = self.query.trim().to_owned();
+        if spec.is_empty() {
+            if let Ok(mut n) = self.notice.lock() {
+                *n = Some((
+                    "Enter a GitHub repository (owner/repo or https://github.com/owner/repo)."
+                        .into(),
+                    true,
+                ));
+            }
+            cx.notify();
+            return;
+        }
+        if let Ok(mut b) = self.installing.lock() {
+            *b = Some(format!("Downloading Horizon mod from {spec}…"));
+        }
+        let busy = self.installing.clone();
+        let note = self.notice.clone();
+        let home = inst.home.clone();
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            let res = hmods::install_from_github(&home, &spec);
+            if let Ok(mut b) = busy.lock() {
+                *b = None;
+            }
+            if let Ok(mut n) = note.lock() {
+                *n = Some(match res {
+                    Ok(info) => (
+                        format!(
+                            "Installed {} v{} ({}) from GitHub!",
+                            info.name,
+                            info.version,
+                            info.runtime.badge()
+                        ),
+                        false,
+                    ),
+                    Err(e) => (e, true),
+                });
+            }
+        });
+        app.update(cx, |_, cx| cx.notify());
+        cx.notify();
+    }
 }
 
 impl Render for ModBrowserWindow {
@@ -1497,6 +1557,7 @@ impl Render for ModBrowserWindow {
         let busy_text = self.installing.lock().ok().and_then(|b| b.clone());
         let note = self.notice.lock().ok().and_then(|n| n.clone());
         let loaded = self.results.lock().ok().and_then(|r| r.clone());
+        let gh_mode = self.github_mode && !is_java;
 
         let top = div()
             .flex()
@@ -1518,7 +1579,11 @@ impl Render for ModBrowserWindow {
                             text_input(
                                 "mb-query",
                                 &self.query,
-                                "Search by name or keyword, then press Enter…",
+                                if gh_mode {
+                                    "owner/repo or https://github.com/owner/repo (or direct .hmod URL)…"
+                                } else {
+                                    "Search by name or keyword, then press Enter…"
+                                },
                                 self.search_focused,
                                 &t,
                             )
@@ -1529,11 +1594,23 @@ impl Render for ModBrowserWindow {
                         ),
                     )
                     .child(
-                        accent_button("mb-search-btn", "Search", true, &t).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.run_search(cx);
+                        accent_button(
+                            "mb-search-btn",
+                            if gh_mode {
+                                "Install from GitHub"
+                            } else {
+                                "Search"
                             },
-                        )),
+                            busy_text.is_none(),
+                            &t,
+                        )
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            if gh_mode {
+                                this.install_github(cx);
+                            } else {
+                                this.run_search(cx);
+                            }
+                        })),
                     ),
             )
             .child(
@@ -1552,10 +1629,11 @@ impl Render for ModBrowserWindow {
                                     chip(
                                         "mb-src-hz",
                                         "Horizon Registry",
-                                        self.source == SourceId::Horizon,
+                                        !gh_mode && self.source == SourceId::Horizon,
                                         &t,
                                     )
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.github_mode = false;
                                         this.source = SourceId::Horizon;
                                         this.run_search(cx);
                                     })),
@@ -1570,13 +1648,25 @@ impl Render for ModBrowserWindow {
                                         } else {
                                             "Modrinth (Auto-Port)"
                                         },
-                                        self.source == SourceId::Modrinth,
+                                        !gh_mode && self.source == SourceId::Modrinth,
                                         &t,
                                     )
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.github_mode = false;
                                         this.source = SourceId::Modrinth;
                                         this.run_search(cx);
                                     })),
+                                )
+                            })
+                            .when(!is_java && self.kind == BrowseKind::Mod, |d| {
+                                d.child(
+                                    chip("mb-src-gh", "GitHub (.hmod)", gh_mode, &t).on_click(
+                                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.github_mode = true;
+                                            this.query.clear();
+                                            cx.notify();
+                                        }),
+                                    ),
                                 )
                             }),
                     )
@@ -1616,6 +1706,40 @@ impl Render for ModBrowserWindow {
 
         let mut picked_project: Option<Project> = None;
 
+        if gh_mode {
+            list = list.child(
+                div()
+                    .p(px(22.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(icon("github", 18., t.accent))
+                            .child(
+                                div()
+                                    .text_size(px(14.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Install Horizon Mod Directly from GitHub"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(t.ink_secondary)
+                            .child("Paste a GitHub repository (`owner/repo`, `https://github.com/owner/repo`, a release tag URL, or a direct `.hmod` download link) above and click Install from GitHub."),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(t.ink_tertiary)
+                            .child("• Content & WebAssembly (`.hmod`) mods install to `horizon-mods/` and load immediately.\n• Native SDK (`.hmod`) mods install to `horizon-native-mods/` and link automatically via Horizon's Native Mod SDK on Play."),
+                    ),
+            );
+        } else {
         match loaded {
             None => {
                 list = list.child(
@@ -1713,8 +1837,9 @@ impl Render for ModBrowserWindow {
                 }
             }
         }
+        }
 
-        let can_install = busy_text.is_none() && picked_project.is_some();
+        let can_install = !gh_mode && busy_text.is_none() && picked_project.is_some();
         let proj_for_btn = picked_project.clone();
         let page_url = picked_project.as_ref().map(|p| p.page.clone());
 
@@ -1785,7 +1910,11 @@ impl Render for ModBrowserWindow {
                 if key == "escape" {
                     window.remove_window();
                 } else if key == "enter" {
-                    this.run_search(cx);
+                    if this.github_mode && !is_java {
+                        this.install_github(cx);
+                    } else {
+                        this.run_search(cx);
+                    }
                 } else if this.search_focused && apply_text_key(&mut this.query, ev, false, cx) {
                     cx.notify();
                 }
@@ -1823,6 +1952,7 @@ pub enum UtilityMode {
         list: Arc<Mutex<Option<Result<Vec<String>, String>>>>,
     },
     LauncherLog,
+    Updater,
     About { tab: usize },
 }
 
@@ -1843,34 +1973,48 @@ impl UtilityWindow {
             UtilityMode::Shortcut { .. } => ("Create Shortcut - FNH", 460., 290.),
             UtilityMode::FabricVersions { .. } => ("Fabric Loader Versions - FNH", 540., 460.),
             UtilityMode::LauncherLog => ("Launcher Log - FNH", 820., 540.),
+            UtilityMode::Updater => ("Update FNH", 540., 390.),
             UtilityMode::About { .. } => ("About FNH", 560., 420.),
         };
         let opts = secondary_window_options(title, w, h, w.min(400.), h.min(200.), cx);
-        cx.open_window(opts, move |window, cx| {
-            cx.new(|cx| {
-                cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
-                let focus = cx.focus_handle();
-                window.focus(&focus, cx);
-                if matches!(mode, UtilityMode::FabricVersions { .. } | UtilityMode::LauncherLog) {
-                    cx.spawn(async move |this, cx| loop {
-                        cx.background_executor()
-                            .timer(std::time::Duration::from_millis(350))
-                            .await;
-                        if this.update(cx, |_, cx| cx.notify()).is_err() {
-                            break;
-                        }
-                    })
-                    .detach();
-                }
-                Self {
-                    app,
-                    focus,
-                    mode,
-                    error: None,
-                }
+        let res = cx
+            .open_window(opts, move |window, cx| {
+                cx.new(|cx| {
+                    cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    if matches!(
+                        mode,
+                        UtilityMode::FabricVersions { .. }
+                            | UtilityMode::LauncherLog
+                            | UtilityMode::Updater
+                    ) {
+                        let poll_ms = if matches!(mode, UtilityMode::Updater) {
+                            120
+                        } else {
+                            350
+                        };
+                        cx.spawn(async move |this, cx| loop {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_millis(poll_ms))
+                                .await;
+                            if this.update(cx, |_, cx| cx.notify()).is_err() {
+                                break;
+                            }
+                        })
+                        .detach();
+                    }
+                    Self {
+                        app,
+                        focus,
+                        mode,
+                        error: None,
+                    }
+                })
             })
-        })
-        .ok()
+            .ok();
+        apply_window_icon();
+        res
     }
 
     pub fn open_fabric_versions(app: Entity<Fh>, cx: &mut App) -> Option<WindowHandle<Self>> {
@@ -2380,6 +2524,269 @@ impl Render for UtilityWindow {
                         false,
                     )
                 }
+                UtilityMode::Updater => {
+                    let st = updater::state();
+                    let header = div()
+                        .flex()
+                        .items_center()
+                        .gap(px(14.))
+                        .child(brand_mark(46.))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    div()
+                                        .text_size(px(17.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .child(match &st {
+                                            updater::UpdateState::Available(_) => {
+                                                "Do you want to update FnH?".to_owned()
+                                            }
+                                            updater::UpdateState::Downloading { version, .. } => {
+                                                format!("Updating FnH to v{version}…")
+                                            }
+                                            updater::UpdateState::Applying { version } => {
+                                                format!("Restarting into FnH v{version}…")
+                                            }
+                                            updater::UpdateState::UpToDate { current } => {
+                                                format!("FnH v{current} is up to date")
+                                            }
+                                            updater::UpdateState::Checking
+                                            | updater::UpdateState::Idle => {
+                                                "Checking for FnH updates…".to_owned()
+                                            }
+                                            updater::UpdateState::Failed(_) => {
+                                                "Could not complete update check".to_owned()
+                                            }
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(t.ink_secondary)
+                                        .child(format!(
+                                            "Installed version: v{VERSION}  •  Package: {}",
+                                            updater::PREFERRED_ZIP_NAME
+                                        )),
+                                ),
+                        );
+
+                    let content_area = match st {
+                        updater::UpdateState::Available(rel) => {
+                            let rel_yes = rel.clone();
+                            let rel_url = rel.html_url.clone();
+                            let dismiss_ver = rel.version.clone();
+                            let notes_text = if rel.notes.is_empty() {
+                                format!(
+                                    "{} ({}) is available on GitHub Releases.\n\nClicking 'Yes, Update FnH' downloads {}, extracts the new FH.exe, deletes the downloaded .zip, and restarts FnH automatically.",
+                                    rel.title, rel.tag, rel.zip_name
+                                )
+                            } else {
+                                rel.notes.clone()
+                            };
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_h_0()
+                                .gap(px(10.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(t.accent)
+                                        .child(format!(
+                                            "New release available: v{}  (current: v{VERSION})",
+                                            rel.version
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .id("upd-notes-scroll")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .p(px(10.))
+                                        .rounded(px(4.))
+                                        .border_1()
+                                        .border_color(t.control_border)
+                                        .bg(t.input_bg)
+                                        .text_size(px(12.))
+                                        .text_color(t.ink_secondary)
+                                        .overflow_y_scroll()
+                                        .child(notes_text),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.))
+                                        .child(
+                                            accent_button(
+                                                "upd-yes",
+                                                "Yes, Update FnH",
+                                                true,
+                                                &t,
+                                            )
+                                            .on_click(cx.listener(
+                                                move |_, _: &ClickEvent, _, cx| {
+                                                    updater::start_install_update(rel_yes.clone());
+                                                    cx.notify();
+                                                },
+                                            )),
+                                        )
+                                        .child(
+                                            push_button("upd-not-now", "Not Now", true, &t)
+                                                .on_click(move |_, window, _| {
+                                                    updater::dismiss_version(&dismiss_ver);
+                                                    window.remove_window();
+                                                }),
+                                        )
+                                        .child(
+                                            push_button("upd-rel-page", "Release Page", true, &t)
+                                                .on_click(move |_, _, _| {
+                                                    let _ = log::open_url(&rel_url);
+                                                }),
+                                        ),
+                                )
+                        }
+                        updater::UpdateState::Downloading {
+                            percent, message, ..
+                        } => {
+                            let frac = (percent as f32 / 100.0).clamp(0.04, 1.0);
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(10.))
+                                .pt(px(8.))
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .text_color(t.ink)
+                                        .child(message),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .h(px(8.))
+                                        .rounded(px(4.))
+                                        .bg(t.control_border)
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .h_full()
+                                                .w(gpui::relative(frac))
+                                                .bg(t.accent),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.5))
+                                        .text_color(t.ink_tertiary)
+                                        .child("FnHLauncher.zip will be deleted automatically once extracted, and FnH will restart."),
+                                )
+                        }
+                        updater::UpdateState::Applying { .. } => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .pt(px(8.))
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .child("Applying update and relaunching FH.exe…"),
+                            ),
+                        updater::UpdateState::UpToDate { .. } => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(10.))
+                            .pt(px(6.))
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(t.ink_secondary)
+                                    .child("You are already running the newest published build of FnH."),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        accent_button("upd-recheck", "Check Again", true, &t)
+                                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                                                updater::check_in_background(false);
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        push_button("upd-gh-latest", "View Releases", true, &t)
+                                            .on_click(|_, _, _| {
+                                                let _ = log::open_url(
+                                                    "https://github.com/bufferclick/FnH/releases/latest",
+                                                );
+                                            }),
+                                    ),
+                            ),
+                        updater::UpdateState::Checking | updater::UpdateState::Idle => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .pt(px(6.))
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(t.ink_secondary)
+                                    .child("Contacting GitHub Releases (`bufferclick/FnH`)…"),
+                            ),
+                        updater::UpdateState::Failed(err) => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(10.))
+                            .pt(px(6.))
+                            .child(status_banner(&err, true, &t))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        accent_button("upd-retry", "Try Again", true, &t).on_click(
+                                            cx.listener(|_, _: &ClickEvent, _, cx| {
+                                                updater::check_in_background(false);
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    )
+                                    .child(
+                                        push_button(
+                                            "upd-manual-zip",
+                                            "Download FnHLauncher.zip in Browser",
+                                            true,
+                                            &t,
+                                        )
+                                        .on_click(|_, _, _| {
+                                            let _ = log::open_url(updater::FALLBACK_ZIP_URL);
+                                        }),
+                                    ),
+                            ),
+                    };
+
+                    (
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h_0()
+                            .gap(px(12.))
+                            .p(px(18.))
+                            .child(header)
+                            .child(content_area),
+                        None,
+                        false,
+                    )
+                }
                 UtilityMode::About { tab } => {
                     let cur = *tab;
                     (
@@ -2560,6 +2967,7 @@ impl Render for UtilityWindow {
                     if !matches!(
                         this.mode,
                         UtilityMode::LauncherLog
+                            | UtilityMode::Updater
                             | UtilityMode::About { .. }
                             | UtilityMode::FabricVersions { .. }
                     ) {
@@ -2605,3 +3013,406 @@ impl Render for UtilityWindow {
 fn _glyph_ref(t: &Theme) {
     let _ = icon("info", 12., t.ink);
 }
+
+// ================================================================================================
+// 5. Fabric-Style Crash & Mod Compatibility Window (`CrashWindow`)
+// ================================================================================================
+
+pub struct CrashWindow {
+    app: Entity<Fh>,
+    focus: FocusHandle,
+    diag: crash::CrashDiagnosis,
+    feedback: Option<(String, bool)>,
+}
+
+impl CrashWindow {
+    pub fn open(
+        app: Entity<Fh>,
+        diag: crash::CrashDiagnosis,
+        cx: &mut App,
+    ) -> Option<WindowHandle<Self>> {
+        let title = format!("{} — {} - FNH", diag.headline, diag.instance_name);
+        let opts = secondary_window_options(title, 800., 620., 620., 460., cx);
+        let res = cx
+            .open_window(opts, move |window, cx| {
+                cx.new(|cx| {
+                    cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    Self {
+                        app,
+                        focus,
+                        diag,
+                        feedback: None,
+                    }
+                })
+            })
+            .ok();
+        apply_window_icon();
+        res
+    }
+
+    fn instance_home(&self, cx: &App) -> Option<std::path::PathBuf> {
+        self.app
+            .read(cx)
+            .instances
+            .iter()
+            .find(|i| i.id == self.diag.instance_id)
+            .map(|i| i.home.clone())
+            .or_else(|| self.diag.mods_dir.parent().map(|p| p.to_path_buf()))
+    }
+
+    fn disable_mod_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(home) = self.instance_home(cx) else {
+            self.feedback = Some(("Could not locate instance directory.".into(), true));
+            cx.notify();
+            return;
+        };
+        let Some(entry) = self.diag.offending_mods.get(index).cloned() else {
+            return;
+        };
+        match crash::disable_suspect_mod(&home, &entry) {
+            Ok(msg) => {
+                if let Some(slot) = self.diag.offending_mods.get_mut(index) {
+                    slot.disabled = true;
+                }
+                self.feedback = Some((msg, false));
+                self.app.update(cx, |a, cx| {
+                    a.reload_instances();
+                    cx.notify();
+                });
+            }
+            Err(e) => {
+                self.feedback = Some((e, true));
+            }
+        }
+        cx.notify();
+    }
+}
+
+impl Render for CrashWindow {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let prefs = self.app.read(cx).prefs.clone();
+        let t = Theme::resolve(prefs.theme_mode, prefs.accent, window.appearance());
+
+        let header = div()
+            .flex()
+            .items_start()
+            .justify_between()
+            .gap(px(12.))
+            .px(px(18.))
+            .py(px(14.))
+            .bg(t.window)
+            .border_b_1()
+            .border_color(t.divider)
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(12.))
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .pt(px(2.))
+                            .child(icon("warning", 26., t.danger)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        div()
+                                            .px(px(6.))
+                                            .py(px(1.))
+                                            .rounded(px(3.))
+                                            .bg(t.danger)
+                                            .text_color(gpui::white())
+                                            .text_size(px(10.5))
+                                            .font_weight(FontWeight::BOLD)
+                                            .child(self.diag.kind.badge()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(11.5))
+                                            .text_color(t.ink_tertiary)
+                                            .child(format!(
+                                                "{}  •  {}",
+                                                self.diag.instance_name, self.diag.engine_label
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(16.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.diag.headline.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(t.ink_secondary)
+                                    .child(self.diag.summary.clone()),
+                            ),
+                    ),
+            )
+            .child(brand_mark(30.));
+
+        let mut scroll = div()
+            .id("crash-body-scroll")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .gap(px(12.))
+            .p(px(16.))
+            .bg(t.layer)
+            .overflow_y_scroll();
+
+        if let Some((ref msg, is_err)) = self.feedback {
+            scroll = scroll.child(status_banner(msg, is_err, &t));
+        }
+
+        // 1. Fabric-Loader-style "A potential solution has been determined:" card.
+        if !self.diag.solutions.is_empty() {
+            let mut sol_box = group_box("A potential solution has been determined", &t);
+            for (i, sol) in self.diag.solutions.iter().enumerate() {
+                sol_box = sol_box.child(
+                    div()
+                        .id(SharedString::from(format!("crash-sol-{i}")))
+                        .flex()
+                        .items_start()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .pt(px(2.))
+                                .child(icon("wrench", 14., t.accent)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(12.5))
+                                .text_color(t.ink)
+                                .child(sol.clone()),
+                        ),
+                );
+            }
+            scroll = scroll.child(sol_box);
+        }
+
+        // 2. Suspect / Incompatible Mods card with 1-click Disable buttons!
+        if !self.diag.offending_mods.is_empty() {
+            let mut mod_box = group_box("Suspect / Incompatible Mods", &t);
+            for (idx, m) in self.diag.offending_mods.iter().enumerate() {
+                let disabled = m.disabled;
+                let can_disable = !disabled && (m.path.is_some() || m.is_horizon);
+                mod_box = mod_box.child(
+                    div()
+                        .id(SharedString::from(format!("crash-mod-{idx}")))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap(px(10.))
+                        .px(px(10.))
+                        .py(px(7.))
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(t.divider)
+                        .bg(t.input_bg)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(1.))
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(m.display_name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.5))
+                                        .text_color(t.ink_secondary)
+                                        .child(m.reason.clone()),
+                                ),
+                        )
+                        .child(if disabled {
+                            div()
+                                .px(px(8.))
+                                .py(px(3.))
+                                .text_size(px(11.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.accent)
+                                .child("✓ Disabled")
+                                .into_any_element()
+                        } else if can_disable {
+                            danger_button(format!("crash-dis-{idx}"), "Disable Mod", true, &t)
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.disable_mod_at(idx, cx);
+                                }))
+                                .into_any_element()
+                        } else {
+                            div().into_any_element()
+                        }),
+                );
+            }
+            scroll = scroll.child(mod_box);
+        }
+
+        // 3. Raw stack trace / crash-report viewer.
+        let report_copy = format!(
+            "=== FNH v{VERSION} Crash & Mod Compatibility Report ===\nInstance: {} ({})\nStatus: {}\nSummary: {}\n\n{}\n",
+            self.diag.instance_name,
+            self.diag.engine_label,
+            self.diag.headline,
+            self.diag.summary,
+            self.diag.raw_details
+        );
+
+        scroll = scroll.child(
+            group_box("Diagnostic Details & Stack Trace", &t).child(
+                div()
+                    .id("crash-raw-trace")
+                    .max_h(px(210.))
+                    .p(px(10.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(t.control_border)
+                    .bg(t.input_bg)
+                    .font_family(MONO_FONT)
+                    .text_size(px(11.5))
+                    .text_color(t.ink_secondary)
+                    .overflow_y_scroll()
+                    .child(if self.diag.raw_details.trim().is_empty() {
+                        self.diag.summary.clone()
+                    } else {
+                        self.diag.raw_details.clone()
+                    }),
+            ),
+        );
+
+        let inst_id_browse = self.diag.instance_id.clone();
+        let inst_id_log = self.diag.instance_id.clone();
+        let inst_id_relaunch = self.diag.instance_id.clone();
+        let has_inst = !self.diag.instance_id.is_empty();
+        let mods_dir = self.diag.mods_dir.clone();
+
+        let footer = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_between()
+            .gap(px(8.))
+            .px(px(14.))
+            .py(px(10.))
+            .bg(t.footer)
+            .border_t_1()
+            .border_color(t.divider)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .when(has_inst, |d| {
+                        d.child(
+                            push_button("crash-browse-mods", "Browse Mods", true, &t).on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let iid = inst_id_browse.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        if let Some(inst) =
+                                            a.instances.iter().find(|i| i.id == iid).cloned()
+                                        {
+                                            a.open_mod_browser(inst, BrowseKind::Mod, cx);
+                                        }
+                                    });
+                                }),
+                            ),
+                        )
+                    })
+                    .child(
+                        push_button("crash-open-mods", "Open Mods Folder", true, &t).on_click(
+                            move |_, _, _| {
+                                let _ = std::fs::create_dir_all(&mods_dir);
+                                let _ = log::open_folder(&mods_dir);
+                            },
+                        ),
+                    )
+                    .when(has_inst, |d| {
+                        d.child(
+                            push_button("crash-view-log", "View Full Log", true, &t).on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    let iid = inst_id_log.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.open_instance_window(&iid, InstancePage::Log, cx);
+                                    });
+                                }),
+                            ),
+                        )
+                    })
+                    .child(
+                        push_button("crash-copy", "Copy Crash Report", true, &t).on_click(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    report_copy.clone(),
+                                ));
+                                this.feedback =
+                                    Some(("Copied crash report to clipboard.".into(), false));
+                                cx.notify();
+                            }),
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .when(has_inst, |d| {
+                        d.child(
+                            accent_button("crash-relaunch", "Relaunch", true, &t).on_click(
+                                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    let iid = inst_id_relaunch.clone();
+                                    this.app.update(cx, |a, cx| {
+                                        a.launch_instance(&iid, job::LaunchExtras::default(), cx);
+                                    });
+                                    window.remove_window();
+                                }),
+                            ),
+                        )
+                    })
+                    .child(
+                        push_button("crash-close", "Close", true, &t)
+                            .on_click(|_, window, _| window.remove_window()),
+                    ),
+            );
+
+        div()
+            .track_focus(&self.focus)
+            .on_key_down(|ev: &KeyDownEvent, window, _| {
+                if ev.keystroke.key.as_str() == "escape" {
+                    window.remove_window();
+                }
+            })
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(t.window)
+            .font_family(UI_FONT)
+            .text_color(t.ink)
+            .child(header)
+            .child(scroll)
+            .child(footer)
+    }
+}
+

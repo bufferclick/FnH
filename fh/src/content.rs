@@ -3,10 +3,10 @@
 //! Shader Packs, Instance Notes, Worlds & Datapacks, Servers (`servers.dat`), Screenshots,
 //! Other Logs (`logs/` + `crash-reports/`), and Windows `.lnk` Desktop/Start-Menu shortcuts.
 
+use crate::{crash, hmods};
 use horizon_launcher::browser::{
     self,
     details::{Filters, Sort},
-    horizon as hreg,
     installed::Installed,
     java as hjava, java_instance,
     modrinth::Modrinth,
@@ -219,7 +219,9 @@ pub fn list_mods_in(home: &Path, is_java: bool) -> Vec<ModItem> {
             }
         }
     } else {
-        // 1. Scan `<home>/horizon-mods/` for `.hmod` files AND folder mods (including ported jars).
+        let mod_state = hmods::read_mods_state(home);
+
+        // 1. Scan `<home>/horizon-mods/` for Content/WASM `.hmod` packages AND folder/ported mods.
         let hmods_dir = home.join(hjava::MODS_DIR);
         if let Ok(entries) = fs::read_dir(&hmods_dir) {
             for entry in entries.flatten() {
@@ -229,97 +231,146 @@ pub fn list_mods_in(home: &Path, is_java: bool) -> Vec<ModItem> {
                     continue;
                 }
                 if path.is_file() && raw.to_ascii_lowercase().ends_with(".hmod") {
-                    let id = raw[..raw.len() - 5].to_owned();
                     let rel = format!("{}/{raw}", hjava::MODS_DIR);
                     let tracked = installed.entries.iter().find(|e| e.file == rel);
-                    let (name, version, source, slug) = match tracked {
-                        Some(e) => (
-                            e.title.clone(),
-                            e.number.clone(),
-                            e.source.label().to_owned(),
-                            Some(e.slug.clone()),
-                        ),
-                        None => (id.clone(), String::new(), "Local .hmod".into(), None),
-                    };
-                    rows.push(ModItem {
-                        enabled: hjava::is_enabled(home, &id),
-                        id,
-                        name,
-                        version,
-                        file_label: raw,
-                        path,
-                        format: ModFormat::HorizonMod,
-                        source,
-                        browser_slug: slug,
-                    });
+                    match hmods::inspect_hmod_archive(&path) {
+                        Ok(info) => {
+                            let enabled = mod_state.get(&info.id).copied().unwrap_or(true);
+                            let source = if let Some(e) = tracked {
+                                format!("{} ({})", e.source.label(), info.runtime.badge())
+                            } else {
+                                format!("Horizon {}", info.runtime.badge())
+                            };
+                            let format = if info.runtime == hmods::HorizonModRuntime::Native {
+                                ModFormat::HorizonNative
+                            } else {
+                                ModFormat::HorizonMod
+                            };
+                            rows.push(ModItem {
+                                id: info.id,
+                                name: info.name,
+                                version: info.version,
+                                file_label: raw,
+                                path,
+                                enabled,
+                                format,
+                                source,
+                                browser_slug: tracked.map(|e| e.slug.clone()),
+                            });
+                        }
+                        Err(_) => {
+                            let id = raw[..raw.len() - 5].to_owned();
+                            rows.push(ModItem {
+                                enabled: mod_state.get(&id).copied().unwrap_or(true),
+                                id: id.clone(),
+                                name: id,
+                                version: String::new(),
+                                file_label: raw,
+                                path,
+                                format: ModFormat::HorizonMod,
+                                source: "Local .hmod".into(),
+                                browser_slug: tracked.map(|e| e.slug.clone()),
+                            });
+                        }
+                    }
                 } else if path.is_dir() {
-                    let id = raw.clone();
-                    let rel = format!("{}/{id}", hjava::MODS_DIR);
+                    let rel = format!("{}/{raw}", hjava::MODS_DIR);
                     let tracked = installed.entries.iter().find(|e| e.file == rel);
-                    let (name, version, source, slug) = match tracked {
-                        Some(e) => {
-                            let tag = match &e.verdict {
+                    if let Ok(info) = hmods::inspect_mod_dir(&path, false) {
+                        let enabled = mod_state
+                            .get(&info.id)
+                            .or_else(|| mod_state.get(&raw))
+                            .copied()
+                            .unwrap_or(true);
+                        let source = if let Some(e) = tracked {
+                            match &e.verdict {
                                 Some(v) => format!("{} ({v})", e.source.label()),
                                 None => e.source.label().to_owned(),
-                            };
-                            (e.title.clone(), e.number.clone(), tag, Some(e.slug.clone()))
-                        }
-                        None => read_local_folder_mod_meta(&path, &id),
-                    };
-                    rows.push(ModItem {
-                        enabled: hjava::is_enabled(home, &id),
-                        id,
-                        name,
-                        version,
-                        file_label: format!("{raw}/"),
-                        path,
-                        format: ModFormat::HorizonFolder,
-                        source,
-                        browser_slug: slug,
-                    });
+                            }
+                        } else if let Some(note) = info.ported_note {
+                            note
+                        } else {
+                            read_local_folder_mod_meta(&path, &info.id).2
+                        };
+                        let fnh_meta = read_local_folder_mod_meta(&path, &info.name);
+                        let display_name = if info.name == raw && fnh_meta.0 != raw {
+                            fnh_meta.0
+                        } else {
+                            info.name
+                        };
+                        let display_ver = if info.version == "local" && !fnh_meta.1.is_empty() {
+                            fnh_meta.1
+                        } else if info.version == "local" {
+                            String::new()
+                        } else {
+                            info.version
+                        };
+                        rows.push(ModItem {
+                            id: info.id,
+                            name: display_name,
+                            version: display_ver,
+                            file_label: format!("{raw}/"),
+                            path,
+                            enabled,
+                            format: ModFormat::HorizonFolder,
+                            source,
+                            browser_slug: tracked.map(|e| e.slug.clone()),
+                        });
+                    }
                 }
             }
         }
 
-        // 2. Scan `<home>/horizon-native-mods/` for `.hnmod` / `.hmod` native mixin bundles.
+        // 2. Scan `<home>/horizon-native-mods/` for Native SDK `.hmod` / `.hnmod` / source folders.
         let native_dir = home.join(HORIZON_NATIVE_DIR);
         if let Ok(entries) = fs::read_dir(&native_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.is_file() {
+                let raw = entry.file_name().to_string_lossy().into_owned();
+                if raw.starts_with('.') {
                     continue;
                 }
-                let raw = entry.file_name().to_string_lossy().into_owned();
                 let lower = raw.to_ascii_lowercase();
-                let id = if lower.ends_with(".hnmod") {
-                    raw[..raw.len() - 6].to_owned()
-                } else if lower.ends_with(".hmod") {
-                    raw[..raw.len() - 5].to_owned()
-                } else {
+                let is_pkg = path.is_dir()
+                    || (path.is_file() && (lower.ends_with(".hmod") || lower.ends_with(".hnmod")));
+                if !is_pkg {
                     continue;
-                };
+                }
                 let rel = format!("{HORIZON_NATIVE_DIR}/{raw}");
                 let tracked = installed.entries.iter().find(|e| e.file == rel);
-                let (name, version, source, slug) = match tracked {
-                    Some(e) => (
-                        e.title.clone(),
-                        e.number.clone(),
-                        "Horizon Native".into(),
-                        Some(e.slug.clone()),
-                    ),
-                    None => (id.clone(), String::new(), "Local .hnmod".into(), None),
-                };
-                rows.push(ModItem {
-                    enabled: hjava::is_enabled(home, &id),
-                    id,
-                    name,
-                    version,
-                    file_label: raw,
-                    path,
-                    format: ModFormat::HorizonNative,
-                    source,
-                    browser_slug: slug,
-                });
+                match hmods::inspect_any_mod_path(&path, true) {
+                    Ok(info) => {
+                        let enabled = mod_state.get(&info.id).copied().unwrap_or(true);
+                        rows.push(ModItem {
+                            id: info.id,
+                            name: info.name,
+                            version: info.version,
+                            file_label: raw,
+                            path,
+                            enabled,
+                            format: ModFormat::HorizonNative,
+                            source: "Horizon Native SDK".into(),
+                            browser_slug: tracked.map(|e| e.slug.clone()),
+                        });
+                    }
+                    Err(_) => {
+                        let stem = raw
+                            .trim_end_matches(".hnmod")
+                            .trim_end_matches(".hmod")
+                            .to_owned();
+                        rows.push(ModItem {
+                            enabled: mod_state.get(&stem).copied().unwrap_or(true),
+                            id: stem.clone(),
+                            name: stem,
+                            version: String::new(),
+                            file_label: raw,
+                            path,
+                            format: ModFormat::HorizonNative,
+                            source: "Horizon Native SDK".into(),
+                            browser_slug: tracked.map(|e| e.slug.clone()),
+                        });
+                    }
+                }
             }
         }
     }
@@ -341,7 +392,8 @@ fn read_local_folder_mod_meta(dir: &Path, fallback_id: &str) -> (String, String,
 }
 
 /// Automatically adopts `.hmod`, `.hnmod` or portable `.jar` files placed inside `<home>/mods/` on
-/// a Horizon instance so pasting into `mods/` works seamlessly without confusion.
+/// a Horizon instance so pasting into `mods/` routes Content/WASM `.hmod`s to `horizon-mods/` and
+/// Native SDK `.hmod`s to `horizon-native-mods/` automatically.
 fn adopt_misplaced_horizon_mods(home: &Path) {
     let legacy = home.join("mods");
     let Ok(entries) = fs::read_dir(&legacy) else {
@@ -354,37 +406,40 @@ fn adopt_misplaced_horizon_mods(home: &Path) {
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         let lower = name.to_ascii_lowercase();
-        if lower.ends_with(".hmod") {
-            let dst_dir = home.join(hjava::MODS_DIR);
-            let _ = fs::create_dir_all(&dst_dir);
-            let dst = dst_dir.join(&name);
-            if !dst.exists() && fs::rename(&path, &dst).is_ok() {
-                let id = &name[..name.len() - 5];
-                let _ = hjava::set_enabled(home, id, true);
-            }
-        } else if lower.ends_with(".hnmod") {
-            let dst_dir = home.join(HORIZON_NATIVE_DIR);
-            let _ = fs::create_dir_all(&dst_dir);
-            let dst = dst_dir.join(&name);
-            if !dst.exists() && fs::rename(&path, &dst).is_ok() {
-                let id = &name[..name.len() - 6];
-                let _ = hjava::set_enabled(home, id, true);
+        if lower.ends_with(".hmod") || lower.ends_with(".hnmod") {
+            if hmods::install_local_horizon_mod(home, &path).is_ok() {
+                let _ = fs::remove_file(&path);
             }
         } else if lower.ends_with(".jar") {
-            if add_horizon_mod_file(home, &path).is_ok() {
+            if add_horizon_mod_file_quiet(home, &path).is_ok() {
                 let _ = fs::remove_file(&path);
             }
         }
     }
 }
 
-/// Installs one or more dropped or selected mod files into `instance`, returning a human summary.
+/// Installs one or more dropped or selected mod files into `instance`, returning a human summary
+/// (and popping open `CrashWindow` if an unsupported/incompatible mod format is dropped!).
 pub fn add_mod_files(instance: &Instance, files: &[PathBuf]) -> Result<String, String> {
-    add_mod_files_to(&instance.home, instance.java.is_some(), files)
+    add_mod_files_for_instance(
+        Some((&instance.id, &instance.name)),
+        &instance.home,
+        instance.java.is_some(),
+        files,
+    )
 }
 
 /// Installs mod files into `home` (`is_java = true` for Fabric/Java, `false` for Horizon).
 pub fn add_mod_files_to(home: &Path, is_java: bool, files: &[PathBuf]) -> Result<String, String> {
+    add_mod_files_for_instance(None, home, is_java, files)
+}
+
+fn add_mod_files_for_instance(
+    inst_ctx: Option<(&str, &str)>,
+    home: &Path,
+    is_java: bool,
+    files: &[PathBuf],
+) -> Result<String, String> {
     if files.is_empty() {
         return Err("No mod files selected.".into());
     }
@@ -393,9 +448,9 @@ pub fn add_mod_files_to(home: &Path, is_java: bool, files: &[PathBuf]) -> Result
 
     for src in files {
         let res = if is_java {
-            add_java_mod_file(home, src)
+            add_java_mod_file(inst_ctx, home, src)
         } else {
-            add_horizon_mod_file(home, src)
+            add_horizon_mod_file(inst_ctx, home, src, true)
         };
         match res {
             Ok(label) => added.push(label),
@@ -416,7 +471,11 @@ pub fn add_mod_files_to(home: &Path, is_java: bool, files: &[PathBuf]) -> Result
     }
 }
 
-fn add_java_mod_file(home: &Path, src: &Path) -> Result<String, String> {
+fn add_java_mod_file(
+    inst_ctx: Option<(&str, &str)>,
+    home: &Path,
+    src: &Path,
+) -> Result<String, String> {
     if !src.is_file() {
         return Err(format!("{} is not a .jar file", src.display()));
     }
@@ -426,6 +485,27 @@ fn add_java_mod_file(home: &Path, src: &Path) -> Result<String, String> {
         .ok_or_else(|| "Invalid file name.".to_owned())?;
     let lower = file_name.to_ascii_lowercase();
     if lower.ends_with(".hmod") || lower.ends_with(".hnmod") {
+        if let Some((iid, iname)) = inst_ctx {
+            crash::push_diagnosis(crash::CrashDiagnosis {
+                instance_id: iid.to_owned(),
+                instance_name: iname.to_owned(),
+                engine_label: "Fabric / Java Edition".into(),
+                is_horizon: false,
+                kind: crash::CrashKind::UnsupportedMod,
+                headline: "Horizon .hmod Package Dropped into Java Instance".into(),
+                summary: format!(
+                    "'{file_name}' is a Horizon mod package (.hmod) and cannot run on Minecraft: Java Edition / Fabric."
+                ),
+                solutions: vec![
+                    "Add this .hmod file to a Horizon instance instead.".into(),
+                    "For Fabric instances, install Fabric .jar mods via Browse Mods (Modrinth).".into(),
+                ],
+                offending_mods: Vec::new(),
+                raw_details: format!("Unsupported archive for Java/Fabric: {}", src.display()),
+                crash_file: None,
+                mods_dir: home.join("mods"),
+            });
+        }
         return Err(format!(
             "{file_name} is a Horizon mod — add it to a Horizon instance instead"
         ));
@@ -449,49 +529,36 @@ fn add_java_mod_file(home: &Path, src: &Path) -> Result<String, String> {
     Ok(display)
 }
 
-fn add_horizon_mod_file(home: &Path, src: &Path) -> Result<String, String> {
+fn add_horizon_mod_file_quiet(home: &Path, src: &Path) -> Result<String, String> {
+    add_horizon_mod_file(None, home, src, false)
+}
+
+fn add_horizon_mod_file(
+    inst_ctx: Option<(&str, &str)>,
+    home: &Path,
+    src: &Path,
+    emit_unsupported_dialog: bool,
+) -> Result<String, String> {
     let file_name = src
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| "Invalid mod path.".to_owned())?;
     let lower = file_name.to_ascii_lowercase();
 
-    // 1. Folder mod (e.g. contains pack.mcmeta or data/ or assets/).
-    if src.is_dir() {
-        let id = sanitize_mod_id(file_name);
-        let dst = home.join(hjava::MODS_DIR).join(&id);
-        copy_dir_recursive(src, &dst)?;
-        hjava::set_enabled(home, &id, true)?;
-        return Ok(id);
+    // 1. Folder mod or `.hmod` / `.hnmod` package -> inspect `horizon-mod.toml`, verify WASM/Native,
+    //    route Content/WASM to `horizon-mods/` and Native SDK to `horizon-native-mods/`, and write
+    //    `mod.<manifest_id>:true` in `horizon-mods.txt`!
+    if src.is_dir() || lower.ends_with(".hmod") || lower.ends_with(".hnmod") {
+        let inspected = hmods::install_local_horizon_mod(home, src)?;
+        return Ok(format!(
+            "{} v{} ({})",
+            inspected.name,
+            inspected.version,
+            inspected.runtime.badge()
+        ));
     }
 
-    // 2. Native Horizon `.hmod` WebAssembly / content mod.
-    if lower.ends_with(".hmod") {
-        let id = file_name[..file_name.len() - 5].to_owned();
-        let dir = home.join(hjava::MODS_DIR);
-        fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let dst = dir.join(file_name);
-        if src != dst {
-            fs::copy(src, &dst).map_err(|e| format!("Could not copy {file_name}: {e}"))?;
-        }
-        hjava::set_enabled(home, &id, true)?;
-        return Ok(id);
-    }
-
-    // 3. Horizon `.hnmod` native mixin mod.
-    if lower.ends_with(".hnmod") {
-        let id = file_name[..file_name.len() - 6].to_owned();
-        let dir = home.join(HORIZON_NATIVE_DIR);
-        fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let dst = dir.join(file_name);
-        if src != dst {
-            fs::copy(src, &dst).map_err(|e| format!("Could not copy {file_name}: {e}"))?;
-        }
-        hjava::set_enabled(home, &id, true)?;
-        return Ok(format!("{id} (native mod)"));
-    }
-
-    // 4. Java `.jar` mod: run Horizon's own `horizon-port-pack` converter to carry blocks, items,
+    // 2. Java `.jar` mod: run Horizon's `horizon-port-pack` converter to carry blocks, items,
     //    recipes, loot, tags & worldgen into `horizon-mods/<id>/` and turn it on!
     if lower.ends_with(".jar") {
         let stage = std::env::temp_dir().join(format!(
@@ -505,9 +572,9 @@ fn add_horizon_mod_file(home: &Path, src: &Path) -> Result<String, String> {
             Ok(info) if matches!(info.verdict, Verdict::Works | Verdict::Partly) => {
                 let carry = stage.join("carry");
                 let id = if info.mod_id.trim().is_empty() {
-                    sanitize_mod_id(file_name.trim_end_matches(".jar"))
+                    hmods::sanitize_mod_id(file_name.trim_end_matches(".jar"))
                 } else {
-                    info.mod_id.clone()
+                    hmods::sanitize_mod_id(&info.mod_id)
                 };
                 let dst = home.join(hjava::MODS_DIR).join(&id);
                 let _ = fs::remove_dir_all(&dst);
@@ -523,7 +590,7 @@ fn add_horizon_mod_file(home: &Path, src: &Path) -> Result<String, String> {
                     "source": format!("Ported JAR ({})", info.verdict.label()),
                 });
                 let _ = fs::write(dst.join("fnh-mod.json"), meta.to_string());
-                hjava::set_enabled(home, &id, true)?;
+                hmods::set_mod_state(home, &id, true)?;
                 Ok(format!("{title} ({})", info.verdict.label()))
             }
             Ok(info) => {
@@ -532,8 +599,34 @@ fn add_horizon_mod_file(home: &Path, src: &Path) -> Result<String, String> {
                 } else {
                     &info.name
                 };
+                if emit_unsupported_dialog {
+                    let (iid, iname) = inst_ctx.unwrap_or(("", "Horizon Instance"));
+                    crash::push_diagnosis(crash::CrashDiagnosis {
+                        instance_id: iid.to_owned(),
+                        instance_name: iname.to_owned(),
+                        engine_label: "Horizon".into(),
+                        is_horizon: true,
+                        kind: crash::CrashKind::UnsupportedMod,
+                        headline: "Unsupported Java Code Mod on Horizon!".into(),
+                        summary: format!(
+                            "'{name}' ({file_name}) contains only JVM bytecode ({}) and has no portable blocks/items/assets for Horizon.",
+                            info.summary
+                        ),
+                        solutions: vec![
+                            "Browse the Horizon Registry (`Mods -> Download Mods -> Horizon`) for native Rust & WebAssembly `.hmod` equivalents.".into(),
+                            "Or create a Fabric instance in FNH (`Add Instance -> Fabric`) to run Java bytecode mods in full.".into(),
+                        ],
+                        offending_mods: Vec::new(),
+                        raw_details: format!(
+                            "Mod: {name} ({file_name})\nHorizon Port Verdict: Doesn't run\nReason: {}",
+                            info.summary
+                        ),
+                        crash_file: None,
+                        mods_dir: home.join(hjava::MODS_DIR),
+                    });
+                }
                 Err(format!(
-                    "{name} is a Java code mod that cannot run on Horizon ({}) — drop it into a Fabric instance to run it in full, or install a Horizon .hmod mod",
+                    "{name} is a Java code mod that cannot run on Horizon ({}) — install a Horizon .hmod mod or use a Fabric instance",
                     info.summary
                 ))
             }
@@ -544,7 +637,7 @@ fn add_horizon_mod_file(home: &Path, src: &Path) -> Result<String, String> {
     }
 
     Err(format!(
-        "{file_name}: Horizon accepts .hmod, .hnmod, or portable .jar mods"
+        "{file_name}: Horizon accepts .hmod, .hnmod, mod folders, or portable .jar mods"
     ))
 }
 
@@ -566,7 +659,7 @@ pub fn set_mod_enabled(home: &Path, item: &ModItem, on: bool) -> Result<(), Stri
             Ok(())
         }
         ModFormat::HorizonMod | ModFormat::HorizonFolder | ModFormat::HorizonNative => {
-            hjava::set_enabled(home, &item.id, on)
+            hmods::set_mod_state(home, &item.id, on)
         }
     }
 }
@@ -579,7 +672,7 @@ pub fn remove_mod(home: &Path, item: &ModItem) -> Result<(), String> {
                 return Ok(());
             }
         } else if browser::installed::remove(home, slug).is_ok() {
-            let _ = hjava::set_enabled(home, &item.id, false);
+            hmods::remove_mod_state(home, &item.id);
             return Ok(());
         }
     }
@@ -589,7 +682,7 @@ pub fn remove_mod(home: &Path, item: &ModItem) -> Result<(), String> {
         fs::remove_file(&item.path).map_err(|e| format!("{}: {e}", item.path.display()))?;
     }
     if item.format != ModFormat::JavaJar {
-        let _ = hjava::set_enabled(home, &item.id, false);
+        hmods::remove_mod_state(home, &item.id);
     }
     Ok(())
 }
@@ -598,7 +691,8 @@ pub fn remove_mod(home: &Path, item: &ModItem) -> Result<(), String> {
 // Modrinth & Horizon Registry Browser
 // ================================================================================================
 
-/// Searches Modrinth or Horizon Registry for mods, resource packs, shader packs, or modpacks.
+/// Searches Modrinth or Horizon Registry (`api = "0.1"` & `"0.2"`) for mods, resource packs,
+/// shader packs, or modpacks.
 pub fn search_projects(
     source_id: SourceId,
     kind: BrowseKind,
@@ -606,6 +700,9 @@ pub fn search_projects(
     sort: Sort,
     java_target: Option<(&str, Option<&str>)>,
 ) -> Result<Vec<Project>, String> {
+    if source_id == SourceId::Horizon {
+        return search_horizon_v2(kind, text, sort);
+    }
     let source = browser::source(source_id)
         .ok_or_else(|| format!("{} is not available.", source_id.label()))?;
     let mut query = if let (SourceId::Modrinth, Some((mc, loader))) = (source_id, java_target) {
@@ -623,6 +720,83 @@ pub fn search_projects(
         ..query.filters
     };
     source.search(&query)
+}
+
+fn search_horizon_v2(kind: BrowseKind, text: &str, sort: Sort) -> Result<Vec<Project>, String> {
+    let idx = hmods::fetch_registry_index()?;
+    let needle = text.trim().to_ascii_lowercase();
+    let mut out = Vec::new();
+
+    for p in &idx.projects {
+        if idx.is_revoked(&p.id, None).is_some() {
+            continue;
+        }
+        let matches_kind = match kind {
+            BrowseKind::Mod => matches!(p.kind.as_str(), "" | "mod" | "native-mod"),
+            BrowseKind::ResourcePack => p.kind == "resourcepack",
+            BrowseKind::Shader => matches!(p.kind.as_str(), "shader" | "shaderpack"),
+            BrowseKind::Modpack => p.kind == "modpack",
+            BrowseKind::DataPack => p.kind == "datapack",
+        };
+        if !matches_kind {
+            continue;
+        }
+        if !needle.is_empty() {
+            let hay = format!(
+                "{} {} {} {} {}",
+                p.id,
+                p.name,
+                p.summary,
+                p.tags.join(" "),
+                p.categories.join(" ")
+            )
+            .to_ascii_lowercase();
+            if !needle.split_whitespace().all(|tok| hay.contains(tok)) {
+                continue;
+            }
+        }
+        let Some(latest) = p
+            .versions
+            .iter()
+            .find(|v| idx.is_revoked(&p.id, Some(&v.file.sha256)).is_none())
+        else {
+            continue;
+        };
+        let summary = if p.kind == "native-mod" {
+            format!("[Native SDK] {}", p.summary)
+        } else {
+            p.summary.clone()
+        };
+        out.push(Project {
+            source: SourceId::Horizon,
+            id: p.id.clone(),
+            slug: p.id.clone(),
+            title: p.name.clone(),
+            summary,
+            author: p.authors.first().cloned().unwrap_or_else(|| "Horizon Community".into()),
+            downloads: p.downloads,
+            page: if p.source.starts_with("https://") {
+                p.source.clone()
+            } else {
+                format!("https://playhorizon.dev/mods/{}", p.id)
+            },
+            icon: None,
+            license: p.license.clone(),
+            kind,
+            game_versions: if latest.game.is_empty() {
+                vec![browser::GAME.to_owned()]
+            } else {
+                vec![latest.game.clone()]
+            },
+            loaders: vec!["horizon".into()],
+        });
+    }
+
+    match sort {
+        Sort::Downloads | Sort::Relevance => out.sort_by(|a, b| b.downloads.cmp(&a.downloads)),
+        Sort::Updated | Sort::Newest => {}
+    }
+    Ok(out)
 }
 
 /// Installs a searched project (and required dependencies) into `instance`.
@@ -658,18 +832,44 @@ pub fn install_project(
     } else {
         match project.source {
             SourceId::Horizon => {
-                hreg::install(project, &instance.home, progress)?;
-                Ok(format!("Installed {} from Horizon Registry.", project.title))
+                progress(&format!("Downloading {} from Horizon Registry…", project.title), 0.25);
+                let msg = hmods::install_registry_project(&instance.home, &project.id)?;
+                progress("Verified & installed", 1.0);
+                Ok(msg)
             }
             SourceId::Modrinth => {
                 if project.kind == BrowseKind::Mod {
-                    let done = hjava::install(&Modrinth, project, false, &instance.home, progress)?;
-                    Ok(format!(
-                        "Ported & installed {} ({} file{}).",
-                        project.title,
-                        done.len(),
-                        if done.len() == 1 { "" } else { "s" }
-                    ))
+                    match hjava::install(&Modrinth, project, false, &instance.home, progress) {
+                        Ok(done) => Ok(format!(
+                            "Ported & installed {} ({} file{}).",
+                            project.title,
+                            done.len(),
+                            if done.len() == 1 { "" } else { "s" }
+                        )),
+                        Err(err) => {
+                            crash::push_diagnosis(crash::CrashDiagnosis {
+                                instance_id: instance.id.clone(),
+                                instance_name: instance.name.clone(),
+                                engine_label: "Horizon".into(),
+                                is_horizon: true,
+                                kind: crash::CrashKind::UnsupportedMod,
+                                headline: "Modrinth Java Mod Cannot Run on Horizon".into(),
+                                summary: format!("'{}': {err}", project.title),
+                                solutions: vec![
+                                    "Switch source to 'Horizon' in Browse Mods to install native Rust & WASM `.hmod` mods built for Horizon.".into(),
+                                    "Or create a Fabric instance in FNH (`Add Instance -> Fabric`) to run Java bytecode mods.".into(),
+                                ],
+                                offending_mods: Vec::new(),
+                                raw_details: format!(
+                                    "Project: {} ({})\nSource: Modrinth\nResult: {err}",
+                                    project.title, project.slug
+                                ),
+                                crash_file: None,
+                                mods_dir: instance.home.join(hjava::MODS_DIR),
+                            });
+                            Err(err)
+                        }
+                    }
                 } else {
                     browser::installed::install(&Modrinth, project, false, &instance.home, progress)?;
                     Ok(format!("Installed {}.", project.title))
@@ -1033,25 +1233,6 @@ pub fn format_count(n: u64) -> String {
         format!("{:.1}K", n as f64 / 1_000.0)
     } else {
         n.to_string()
-    }
-}
-
-fn sanitize_mod_id(raw: &str) -> String {
-    let s: String = raw
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let trimmed = s.trim_matches('_').to_owned();
-    if trimmed.is_empty() {
-        "mod".into()
-    } else {
-        trimmed
     }
 }
 

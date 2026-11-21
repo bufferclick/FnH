@@ -1,25 +1,30 @@
-//! FNH (Fabric n Horizon) v1.6 — multi-window Windows 11 launcher for Fabric, Minecraft: Java
+//! FNH (Fabric n Horizon) v1.7 — multi-window Windows 11 launcher for Fabric, Minecraft: Java
 //! Edition, and Horizon instances, modelled on Buffer's JLac (`QWindows11Style` / WinUI 3).
 //!
 //! Modules:
 //! - `app.rs`          — Shared `Fh` state + `MainWindow` (`mainToolBar`, grouped `InstanceView`, `WideBar`, status bar)
 //! - `win_instance.rs` — Standalone `InstanceWindow` (Log, Version, Mods, Packs, Shaders, Notes, Worlds, Servers, Screenshots, Settings, Other Logs)
 //! - `win_settings.rs` — Standalone 9-page global `SettingsWindow` (Launcher, Appearance, Minecraft, Horizon, Java, Accounts, APIs, External Tools, Proxy)
-//! - `win_dialogs.rs`  — Standalone `NewInstanceWindow`, `IconPickerWindow`, `ModBrowserWindow` & `UtilityWindow`
+//! - `win_dialogs.rs`  — Standalone `NewInstanceWindow`, `IconPickerWindow`, `ModBrowserWindow`, `UtilityWindow` & `CrashWindow`
 //! - `content.rs`      — Isolated instance creation, Fabric/Horizon mod manager + auto-porter, Modrinth/Horizon browser, packs, notes, screenshots, shortcuts
+//! - `hmods.rs`        — Upstream Horizon `v0.2` `.hmod` Content/WASM/Native subsystem, `index.json` verifier, GitHub mod installer & Native Mod SDK bridge
+//! - `crash.rs`        — Fabric-Loader-style Crash & Mod Compatibility analyzer (pre-launch & post-exit diagnostics + 1-click Disable Mod)
+//! - `updater.rs`      — Startup & manual GitHub Releases self-updater (`FnHLauncher.zip` download, extract, zip cleanup & live relaunch)
 //! - `inst_icons.rs`   — 61 built-in 128x128 RGBA preset icons + custom icon importer & thumbnail loader
 //! - `paths.rs`        — Isolated `<FnH>` data root (`%APPDATA%\FnH` / portable) so FNH never collides with other launchers
 //! - `prefs.rs`        — Global `Prefs`, per-instance `InstanceCfgStore`, and `options.txt` `GameOptions`
 //! - `reset.rs`        — Detached two-phase `--factory-reset` worker (`Ctrl + Shift + Alt` + `Add Instance`)
 //! - `job.rs`          — Separated Fabric/Java & isolated Horizon launcher, live console ring buffers, Java/Horizon installers & MSA sign-in
-//! - `look.rs`         — WinUI 3 Dark / OLED / Light / System themes + 8 accents & shared controls
-//! - `icons.rs`        — 42 embedded 24x24 Fluent UI SVGs (`gpui::AssetSource`)
+//! - `look.rs`         — WinUI 3 Dark / OLED / Light / System themes + 8 accents, `fh.ico` `WM_SETICON` & shared controls
+//! - `icons.rs`        — 49 embedded 24x24 Fluent UI SVGs (`gpui::AssetSource`)
 //! - `log.rs`          — Rotating `<FnH>/logs/fh.log`, browser, Explorer, editor & world-tool helpers
 
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod app;
 mod content;
+mod crash;
+mod hmods;
 mod icons;
 mod inst_icons;
 mod job;
@@ -28,13 +33,15 @@ mod look;
 mod paths;
 mod prefs;
 mod reset;
+mod updater;
 mod win_dialogs;
 mod win_instance;
 mod win_settings;
 
 use gpui::{App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use std::path::PathBuf;
 
-/// Release version from `fh/VERSION` via `build.rs` (matches `fnh-v{VERSION}` and `fnh-{VERSION}.zip`).
+/// Release version from `fh/VERSION` via `build.rs` (matches `fnh-v{VERSION}` and `FnHLauncher.zip`).
 pub const VERSION: &str = env!("FH_VERSION");
 
 const HELP: &str = "\
@@ -55,6 +62,11 @@ Options:
 fn main() {
     let mut after_reset = false;
     let mut run_worker = false;
+    let mut updated_from: Option<String> = None;
+    let mut apply_update_pid: Option<u32> = None;
+    let mut apply_staged: Option<PathBuf> = None;
+    let mut apply_target: Option<PathBuf> = None;
+    let mut apply_from: String = String::new();
     let mut auto_launch: Option<(String, bool)> = None;
 
     let mut args = std::env::args().skip(1);
@@ -74,6 +86,31 @@ fn main() {
             reset::AFTER_RESET_FLAG => {
                 after_reset = true;
             }
+            "--updated-from" => {
+                if let Some(v) = args.next() {
+                    updated_from = Some(v);
+                }
+            }
+            "--apply-update" => {
+                if let Some(p) = args.next().and_then(|s| s.parse::<u32>().ok()) {
+                    apply_update_pid = Some(p);
+                }
+            }
+            "--staged" => {
+                if let Some(p) = args.next() {
+                    apply_staged = Some(PathBuf::from(p));
+                }
+            }
+            "--target" => {
+                if let Some(p) = args.next() {
+                    apply_target = Some(PathBuf::from(p));
+                }
+            }
+            "--from" => {
+                if let Some(v) = args.next() {
+                    apply_from = v;
+                }
+            }
             "--launch" => {
                 if let Some(id) = args.next() {
                     auto_launch = Some((id, false));
@@ -92,13 +129,23 @@ fn main() {
         }
     }
 
+    if let (Some(pid), Some(staged), Some(target)) = (apply_update_pid, apply_staged, apply_target)
+    {
+        std::process::exit(updater::run_apply_update_worker(
+            pid,
+            &staged,
+            &target,
+            &apply_from,
+        ));
+    }
+
     paths::init();
 
     if run_worker {
         std::process::exit(reset::run_worker());
     }
 
-    std::process::exit(run(after_reset, auto_launch));
+    std::process::exit(run(after_reset, updated_from, auto_launch));
 }
 
 fn say(text: &str) {
@@ -106,8 +153,13 @@ fn say(text: &str) {
     let _ = writeln!(std::io::stdout(), "{text}");
 }
 
-fn run(after_reset: bool, auto_launch: Option<(String, bool)>) -> i32 {
+fn run(
+    after_reset: bool,
+    updated_from: Option<String>,
+    auto_launch: Option<(String, bool)>,
+) -> i32 {
     reset::sweep_stale_stages(&paths::root());
+    updater::cleanup_stale_update_files();
 
     let problem = horizon_launcher::data_location::startup();
     log::start(paths::logs_dir().join("fh.log"));
@@ -116,6 +168,8 @@ fn run(after_reset: bool, auto_launch: Option<(String, bool)>) -> i32 {
         paths::root().display(),
         if after_reset {
             " [fresh start after factory reset]"
+        } else if updated_from.is_some() {
+            " [restarted after self-update]"
         } else {
             ""
         }
@@ -127,7 +181,7 @@ fn run(after_reset: bool, auto_launch: Option<(String, bool)>) -> i32 {
     gpui_platform::application()
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
-            let shared = cx.new(|_| app::Fh::new(after_reset));
+            let shared = cx.new(|_| app::Fh::new(after_reset, updated_from.clone()));
             let bounds = Bounds::centered(None, size(px(980.), px(660.)), cx);
             let title = format!("FNH {VERSION}");
 
@@ -144,7 +198,9 @@ fn run(after_reset: bool, auto_launch: Option<(String, bool)>) -> i32 {
                         app_id: Some("fnh".into()),
                         ..Default::default()
                     },
-                    move |window, cx| cx.new(|cx| app::MainWindow::new(shared_for_main, window, cx)),
+                    move |window, cx| {
+                        cx.new(|cx| app::MainWindow::new(shared_for_main, window, cx))
+                    },
                 )
                 .expect("FNH main window");
 
@@ -178,7 +234,7 @@ fn run(after_reset: bool, auto_launch: Option<(String, bool)>) -> i32 {
 mod tests {
     use super::VERSION;
 
-    /// `fh/VERSION` and `fh/Cargo.toml` must agree on the release number (`1.6` vs `1.6.0`).
+    /// `fh/VERSION` and `fh/Cargo.toml` must agree on the release number (`1.7` vs `1.7.0`).
     #[test]
     fn the_version_is_the_one_the_release_is_tagged_with() {
         assert_eq!(VERSION, VERSION.trim(), "VERSION has no padding");

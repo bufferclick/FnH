@@ -135,6 +135,7 @@ impl SettingsWindow {
     ) -> Option<WindowHandle<Self>> {
         let opts = secondary_window_options("Settings - FNH", 940., 660., 740., 500., cx);
         cx.open_window(opts, move |window, cx| {
+            crate::look::apply_window_icon();
             cx.new(|cx| {
                 cx.observe(&app, |_: &mut Self, _, cx| cx.notify()).detach();
                 let focus = cx.focus_handle();

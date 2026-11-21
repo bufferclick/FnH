@@ -5,8 +5,8 @@
 //! never called on Java/Fabric instances) and streams live game + download output straight into
 //! each instance's `Minecraft Log` / `Horizon Log` page in `InstanceWindow`.
 
-use crate::log;
 use crate::prefs::{HorizonTrack, InstanceCfg, Prefs};
+use crate::{crash, hmods, log};
 use horizon_launcher::account::{self, SignIn, SignInState};
 use horizon_launcher::instances::{self as inst, Instance};
 use horizon_launcher::{backend, launch, process};
@@ -294,6 +294,34 @@ fn run_launch(
         step(&format!("Preparing {}", instance.name), msg);
     };
 
+    // Pre-launch mod compatibility scan (Forge/NeoForge `.jar` in Fabric, mods without a loader,
+    // missing `fabric-api`, raw `.jar` in Horizon, or missing `.hmod` dependency).
+    let (mc_ver, fabric_enabled, engine_label) = match &instance.java {
+        Some(j) => {
+            let has_fab = j.loader.is_some();
+            let lbl = if has_fab {
+                format!("Fabric {}", j.minecraft)
+            } else {
+                format!("Minecraft {}", j.minecraft)
+            };
+            (j.minecraft.as_str(), has_fab, lbl)
+        }
+        None => ("", false, "Horizon".to_owned()),
+    };
+
+    if let Some(diag) = crash::check_prelaunch_compatibility(
+        &instance.id,
+        &instance.name,
+        &instance.home,
+        instance.java.is_none(),
+        mc_ver,
+        fabric_enabled,
+    ) {
+        let msg = format!("{}: {}", diag.headline, diag.summary);
+        crash::push_diagnosis(diag);
+        return Err((msg, true));
+    }
+
     sign_in(false, Some(&emit)).map_err(|e| (e, false))?;
 
     if KILL_REQUESTED.load(Ordering::Acquire) {
@@ -483,6 +511,25 @@ fn run_launch(
             inst::play_time(played)
         ));
     }
+
+    // Post-exit Fabric `Incompatible mod set!` / `FormattedException`, Mixin crash,
+    // `crash-reports/crash-*.txt`, and Horizon panic / mod-error analyzer -> opens `CrashWindow`!
+    let (captured_lines, _) = console_snapshot(&instance.id, 400);
+    if let Some(diag) = crash::analyze_post_exit(
+        &instance.id,
+        &instance.name,
+        &engine_label,
+        &instance.home,
+        instance.java.is_none(),
+        exit_status.code(),
+        &captured_lines,
+        started_sys,
+    ) {
+        let msg = format!("{}: {}", diag.headline, diag.summary);
+        crash::push_diagnosis(diag);
+        return Err((msg, true));
+    }
+
     if exit_status.success() {
         return Ok(format!(
             "{} exited cleanly after {} (exit code 0).",
@@ -491,25 +538,10 @@ fn run_launch(
         ));
     }
 
-    // Non-zero exit: check for crash report and surface details directly in Console + status bar.
-    match backend::crash_report_since(&instance.home, started_sys) {
-        Some(report) => {
-            let summary = std::fs::read_to_string(&report)
-                .ok()
-                .and_then(|t| backend::crash_summary(&t));
-            Err((
-                match summary {
-                    Some(s) => format!("Game crashed: {s} ({})", report.display()),
-                    None => format!("Game crashed ({exit_status}): {}", report.display()),
-                },
-                true,
-            ))
-        }
-        None => Err((
-            format!("Game exited with {exit_status} — open Minecraft Log for full output."),
-            true,
-        )),
-    }
+    Err((
+        format!("Game exited with {exit_status} — open Minecraft Log for full output."),
+        true,
+    ))
 }
 
 /// Builds the complete Java Edition / Fabric `Command` with all global & instance overrides.
@@ -640,8 +672,9 @@ fn build_horizon_command(
     offline: bool,
     emit: &dyn Fn(String),
 ) -> Result<Command, String> {
-    let tag = resolve_horizon_version(instance, prefs, cfg, emit)?;
-    prepare_horizon_version(&tag, emit)?;
+    // 1. Ensure a clean base Horizon client + game assets exist first.
+    let base_tag = resolve_horizon_version(instance, prefs, cfg, emit)?;
+    prepare_horizon_version(&base_tag, emit)?;
 
     let verify = if cfg.horizon_override_updates {
         cfg.horizon_verify_assets
@@ -650,8 +683,33 @@ fn build_horizon_command(
     };
     if verify {
         emit("Verifying Horizon game assets…".into());
-        backend::complete_assets(&tag);
+        backend::complete_assets(&base_tag);
     }
+
+    // 2. Sync Horizon Native Mod SDK mods (`horizon-native-mods/*.hmod`):
+    //    - When 0 native mods are enabled, clears any stale `native-...` pin.
+    //    - When >=1 native mods are enabled, links them via official `horizon-launcher native-build`.
+    if let Err(fail) =
+        hmods::sync_native_mods_before_launch(&instance.id, &instance.home, |m| emit(m.to_owned()))
+    {
+        let diag = crash::diagnosis_from_native_build_failure(
+            &instance.id,
+            &instance.name,
+            &instance.home,
+            &fail,
+        );
+        crash::push_diagnosis(diag);
+        return Err(fail.summary);
+    }
+
+    let refreshed = inst::find(&instance.id).unwrap_or_else(|_| instance.clone());
+    let tag = match refreshed.version.as_deref() {
+        Some(v) if v.starts_with("native-") && backend::installed().contains(&v.to_owned()) => {
+            emit(format!("Launching Native Mod SDK build {v}."));
+            v.to_owned()
+        }
+        _ => base_tag,
+    };
 
     // Guarantee instance folder & isolated offline name exist before spawning.
     std::fs::create_dir_all(&instance.home)
@@ -832,7 +890,11 @@ fn resolve_horizon_version(
         }
         return install_horizon_tag(&pin, emit);
     }
-    if let Some(pin) = instance.version.as_ref().filter(|s| !s.is_empty()) {
+    if let Some(pin) = instance
+        .version
+        .as_ref()
+        .filter(|s| !s.is_empty() && !s.starts_with("native-"))
+    {
         if installed.contains(pin) {
             emit(format!("Using pinned Horizon build {pin}."));
             return Ok(pin.clone());
@@ -849,14 +911,14 @@ fn resolve_horizon_version(
 
     if let Some(matching) = installed
         .iter()
-        .find(|t| t.starts_with("nightly") == want_nightly)
+        .find(|t| !t.starts_with("native-") && (t.starts_with("nightly") == want_nightly))
     {
         emit(format!("Using installed Horizon build {matching}."));
         return Ok(matching.clone());
     }
-    if let Ok(any) = backend::resolve_version(None) {
+    if let Some(any) = installed.iter().find(|t| !t.starts_with("native-")) {
         emit(format!("Using installed Horizon build {any}."));
-        return Ok(any);
+        return Ok(any.clone());
     }
 
     // 3. Download latest build for chosen track from GitHub.

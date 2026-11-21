@@ -45,10 +45,10 @@
       and Horizon instances — clean WinUI 3 layout, per-instance mods, worlds, logs and loader control.</p>
 
     <p class="actions">
-      <a class="button" id="download" href="https://github.com/bufferclick/fnh/releases/latest" rel="noopener">
-        Download for Windows
+      <a class="button" id="download" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">
+        Download FnHLauncher.zip
       </a>
-      <a class="button quiet" href="https://github.com/bufferclick/fnh" rel="noopener">View on GitHub</a>
+      <a class="button quiet" href="https://github.com/bufferclick/FnH" rel="noopener">View on GitHub</a>
     </p>
     <p class="meta" id="release">Windows 10 or 11 · x64 · MIT licence</p>
   </section>
@@ -104,9 +104,9 @@
   <section id="install">
     <h2>Install</h2>
     <ol class="steps">
-      <li><span>Download the zip from <a id="download-link" href="https://github.com/bufferclick/fnh/releases/latest" rel="noopener">Releases</a>.</span></li>
+      <li><span>Download <a id="download-link" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">FnHLauncher.zip</a> from Releases.</span></li>
       <li><span>Unzip it anywhere you can write to — <code>%LOCALAPPDATA%\FNH</code>, your desktop, a USB stick.</span></li>
-      <li><span>Double-click <code>FH.exe</code>.</span></li>
+      <li><span>Double-click <code>FH.exe</code> (future updates install automatically right inside FnH).</span></li>
     </ol>
     <p class="note">Nothing else is needed: no .NET, no Visual C++ redistributable, no Java until a Minecraft:
       Java Edition instance needs it, and FNH offers to fetch one then.</p>
@@ -117,7 +117,7 @@
     <table class="spec">
       <tbody>
         <tr><th scope="row">System</th><td>Windows 10 or Windows 11, x64</td></tr>
-        <tr><th scope="row">Download</th><td><span id="size">fnh zip</span>, no installer</td></tr>
+        <tr><th scope="row">Download</th><td><span id="size">FnHLauncher.zip</span>, no installer (built-in auto-updater)</td></tr>
         <tr><th scope="row">Storage</th><td>Around 40 MB for the app; instances and games take what they take</td></tr>
         <tr><th scope="row">Licence</th><td>MIT</td></tr>
       </tbody>
@@ -163,14 +163,18 @@
       return response.json();
     })
     .then(function (release) {
-      var asset = (release.assets || []).filter(function (a) {
-        return /^fnh-.*\.zip$/i.test(a.name);
+      var assets = release.assets || [];
+      var asset = assets.filter(function (a) {
+        return /^FnHLauncher\.zip$/i.test(a.name);
+      })[0] || assets.filter(function (a) {
+        return /\.zip$/i.test(a.name);
       })[0];
       if (!asset) return;
+      var ver = (release.tag_name || "").replace(/^fnh-/i, "");
       button.href = asset.browser_download_url;
       link.href = asset.browser_download_url;
       link.textContent = asset.name;
-      meta.textContent = asset.name + " · " + megabytes(asset.size) + " · Windows 10 or 11 · x64 · MIT licence";
+      meta.textContent = (ver ? ver + " · " : "") + asset.name + " · " + megabytes(asset.size) + " · Windows 10 or 11 · x64 · MIT licence";
       size.textContent = asset.name + " (" + megabytes(asset.size) + ")";
     })
     .catch(function () { /* the releases page is the fallback the markup already links to */ });
