@@ -793,7 +793,9 @@ fn search_horizon_v2(kind: BrowseKind, text: &str, sort: Sort) -> Result<Vec<Pro
     }
 
     match sort {
-        Sort::Downloads | Sort::Relevance => out.sort_by(|a, b| b.downloads.cmp(&a.downloads)),
+        Sort::Downloads | Sort::Relevance | Sort::Follows => {
+            out.sort_by(|a, b| b.downloads.cmp(&a.downloads));
+        }
         Sort::Updated | Sort::Newest => {}
     }
     Ok(out)

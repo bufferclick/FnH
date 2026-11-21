@@ -1905,7 +1905,7 @@ impl Render for ModBrowserWindow {
 
         div()
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                 let key = ev.keystroke.key.as_str();
                 if key == "escape" {
                     window.remove_window();
@@ -3183,7 +3183,7 @@ impl Render for CrashWindow {
 
         // 1. Fabric-Loader-style "A potential solution has been determined:" card.
         if !self.diag.solutions.is_empty() {
-            let mut sol_box = group_box("A potential solution has been determined", &t);
+            let mut sol_box = group_box("A potential solution has been determined", None, &t);
             for (i, sol) in self.diag.solutions.iter().enumerate() {
                 sol_box = sol_box.child(
                     div()
@@ -3210,7 +3210,7 @@ impl Render for CrashWindow {
 
         // 2. Suspect / Incompatible Mods card with 1-click Disable buttons!
         if !self.diag.offending_mods.is_empty() {
-            let mut mod_box = group_box("Suspect / Incompatible Mods", &t);
+            let mut mod_box = group_box("Suspect / Incompatible Mods", None, &t);
             for (idx, m) in self.diag.offending_mods.iter().enumerate() {
                 let disabled = m.disabled;
                 let can_disable = !disabled && (m.path.is_some() || m.is_horizon);
@@ -3281,7 +3281,7 @@ impl Render for CrashWindow {
         );
 
         scroll = scroll.child(
-            group_box("Diagnostic Details & Stack Trace", &t).child(
+            group_box("Diagnostic Details & Stack Trace", None, &t).child(
                 div()
                     .id("crash-raw-trace")
                     .max_h(px(210.))

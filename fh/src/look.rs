@@ -198,7 +198,7 @@ pub fn brand_mark(size: f32) -> Div {
 #[cfg(windows)]
 pub fn apply_window_icon() {
     use std::sync::OnceLock;
-    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -237,7 +237,7 @@ pub fn apply_window_icon() {
         return;
     }
 
-    unsafe extern "system" fn set_on_hwnd(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    unsafe extern "system" fn set_on_hwnd(hwnd: HWND, lparam: LPARAM) -> i32 {
         let pair = unsafe { &*(lparam as *const (isize, isize)) };
         unsafe {
             if pair.0 != 0 {

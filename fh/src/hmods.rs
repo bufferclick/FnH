@@ -24,7 +24,7 @@
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -200,7 +200,10 @@ pub fn inspect_hmod_archive(path: &Path) -> Result<InspectedHorizonMod, String> 
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().replace('\\', "/");
+        let name = entry
+            .name()
+            .map_err(|e| format!("Invalid zip path in {}: {e}", path.display()))?
+            .replace('\\', "/");
         if name.contains("..") || name.starts_with('/') {
             return Err(format!("Unsafe path '{name}' inside {}", path.display()));
         }
@@ -1071,7 +1074,10 @@ fn repack_github_zipball_to_hmod(zipball: &[u8], out_hmod: &Path) -> Result<(), 
         if entry.is_dir() {
             continue;
         }
-        let full = entry.name().replace('\\', "/");
+        let full = entry
+            .name()
+            .map_err(|e| e.to_string())?
+            .replace('\\', "/");
         // Strip GitHub's single top-level `<owner>-<repo>-<sha>/` folder prefix.
         let Some((_, rel)) = full.split_once('/') else {
             continue;
@@ -1173,7 +1179,9 @@ where
         .arg("--instance")
         .arg(instance_id)
         .arg("--trust-native-code")
-        .env("HORIZON_LAUNCHER_DIR", paths::root())
+        .env("HORIZON_LAUNCHER_HOME", paths::launcher_dir())
+        .env("HORIZON_HOME", paths::game_root())
+        .env("HORIZON_BUILD_DIR", paths::root().join("build"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1298,16 +1306,18 @@ fn all_nonempty_last_error(log_output: &str) -> Option<String> {
 }
 
 fn clear_stale_native_version_pin<F: FnMut(&str)>(instance_id: &str, on_log: &mut F) {
-    let mut store = horizon_launcher::instances::Store::load();
-    if let Some(inst) = store.get_mut(instance_id) {
+    if let Ok(inst) = horizon_launcher::instances::find(instance_id) {
         if inst
             .version
             .as_deref()
             .is_some_and(|v| v.starts_with("native-"))
         {
-            on_log("No native mods enabled — switching Horizon instance back to standard client build.");
-            inst.version = None;
-            let _ = store.save();
+            on_log(
+                "No native mods enabled — switching Horizon instance back to standard client build.",
+            );
+            let _ = horizon_launcher::instances::edit(instance_id, |m| {
+                m.version = None;
+            });
         }
     }
 }
@@ -1421,6 +1431,7 @@ fn ensure_horizon_native_builder<F: FnMut(&str)>(on_log: &mut F) -> Result<PathB
             }
             let leaf = entry
                 .name()
+                .map_err(|e| e.to_string())?
                 .replace('\\', "/")
                 .rsplit('/')
                 .next()

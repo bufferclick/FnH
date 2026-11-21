@@ -492,7 +492,10 @@ pub fn extract_update_zip(zip_path: &Path, staged_dir: &Path) -> Result<PathBuf,
         if entry.is_dir() {
             continue;
         }
-        let raw_name = entry.name().replace('\\', "/");
+        let raw_name = entry
+            .name()
+            .map_err(|e| format!("Invalid zip path: {e}"))?
+            .replace('\\', "/");
         let leaf = raw_name.rsplit('/').next().unwrap_or(&raw_name);
         if leaf.eq_ignore_ascii_case("FH.exe") {
             let dst = staged_dir.join("FH.exe");
