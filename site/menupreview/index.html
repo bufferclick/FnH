@@ -4,18 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FnH — Main Menu Preview</title>
-<meta name="description" content="Fullscreen live preview of the Minecraft FnH Edition main menu.">
-<link rel="icon" href="/site/assets/icon.svg" type="image/svg+xml">
-<link rel="icon" href="/site/assets/icon.png" sizes="256x256" type="image/png">
+<meta name="description" content="Interactive live preview of the Minecraft FnH Edition main menu.">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/icon.png" sizes="256x256" type="image/png">
 <style>
   :root {
     --ui-font: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
     --glass-bg: rgba(10, 12, 20, 0.64);
-    --glass-bg-hover: rgba(22, 26, 40, 0.84);
-    --glass-border: rgba(255, 255, 255, 0.16);
-    --glass-border-hover: rgba(255, 255, 255, 0.46);
+    --glass-bg-hover: rgba(18, 22, 36, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.13);
     --text-main: rgba(248, 249, 252, 0.96);
-    --text-muted: rgba(255, 255, 255, 0.5);
+    --text-muted: rgba(255, 255, 255, 0.52);
   }
 
   * {
@@ -68,8 +67,8 @@
     z-index: 1;
     pointer-events: none;
     background:
-      linear-gradient(rgba(0, 0, 0, 0.10), rgba(0, 0, 0, 0.10)),
-      radial-gradient(circle at 50% 46%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.36) 100%);
+      linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)),
+      radial-gradient(circle at 50% 45%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.34) 100%);
   }
 
   body.dragging-file::after {
@@ -89,34 +88,7 @@
     pointer-events: none;
   }
 
-  /* Subtle 1-Click Fullscreen Prompt (only shown until browser enters Fullscreen) */
-  .fs-hint {
-    position: fixed;
-    top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 35;
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: rgba(10, 12, 20, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    font-size: 12px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.88);
-    cursor: pointer;
-    transition: opacity 0.2s ease, transform 0.2s ease;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  }
-
-  .fs-hint.hidden {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(-50%) translateY(-8px);
-  }
-
-  /* Main Centered Vertical Screen */
+  /* Main Centered Vertical Screen (shifted slightly upward so upper elements breathe) */
   .screen {
     position: relative;
     z-index: 2;
@@ -126,7 +98,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 18px 16px 44px;
+    padding: 6px 0 60px;
   }
 
   .center-stack {
@@ -141,8 +113,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 9px;
-    margin-bottom: clamp(2px, 0.6vh, 8px);
+    gap: 8px;
+    margin-bottom: 2px;
   }
 
   .mc-logo-wrap {
@@ -151,7 +123,7 @@
   }
 
   .mc-logo {
-    width: clamp(310px, 36vw, 440px);
+    width: clamp(300px, 34vw, 430px);
     max-width: 90vw;
     height: auto;
     display: block;
@@ -188,18 +160,18 @@
     display: block;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    height: clamp(36px, 4.8vh, 50px);
+    height: clamp(36px, 4.6vh, 48px);
     width: auto;
     max-width: 86vw;
     filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.82));
   }
 
-  /* 2. Wide Walk-In Stage for BufferClick 3D Skin (Under Title, Above Singleplayer) */
+  /* 2. Full-Viewport-Width Stage so BufferClick walks in from OUTSIDE the right screen edge */
   .skin-stage {
     position: relative;
-    width: min(100vw, 920px);
-    height: clamp(168px, 25vh, 236px);
-    margin: 2px 0 clamp(6px, 1.2vh, 12px);
+    width: 100vw;
+    height: clamp(162px, 23.5vh, 224px);
+    margin: 0 0 clamp(20px, 3vh, 30px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -214,16 +186,16 @@
     width: 100%;
     height: 100%;
     display: block;
-    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.65));
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62));
   }
 
-  /* Centered interactive drag hit-box once BufferClick stands in the middle */
+  /* Centered interactive drag hit-box */
   .skin-hit-box {
     position: absolute;
-    width: 150px;
-    height: 100%;
+    width: 136px;
+    height: 92%;
     left: 50%;
-    top: 0;
+    top: 4%;
     transform: translateX(-50%);
     pointer-events: auto;
     cursor: grab;
@@ -233,7 +205,7 @@
     cursor: grabbing;
   }
 
-  /* 3. Single Dark-Glass Button Style */
+  /* 3. Dark-Glass Menu Buttons with Dynamic Cursor-Tracking Glow */
   .menu-buttons {
     width: clamp(252px, 26vw, 290px);
     display: flex;
@@ -248,7 +220,15 @@
     width: 100%;
   }
 
+  .btn,
+  .s-btn,
+  .settings-dialog {
+    --mx: -999px;
+    --my: -999px;
+  }
+
   .btn {
+    position: relative;
     height: clamp(35px, 4.3vh, 39px);
     padding: 0 14px;
     border-radius: 6px;
@@ -266,19 +246,64 @@
     justify-content: center;
     gap: 7px;
     cursor: pointer;
-    transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
+    transition: background 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease, color 0.14s ease;
     box-shadow:
       0 4px 16px rgba(0, 0, 0, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Proximity Cursor-Tracking Luminous Rim Border */
+  .btn::before,
+  .s-btn::before,
+  .settings-dialog::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      215px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.85),
+      rgba(205, 218, 255, 0.34) 42%,
+      transparent 74%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Proximity Cursor-Tracking Inner Glass Surface Glow */
+  .btn::after,
+  .s-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      155px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.18),
+      rgba(195, 210, 255, 0.06) 48%,
+      transparent 76%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .btn > *,
+  .s-btn > * {
+    position: relative;
+    z-index: 3;
   }
 
   .btn:hover {
     background: var(--glass-bg-hover);
-    border-color: var(--glass-border-hover);
     color: #ffffff;
     box-shadow:
-      0 6px 22px rgba(0, 0, 0, 0.52),
-      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      0 6px 24px rgba(0, 0, 0, 0.52),
+      0 0 18px rgba(215, 225, 255, 0.14);
   }
 
   .btn:active {
@@ -315,7 +340,7 @@
     font-weight: 600;
   }
 
-  /* FnH Settings Dialog */
+  /* FnH Dialog */
   .settings-backdrop {
     position: fixed;
     inset: 0;
@@ -333,10 +358,11 @@
   }
 
   .settings-dialog {
+    position: relative;
     width: min(390px, 94vw);
     border-radius: 11px;
     background: rgba(11, 13, 22, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.78);
     padding: 18px;
     display: flex;
@@ -405,6 +431,7 @@
   }
 
   .s-btn {
+    position: relative;
     height: 33px;
     padding: 0 11px;
     border-radius: 6px;
@@ -415,19 +442,18 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.12s ease;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
   }
 
   .s-btn:hover {
     color: #fff;
     background: rgba(255, 255, 255, 0.11);
-    border-color: rgba(255, 255, 255, 0.28);
   }
 
   .s-btn.active {
     color: #fff;
     background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.48);
+    border-color: rgba(255, 255, 255, 0.44);
   }
 
   .input-row {
@@ -509,12 +535,15 @@
 
 <!-- Full-Window Stretched Background -->
 <div class="bg-layer">
-  <img id="bg-img" src="/menupreview/presets/default-bg.gif" onerror="this.onerror=null;this.src='presets/default-bg.gif'" alt="">
+  <img
+    id="bg-img"
+    src="/menupreview/presets/milkyway-bg.gif"
+    onerror="this.onerror=null;this.src='presets/milkyway-bg.gif'"
+    alt=""
+  >
   <video id="bg-video" autoplay loop muted playsinline></video>
 </div>
 <div class="bg-dim" id="bg-dim"></div>
-
-<div class="fs-hint" id="fs-hint">Click anywhere for Fullscreen</div>
 
 <input type="file" id="custom-bg-input" accept="image/*,video/*" hidden>
 
@@ -535,20 +564,20 @@
       <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
     </div>
 
-    <!-- 2. BufferClick 3D Skin: Walks in from the right, then stands in the middle -->
+    <!-- 2. BufferClick 3D Skin: Walks in from outside right edge of screen, then stands straight & tracks cursor -->
     <div class="skin-stage">
-      <canvas id="skin-canvas" width="960" height="460"></canvas>
-      <div class="skin-hit-box" id="skin-drag-area" title="Drag to rotate"></div>
+      <canvas id="skin-canvas" width="1280" height="440"></canvas>
+      <div class="skin-hit-box" id="skin-drag-area" title="Drag to spin"></div>
     </div>
 
     <!-- 3. Dark-Glass Menu Buttons -->
     <div class="menu-buttons">
-      <button class="btn" data-action="Singleplayer">Singleplayer</button>
-      <button class="btn" data-action="Multiplayer">Multiplayer</button>
-      <button class="btn" data-action="Mods">Mods</button>
+      <button class="btn glow-ui" data-action="Singleplayer"><span>Singleplayer</span></button>
+      <button class="btn glow-ui" data-action="Multiplayer"><span>Multiplayer</span></button>
+      <button class="btn glow-ui" data-action="Mods"><span>Mods</span></button>
       <div class="menu-row-split">
-        <button class="btn" data-action="Options">Options...</button>
-        <button class="btn" data-action="Quit Game">Quit Game</button>
+        <button class="btn glow-ui" data-action="Options"><span>Options...</span></button>
+        <button class="btn glow-ui" data-action="Quit Game"><span>Quit Game</span></button>
       </div>
     </div>
   </div>
@@ -558,7 +587,7 @@
 <footer class="footer-bar">
   <div class="footer-meta">Minecraft 1.21.11 · FnH</div>
 
-  <button class="btn fnh-corner-btn" id="open-settings-btn" type="button">
+  <button class="btn glow-ui fnh-corner-btn" id="open-settings-btn" type="button">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"/>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -569,10 +598,10 @@
 
 <!-- FnH Modal -->
 <div class="settings-backdrop" id="settings-backdrop">
-  <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="fnh-settings-heading">
+  <div class="settings-dialog glow-ui" role="dialog" aria-modal="true" aria-labelledby="fnh-settings-heading">
     <div class="settings-top">
       <div class="settings-title-wrap">
-        <img src="/site/assets/icon.svg" onerror="this.onerror=null;this.src='/assets/icon.svg'" alt="">
+        <img src="/assets/icon.svg" onerror="this.onerror=null;this.src='/site/assets/icon.svg'" alt="">
         <h3 id="fnh-settings-heading">FnH</h3>
       </div>
       <button class="close-icon-btn" id="close-settings-btn" type="button" title="Close (Esc)">&#x2715;</button>
@@ -581,20 +610,20 @@
     <div class="field-group">
       <span class="field-label">Menu Background</span>
       <div class="bg-actions-row">
-        <button class="s-btn active" id="default-bg-btn" type="button">Default</button>
-        <button class="s-btn" id="pick-custom-bg-btn" type="button">Choose Custom File…</button>
+        <button class="s-btn glow-ui active" id="default-bg-btn" type="button"><span>Default</span></button>
+        <button class="s-btn glow-ui" id="pick-custom-bg-btn" type="button"><span>Choose Custom File…</span></button>
       </div>
       <div class="input-row">
         <input type="text" id="bg-url-input" placeholder="Or paste GIF / image URL…" spellcheck="false">
-        <button class="s-btn" id="bg-url-btn" type="button">Apply</button>
+        <button class="s-btn glow-ui" id="bg-url-btn" type="button"><span>Apply</span></button>
       </div>
     </div>
 
     <div class="field-group">
       <span class="field-label">Background Dimming</span>
       <div class="range-row">
-        <input type="range" id="dim-slider" min="0" max="65" value="10">
-        <span id="dim-val">10%</span>
+        <input type="range" id="dim-slider" min="0" max="65" value="8">
+        <span id="dim-val">8%</span>
       </div>
     </div>
 
@@ -604,21 +633,18 @@
         <span>Show 3D Player Skin</span>
         <input type="checkbox" id="chk-show-skin" checked>
       </label>
-      <div class="bg-actions-row" style="grid-template-columns: 1fr 1fr; margin-top: 2px;">
-        <button class="s-btn" id="replay-intro-btn" type="button">Replay Walk-In</button>
-        <button class="s-btn" id="toggle-fs-btn" type="button">Toggle Fullscreen</button>
-      </div>
+      <button class="s-btn glow-ui" id="replay-intro-btn" type="button" style="width: 100%; margin-top: 2px;"><span>Replay Walk-In</span></button>
     </div>
 
     <div class="field-group">
       <span class="field-label">Preview Player Skin</span>
       <div class="input-row">
         <input type="text" id="skin-input" value="BufferClick" spellcheck="false">
-        <button class="s-btn" id="skin-btn" type="button">Load</button>
+        <button class="s-btn glow-ui" id="skin-btn" type="button"><span>Load</span></button>
       </div>
     </div>
 
-    <button class="btn" id="done-settings-btn" type="button" style="width: 100%; margin-top: 2px;">Done</button>
+    <button class="btn glow-ui" id="done-settings-btn" type="button" style="width: 100%; margin-top: 2px;"><span>Done</span></button>
   </div>
 </div>
 
@@ -629,11 +655,10 @@
   "use strict";
 
   const BUFFERCLICK_UUID = "1b7a28177df149828231b48f5909ca95";
-  const DEFAULT_BG = "/menupreview/presets/default-bg.gif";
-  const INTRO_DURATION = 1.95; // seconds for BufferClick to walk in from the right and settle in the middle
+  const DEFAULT_BG = "/menupreview/presets/milkyway-bg.gif";
 
   const state = {
-    bgDim: 10,
+    bgDim: 8,
     showSkin: true,
     slimArms: false,
     username: "BufferClick",
@@ -650,51 +675,39 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 0. Auto Fullscreen Support (attempts immediately, else engages on first click)
+  // 0. Dynamic Cursor-Tracking Glow Across All UI Elements
   // ---------------------------------------------------------------------------
-  const fsHint = document.getElementById("fs-hint");
-  let firstGestureFullscreenDone = false;
+  const glowTargets = Array.from(document.querySelectorAll(".glow-ui"));
+  let cursorClientX = window.innerWidth * 0.5;
+  let cursorClientY = window.innerHeight * 0.5;
+  let hasMovedCursor = false;
 
-  function syncFsHint() {
-    if (document.fullscreenElement) {
-      fsHint.classList.add("hidden");
-      firstGestureFullscreenDone = true;
+  function updateUiGlow(cx, cy) {
+    for (let i = 0; i < glowTargets.length; i++) {
+      const el = glowTargets[i];
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      el.style.setProperty("--mx", (cx - r.left).toFixed(1) + "px");
+      el.style.setProperty("--my", (cy - r.top).toFixed(1) + "px");
     }
   }
 
-  async function enterFullscreen(replayWalkIn) {
-    if (document.fullscreenElement) {
-      syncFsHint();
-      return;
-    }
-    try {
-      await document.documentElement.requestFullscreen();
-      syncFsHint();
-      if (replayWalkIn) {
-        state.introStart = performance.now();
-      }
-    } catch (_) {
-      // Browser requires a user click first; fsHint stays visible for 1-click entry
-    }
-  }
+  window.addEventListener("pointermove", (e) => {
+    cursorClientX = e.clientX;
+    cursorClientY = e.clientY;
+    hasMovedCursor = true;
+    updateUiGlow(cursorClientX, cursorClientY);
+  });
 
-  document.addEventListener("fullscreenchange", syncFsHint);
-  enterFullscreen(false);
-
-  window.addEventListener("pointerdown", function onFirstClick(e) {
-    if (!firstGestureFullscreenDone) {
-      firstGestureFullscreenDone = true;
-      fsHint.classList.add("hidden");
-      const clickedSettings = e.target && e.target.closest && e.target.closest("#open-settings-btn");
-      enterFullscreen(!clickedSettings);
+  window.addEventListener("pointerleave", () => {
+    for (let i = 0; i < glowTargets.length; i++) {
+      glowTargets[i].style.setProperty("--mx", "-999px");
+      glowTargets[i].style.setProperty("--my", "-999px");
     }
-  }, { once: true });
-
-  fsHint.addEventListener("click", () => enterFullscreen(true));
+  });
 
   // ---------------------------------------------------------------------------
   // 1. Render Larger Bold "[FnH Emblem] EDITION" in Chiseled Warm Stone
-  //    (15x13 2px-stroke FnH Emblem crest + 9-row EDITION centered beside it)
   // ---------------------------------------------------------------------------
   const FNH_EMBLEM_13 = [
     "111111110110011",
@@ -784,7 +797,7 @@
   function renderFnhEditionSubtitle() {
     const canvas = document.getElementById("fnh-edition-canvas");
     const word = "EDITION";
-    const totalRows = 13; // Emblem is 13 rows tall; 9-row EDITION sits centered on rows 2..10
+    const totalRows = 13;
     let editionWidth = 0;
     for (let i = 0; i < word.length; i++) {
       editionWidth += EDITION_GLYPHS[word[i]][0].length + (i + 1 < word.length ? 1 : 0);
@@ -820,7 +833,6 @@
 
     const has = (r, c) => r >= 0 && r < h && c >= 0 && c < w && grid[r][c] !== "0";
 
-    // Pass 1: Crisp dark stone outline
     ctx.fillStyle = "#090808";
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
@@ -834,7 +846,6 @@
       }
     }
 
-    // Pass 2: 3D bottom stone extrusion matching MINECRAFT's warm dark underside
     for (let d = depthRows; d >= 1; d--) {
       ctx.fillStyle = d === depthRows ? "#35302e" : d === 2 ? "#4a4340" : "#5d5552";
       for (let r = 0; r < h; r++) {
@@ -845,7 +856,6 @@
       }
     }
 
-    // Pass 3: Chiseled warm stone face matching official MINECRAFT logo
     const stoneShades = [
       "#e0d9d5", "#dad2ce", "#d4ccc8", "#cec5c1", "#c7beba",
       "#c1b8b4", "#bbb1ad", "#b4aba7", "#aea4a0", "#a89d99",
@@ -883,7 +893,7 @@
   function applyBgDim() {
     const a = (state.bgDim / 100).toFixed(2);
     bgDim.style.background =
-      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 46%, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.36) 100%)`;
+      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 45%, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.34) 100%)`;
   }
 
   function setDefaultBackground() {
@@ -892,7 +902,7 @@
     bgImg.style.display = "block";
     bgImg.onerror = () => {
       bgImg.onerror = null;
-      bgImg.src = "presets/default-bg.gif";
+      bgImg.src = "presets/milkyway-bg.gif";
     };
     bgImg.src = DEFAULT_BG;
     defaultBgBtn.classList.add("active");
@@ -948,7 +958,10 @@
   });
 
   // ---------------------------------------------------------------------------
-  // 3. WebGL 3D Player Renderer + Walk-In Intro from Right -> Center
+  // 3. WebGL 3D Player Renderer:
+  //    - Starts completely outside right screen border, walks in to x=0
+  //    - Stands dead-straight (0 tilt) with generous clearance above Singleplayer
+  //    - Exact 3D eye-to-cursor tracking so eyes look directly at your cursor
   // ---------------------------------------------------------------------------
   const skinCanvas = document.getElementById("skin-canvas");
   const gl = skinCanvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: false });
@@ -1082,10 +1095,10 @@
           if (c.a < 0.04) discard;
         }
         vec3 n = normalize(vNorm);
-        vec3 lightA = normalize(vec3(0.38, 0.78, 0.72));
-        vec3 lightB = normalize(vec3(-0.52, 0.22, -0.45));
+        vec3 lightA = normalize(vec3(0.32, 0.76, 0.78));
+        vec3 lightB = normalize(vec3(-0.48, 0.24, -0.45));
         float diff = max(dot(n, lightA), 0.0) * 0.40 + max(dot(n, lightB), 0.0) * 0.16;
-        float shade = 0.62 + diff;
+        float shade = 0.63 + diff;
         gl_FragColor = vec4(c.rgb * shade, c.a);
       }
     `;
@@ -1204,9 +1217,11 @@
   const matRotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; };
   const matRotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; };
 
-  let standingYaw = -0.22;
+  // Standing base yaw = 0.0 (straight forward, zero tilt!)
+  let dragYawOffset = 0.0;
   let dragging = false, lastX = 0;
-  let lookX = 0, lookY = 0;
+  let smoothAimYaw = 0.0, smoothAimPitch = 0.0;
+  let prevFrameMs = performance.now();
 
   const dragArea = document.getElementById("skin-drag-area");
   dragArea.addEventListener("pointerdown", (e) => {
@@ -1216,19 +1231,11 @@
   });
   dragArea.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    standingYaw += (e.clientX - lastX) * 0.015;
+    dragYawOffset += (e.clientX - lastX) * 0.015;
     lastX = e.clientX;
   });
   dragArea.addEventListener("pointerup", () => { dragging = false; });
   dragArea.addEventListener("pointercancel", () => { dragging = false; });
-
-  window.addEventListener("pointermove", (e) => {
-    const rect = skinCanvas.getBoundingClientRect();
-    const cx = rect.left + rect.width * 0.5;
-    const cy = rect.top + rect.height * 0.28;
-    lookX = Math.max(-1, Math.min(1, (e.clientX - cx) / 420));
-    lookY = Math.max(-1, Math.min(1, (e.clientY - cy) / 340));
-  });
 
   function syncSkinCanvasResolution() {
     const rect = skinCanvas.getBoundingClientRect();
@@ -1248,9 +1255,14 @@
     return t * t * (3 - 2 * t);
   }
 
-  function easeOutCubic(x) {
+  function walkEase(x) {
     const t = Math.max(0, Math.min(1, x));
-    return 1 - Math.pow(1 - t, 3);
+    // Steady brisk walk through the right edge of screen, smooth deceleration at center
+    if (t < 0.72) {
+      return (t / 0.72) * 0.82;
+    }
+    const u = (t - 0.72) / 0.28;
+    return 0.82 + 0.18 * (1 - Math.pow(1 - u, 2.6));
   }
 
   function drawMesh(mesh, vp, modelMat, isOuter) {
@@ -1277,46 +1289,73 @@
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
+    const dt = Math.min(0.05, Math.max(0.001, (nowMs - prevFrameMs) * 0.001));
+    prevFrameMs = nowMs;
+
     const t = nowMs * 0.001;
+    const fovRad = 32 * Math.PI / 180;
+    const camDist = 62.0;
+    const camOffsetY = 2.6; // Lifts player vertically inside stage so feet never touch buttons
+    const aspect = skinCanvas.width / skinCanvas.height;
+
+    // Exact off-screen right border in 3D world units (+12 margin so player starts 100% outside screen)
+    const halfFrustumWidth = camDist * Math.tan(fovRad * 0.5) * aspect;
+    const startX = halfFrustumWidth + 12.0;
+    const introDuration = Math.max(2.1, Math.min(3.1, startX / 62.0));
+
     const introElapsed = Math.max(0, (nowMs - state.introStart) * 0.001);
-    const introP = Math.min(1, introElapsed / INTRO_DURATION);
-    const walkingIn = introP < 1.0;
+    const introP = Math.min(1, introElapsed / introDuration);
 
-    // Walk-in choreography: starts on the right (+46 units), walks left to x=0, then turns forward
-    const walkProgress = easeOutCubic(introP);
-    const posX = (1 - walkProgress) * 46.0;
+    const posX = (1 - walkEase(introP)) * startX;
+    const turnBlend = smoothstep(0.74, 1.0, introP);
+    const strideEnv = 1 - smoothstep(0.76, 1.0, introP);
 
-    // Turn from facing-left (-1.34 rad) to standing front angle (standingYaw) during final 32% of intro
-    const turnBlend = smoothstep(0.66, 1.0, introP);
-    const walkYaw = -1.34;
-    const idleSway = Math.sin(t * 0.65) * 0.03 * turnBlend;
-    const curYaw = walkYaw * (1 - turnBlend) + standingYaw * turnBlend + idleSway;
-
-    // Stride amplitude fades out smoothly as BufferClick comes to a stop in the center
-    const strideEnv = 1 - smoothstep(0.70, 1.0, introP);
-    const walkCycle = introElapsed * 9.2;
-    const legSwing = Math.sin(walkCycle) * 0.74 * strideEnv;
-    const armWalkSwing = Math.sin(walkCycle) * 0.64 * strideEnv;
-    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.55 * strideEnv;
-
-    const idleBreathe = Math.sin(t * 2.0) * 0.22 * turnBlend;
+    const walkCycle = introElapsed * 9.6;
+    const legSwing = Math.sin(walkCycle) * 0.76 * strideEnv;
+    const armWalkSwing = Math.sin(walkCycle) * 0.66 * strideEnv;
+    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.52 * strideEnv;
+    const idleBreathe = Math.sin(t * 2.0) * 0.18 * turnBlend;
     const posY = stepBounce + idleBreathe;
 
-    const aspect = skinCanvas.width / skinCanvas.height;
-    const proj = matPersp(33 * Math.PI / 180, aspect, 2.0, 240.0);
-    const view = matMul(matTranslate(0, -1.8, -57.5), matRotX(0.06));
+    // Exact screen-space eye position for pinpoint cursor tracking
+    const rect = skinCanvas.getBoundingClientRect();
+    const eyeScreenX = rect.left + rect.width * 0.5;
+    const eyeScreenY = rect.top + rect.height * 0.18;
+
+    let targetYaw = 0.0;
+    let targetPitch = 0.0;
+    if (hasMovedCursor && !dragging) {
+      const dx = cursorClientX - eyeScreenX;
+      const dy = cursorClientY - eyeScreenY;
+      // Virtual focal plane at 340px in front of eyes so head aims straight at the cursor
+      targetYaw = Math.max(-1.05, Math.min(1.05, Math.atan2(dx, 340)));
+      targetPitch = Math.max(-0.78, Math.min(0.82, Math.atan2(dy, 340)));
+    }
+
+    const damp = 1 - Math.exp(-dt * 15);
+    smoothAimYaw += (targetYaw - smoothAimYaw) * damp;
+    smoothAimPitch += (targetPitch - smoothAimPitch) * damp;
+
+    // Subtle torso follow (20% of aim) + remaining 80% in neck so total head direction == exact cursor direction
+    const standingBodyYaw = dragYawOffset + smoothAimYaw * 0.20;
+    const walkYaw = -1.46; // Walking left from off-screen right edge
+    const curBodyYaw = walkYaw * (1 - turnBlend) + standingBodyYaw * turnBlend;
+
+    const standingHeadLocalYaw = Math.max(-0.92, Math.min(0.92, (dragYawOffset + smoothAimYaw) - standingBodyYaw));
+    const headLocalYaw = standingHeadLocalYaw * turnBlend;
+    const headPitch = smoothAimPitch * turnBlend;
+
+    // Zero camera X-tilt so the character stands completely straight and level
+    const proj = matPersp(fovRad, aspect, 2.0, 400.0);
+    const view = matTranslate(0, camOffsetY, -camDist);
     const vp = matMul(proj, view);
 
-    const root = matMul(matTranslate(posX, posY, 0), matRotY(curYaw));
-
-    // Head looks slightly forward while walking in, then tracks mouse cursor smoothly once standing
-    const hYaw = (walkingIn ? 0.14 * (1 - turnBlend) : 0) + (lookX * 0.42 * turnBlend);
-    const hPitch = lookY * 0.26 * turnBlend;
-    const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(hYaw), matRotX(hPitch))));
+    const root = matMul(matTranslate(posX, posY, 0), matRotY(curBodyYaw));
+    const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(headLocalYaw), matRotX(headPitch))));
 
     const armX = 4 + (state.slimArms ? 1.5 : 2.0);
-    const idleSwing = Math.sin(t * 1.5) * 0.055 * turnBlend;
-    const flap = 0.045 + Math.cos(t * 1.3) * 0.02;
+    const idleSwing = Math.sin(t * 1.5) * 0.045 * turnBlend;
+    const flap = 0.04 + Math.cos(t * 1.3) * 0.018;
 
     const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(armWalkSwing + idleSwing))));
     const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-armWalkSwing - idleSwing))));
@@ -1354,7 +1393,10 @@
   });
 
   const backdrop = document.getElementById("settings-backdrop");
-  const openSettings = () => backdrop.classList.add("open");
+  const openSettings = () => {
+    backdrop.classList.add("open");
+    requestAnimationFrame(() => updateUiGlow(cursorClientX, cursorClientY));
+  };
   const closeSettings = () => backdrop.classList.remove("open");
 
   document.getElementById("open-settings-btn").addEventListener("click", openSettings);
@@ -1387,15 +1429,8 @@
 
   document.getElementById("replay-intro-btn").addEventListener("click", () => {
     closeSettings();
+    dragYawOffset = 0;
     state.introStart = performance.now();
-  });
-
-  document.getElementById("toggle-fs-btn").addEventListener("click", async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen().catch(() => {});
-    } else {
-      await enterFullscreen(false);
-    }
   });
 
   const skinInput = document.getElementById("skin-input");
