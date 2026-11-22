@@ -12,7 +12,7 @@ use horizon_launcher::instances::{self as inst, Instance};
 use horizon_launcher::{backend, launch, process};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -635,6 +635,7 @@ fn build_java_command(
     std::fs::create_dir_all(&effective.home)
         .map_err(|e| format!("{}: {e}", effective.home.display()))?;
     std::fs::create_dir_all(effective.home.join("mods")).ok();
+    sync_fnh_dark_glass_pack(&effective.home, prefs, emit);
     sync_fnh_menu_mod(&effective, prefs, emit);
 
     let built = backend::java_game(&effective, server, emit);
@@ -661,39 +662,145 @@ fn build_java_command(
     Ok(cmd)
 }
 
-const FNH_MENU_JAR_NAME: &str = "fnh-menu-1.8.0.jar";
-const FNH_MENU_RELEASE_URLS: &[&str] = &[
-    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.8/fnh-menu-1.8.0.jar",
-    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.8.0.jar",
+const FNH_PACK_FILE_NAME: &str = "FnH-Dark-Glass.zip";
+const EMBEDDED_DARK_GLASS_PACK: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Dark-Glass.zip"));
+
+const FNH_MOD_12111_NAME: &str = "fnh-menu-1.21.11-1.9.0.jar";
+const EMBEDDED_MOD_12111: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-1.21.11-1.9.0.jar"));
+const FNH_MOD_12111_URLS: &[&str] = &[
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9/fnh-menu-1.21.11-1.9.0.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.0.jar",
 ];
 
-/// Provisions (or removes, when disabled) `fnh-menu-1.8.0.jar` in Fabric 1.21.11 instances.
-fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) {
-    let Some(java) = instance.java.as_ref() else {
-        return;
-    };
-    if java.loader.as_ref().map(|l| l.kind) != Some(horizon_launcher::loaders::Kind::Fabric)
-        || !java.minecraft.trim().starts_with("1.21.11")
-    {
+const FNH_MOD_26_NAME: &str = "fnh-menu-26.3-1.9.0.jar";
+const EMBEDDED_MOD_26: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-26.3-1.9.0.jar"));
+const FNH_MOD_26_URLS: &[&str] = &[
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9/fnh-menu-26.3-1.9.0.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.0.jar",
+];
+
+/// Provisions (or removes, when disabled) the universal `FnH-Dark-Glass.zip` resource pack and
+/// activates it in `<home>/options.txt` across ALL Minecraft Java versions AND Horizon 26.3!
+fn sync_fnh_dark_glass_pack(home: &Path, prefs: &Prefs, emit: &dyn Fn(String)) {
+    let rp_dir = home.join("resourcepacks");
+    let _ = std::fs::create_dir_all(&rp_dir);
+    let pack_path = rp_dir.join(FNH_PACK_FILE_NAME);
+
+    if !prefs.install_fnh_menu_ui {
+        if pack_path.exists() {
+            if let Ok(pack) =
+                horizon_launcher::packs::find(home, horizon_launcher::packs::Kind::Resource, FNH_PACK_FILE_NAME)
+            {
+                let _ = horizon_launcher::packs::set_enabled(home, &pack, false);
+            }
+            let _ = std::fs::remove_file(&pack_path);
+        }
         return;
     }
 
-    let mods_dir = instance.home.join("mods");
-    let target = mods_dir.join(FNH_MENU_JAR_NAME);
+    // Ensure first-run `options.txt` disables the narrator onboarding screen so the very first boot
+    // goes cleanly straight into the FnH TitleScreen without glitching!
+    ensure_clean_first_boot_options(home);
 
-    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            let s = file_name.to_string_lossy();
-            if s.starts_with("fnh-menu-") && s.ends_with(".jar") {
-                if !prefs.install_fnh_menu_ui || s != FNH_MENU_JAR_NAME {
-                    let _ = std::fs::remove_file(entry.path());
-                }
+    let mut wrote_pack = false;
+    if EMBEDDED_DARK_GLASS_PACK.len() > 512 && EMBEDDED_DARK_GLASS_PACK.starts_with(b"PK") {
+        let same_len = std::fs::metadata(&pack_path)
+            .map(|m| m.len() == EMBEDDED_DARK_GLASS_PACK.len() as u64)
+            .unwrap_or(false);
+        if !same_len && std::fs::write(&pack_path, EMBEDDED_DARK_GLASS_PACK).is_ok() {
+            wrote_pack = true;
+        } else if same_len {
+            wrote_pack = true;
+        }
+    } else if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let beside = dir.join(FNH_PACK_FILE_NAME);
+            if beside.is_file() && std::fs::copy(&beside, &pack_path).is_ok() {
+                wrote_pack = true;
             }
         }
     }
 
-    if !prefs.install_fnh_menu_ui {
+    if wrote_pack || pack_path.is_file() {
+        if let Ok(pack) =
+            horizon_launcher::packs::find(home, horizon_launcher::packs::Kind::Resource, FNH_PACK_FILE_NAME)
+        {
+            if !pack.enabled && horizon_launcher::packs::set_enabled(home, &pack, true).is_ok() {
+                emit(format!("Activated {FNH_PACK_FILE_NAME} Dark-Glass UI pack."));
+            }
+        }
+    }
+}
+
+fn ensure_clean_first_boot_options(home: &Path) {
+    let options = home.join("options.txt");
+    let existing = std::fs::read_to_string(&options).unwrap_or_default();
+    let has_onboard = existing
+        .lines()
+        .any(|l| l.starts_with("onboardAccessibility:"));
+    if !has_onboard {
+        let mut out = existing;
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("onboardAccessibility:false\n");
+        let _ = std::fs::write(&options, out);
+    }
+}
+
+/// Provisions the exact matching Fabric dynamic UI mod (`1.21.11` or `26.x`) and removes any
+/// mismatched `fnh-menu-*.jar` so switching versions never triggers Fabric's incompatible-mod dialog!
+fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) {
+    let Some(java) = instance.java.as_ref() else {
+        return;
+    };
+
+    let is_fabric =
+        java.loader.as_ref().map(|l| l.kind) == Some(horizon_launcher::loaders::Kind::Fabric);
+    let mc = java.minecraft.trim();
+
+    let desired_spec: Option<(&'static str, &'static [u8], &'static [&'static str])> =
+        if !prefs.install_fnh_menu_ui || !is_fabric {
+            None
+        } else if mc.starts_with("1.21.11") {
+            Some((FNH_MOD_12111_NAME, EMBEDDED_MOD_12111, FNH_MOD_12111_URLS))
+        } else if mc.starts_with("26.") || mc == "26" {
+            Some((FNH_MOD_26_NAME, EMBEDDED_MOD_26, FNH_MOD_26_URLS))
+        } else {
+            None
+        };
+
+    let mods_dir = instance.home.join("mods");
+    let wanted_name = desired_spec.map(|(n, _, _)| n);
+
+    // Always sweep any stale or wrong-MC-version `fnh-menu-*.jar` first!
+    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let s = file_name.to_string_lossy();
+            if s.starts_with("fnh-menu-") && s.ends_with(".jar") && Some(s.as_ref()) != wanted_name {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    let Some((jar_name, embedded_bytes, release_urls)) = desired_spec else {
+        return;
+    };
+
+    let target = mods_dir.join(jar_name);
+
+    // 1. Write directly from embedded FH.exe bytes (instant, offline, zero race conditions!)
+    if embedded_bytes.len() > 2048 && embedded_bytes.starts_with(b"PK") {
+        let up_to_date = std::fs::metadata(&target)
+            .map(|m| m.len() == embedded_bytes.len() as u64)
+            .unwrap_or(false);
+        if !up_to_date && std::fs::write(&target, embedded_bytes).is_ok() {
+            emit(format!("Installed {jar_name} into instance mods."));
+        }
         return;
     }
 
@@ -701,37 +808,37 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
         return;
     }
 
-    // 1. Check alongside FH.exe (bundled inside FnHLauncher.zip).
+    // 2. Check alongside FH.exe.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let bundled = dir.join(FNH_MENU_JAR_NAME);
+            let bundled = dir.join(jar_name);
             if std::fs::metadata(&bundled).map(|m| m.len() > 2048).unwrap_or(false)
                 && std::fs::copy(&bundled, &target).is_ok()
             {
-                emit(format!("Installed {FNH_MENU_JAR_NAME} into instance mods."));
+                emit(format!("Installed {jar_name} into instance mods."));
                 return;
             }
         }
     }
 
-    // 2. Check %APPDATA%\FnH\cache\fnh-menu-1.8.0.jar.
+    // 3. Check %APPDATA%\FnH\cache\<jar_name>.
     let cache_dir = crate::paths::root().join("cache");
     let _ = std::fs::create_dir_all(&cache_dir);
-    let cached = cache_dir.join(FNH_MENU_JAR_NAME);
+    let cached = cache_dir.join(jar_name);
     if std::fs::metadata(&cached).map(|m| m.len() > 2048).unwrap_or(false)
         && std::fs::copy(&cached, &target).is_ok()
     {
-        emit(format!("Installed cached {FNH_MENU_JAR_NAME} into instance mods."));
+        emit(format!("Installed cached {jar_name} into instance mods."));
         return;
     }
 
-    // 3. Fetch once from GitHub Releases (fnh-v1.8).
-    emit(format!("Downloading {FNH_MENU_JAR_NAME} from GitHub Releases..."));
+    // 4. Fallback download from GitHub Releases (`fnh-v1.9`).
+    emit(format!("Downloading {jar_name} from GitHub Releases..."));
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(6))
         .timeout_read(Duration::from_secs(20))
         .build();
-    for url in FNH_MENU_RELEASE_URLS {
+    for url in release_urls {
         if let Ok(resp) = agent
             .get(url)
             .set("User-Agent", &format!("FNH/{}", crate::VERSION))
@@ -744,14 +851,14 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
             {
                 let _ = std::fs::write(&cached, &bytes);
                 if std::fs::write(&target, &bytes).is_ok() {
-                    emit(format!("Installed {FNH_MENU_JAR_NAME} into instance mods."));
+                    emit(format!("Installed {jar_name} into instance mods."));
                 }
                 return;
             }
         }
     }
     log::line(&format!(
-        "[FNH] Note: could not fetch {FNH_MENU_JAR_NAME} right now; continuing launch."
+        "[FNH] Note: could not fetch {jar_name} right now; continuing launch."
     ));
 }
 
@@ -809,6 +916,7 @@ fn build_horizon_command(
     // Guarantee instance folder & isolated offline name exist before spawning.
     std::fs::create_dir_all(&instance.home)
         .map_err(|e| format!("{}: {e}", instance.home.display()))?;
+    sync_fnh_dark_glass_pack(&instance.home, prefs, emit);
     let chosen_offline = if !cfg.offline_name.trim().is_empty() {
         Some(cfg.offline_name.trim())
     } else if !prefs.offline_player_name.trim().is_empty() {

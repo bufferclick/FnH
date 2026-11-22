@@ -2,14 +2,13 @@
   "schemaVersion": 1,
   "id": "fnh_ui",
   "version": "${version}",
-  "name": "FnH Menu UI",
-  "description": "Minecraft's UI redesigned in FnH Dark Glass: animated Milky Way background, 3D walk-in skin with cursor eye tracking, subtle rim glow, and smooth screen transitions.",
+  "name": "FnH UI",
+  "description": "FnH Dark-Glass Menu & HUD UI — animated Milky Way sky, live Microsoft Account 3D skin, directional motion-blur menu transitions, and smooth hotbar glide. Made by Buffer.",
   "authors": [
     "Buffer"
   ],
   "contact": {
-    "homepage": "https://fnh.is-cool.dev",
-    "sources": "https://github.com/bufferclick/FnH"
+    "homepage": "https://fnh.is-cool.dev"
   },
   "license": "MIT",
   "icon": "assets/fnh_ui/icon.png",

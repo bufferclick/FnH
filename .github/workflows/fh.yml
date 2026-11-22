@@ -1,9 +1,9 @@
 name: fh
-# Builds FNH (fh/) + FnH Menu UI Fabric Mod (mods/horizon -> fnh-menu-1.8.0.jar):
-#   1. `menu-mod` compiles `fnh-menu-1.8.0.jar` for Minecraft 1.21.11 (Fabric) via Gradle + Loom.
-#   2. `windows` builds native Windows x64 `FH.exe`, bundles `FH.exe` + `fnh-menu-1.8.0.jar` into
-#      `FnHLauncher.zip`, and publishes both `FnHLauncher.zip` and standalone `fnh-menu-1.8.0.jar`
-#      on the `fnh-v<VERSION>` GitHub Release.
+# Builds FNH (fh/ v1.9) + Universal Dark-Glass Resource Pack + Multi-Version Fabric UI Mods:
+#   1. `menu-mod` compiles BOTH `fnh-menu-1.21.11-1.9.0.jar` (Fabric 1.21.11) AND
+#      `fnh-menu-26.3-1.9.0.jar` (Fabric 26.x unobfuscated) via Gradle + Loom.
+#   2. `windows` embeds `FnH-Dark-Glass.zip` + both Fabric UI jars directly inside `FH.exe`,
+#      packages `FnHLauncher.zip`, and publishes `fnh-v<VERSION>` on GitHub Releases.
 
 on:
   push:
@@ -11,6 +11,7 @@ on:
     paths:
       - 'fh/**'
       - 'mods/horizon/**'
+      - 'mods/fnh-ui-26/**'
       - 'launcher/**'
       - 'crates/**'
       - 'third_party/**'
@@ -19,6 +20,7 @@ on:
     paths:
       - 'fh/**'
       - 'mods/horizon/**'
+      - 'mods/fnh-ui-26/**'
       - 'launcher/**'
       - 'crates/**'
       - 'third_party/**'
@@ -38,9 +40,9 @@ env:
 
 jobs:
   menu-mod:
-    name: fnh-menu-jar
+    name: fnh-menu-jars
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -53,39 +55,74 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.8.2'
-      - name: Build fnh-menu-1.8.0.jar (Fabric 1.21.11)
+
+      - name: Build fnh-menu-1.21.11-1.9.0.jar (Fabric 1.21.11)
         working-directory: mods/horizon
         run: |
-          if gradle build --no-daemon --stacktrace > gradle-build.log 2>&1; then
+          if gradle build --no-daemon --stacktrace > gradle-12111.log 2>&1; then
             ls -lh build/libs/
-            test -f build/libs/fnh-menu-1.8.0.jar
+            test -f build/libs/fnh-menu-1.21.11-1.9.0.jar
             python3 -c '
           import zipfile
-          with zipfile.ZipFile("build/libs/fnh-menu-1.8.0.jar") as z:
+          with zipfile.ZipFile("build/libs/fnh-menu-1.21.11-1.9.0.jar") as z:
               names = set(z.namelist())
-              print("Jar entries:", len(names))
-              assert "fabric.mod.json" in names, "missing fabric.mod.json"
-              assert "fnh_ui.mixins.json" in names, "missing fnh_ui.mixins.json"
+              print("1.21.11 Jar entries:", len(names))
+              assert "fabric.mod.json" in names
+              assert "fnh_ui.mixins.json" in names
           '
             exit 0
           fi
-          echo "::error::gradle build failed; gradle-build.log has $(wc -l < gradle-build.log) lines"
-          tail -n 120 gradle-build.log
+          echo "::error::1.21.11 gradle build failed; gradle-12111.log has $(wc -l < gradle-12111.log) lines"
+          tail -n 120 gradle-12111.log
           exit 1
+
+      - name: Build fnh-menu-26.3-1.9.0.jar (Fabric 26.x)
+        working-directory: mods/fnh-ui-26
+        run: |
+          if gradle build --no-daemon --stacktrace > gradle-26.log 2>&1; then
+            ls -lh build/libs/
+            test -f build/libs/fnh-menu-26.3-1.9.0.jar
+            python3 -c '
+          import zipfile
+          with zipfile.ZipFile("build/libs/fnh-menu-26.3-1.9.0.jar") as z:
+              names = set(z.namelist())
+              print("26.x Jar entries:", len(names))
+              assert "fabric.mod.json" in names
+              assert "fnh_ui.mixins.json" in names
+          '
+            exit 0
+          fi
+          echo "::error::26.x gradle build failed; gradle-26.log has $(wc -l < gradle-26.log) lines"
+          tail -n 120 gradle-26.log
+          exit 1
+
       - name: Post Gradle failure log
         if: failure()
-        working-directory: mods/horizon
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          body="### gradle-build.log"$'\n\n```\n'"$(tail -n 300 gradle-build.log 2>/dev/null || echo 'no log')"$'\n```\n'
+          body=""
+          for f in mods/horizon/gradle-12111.log mods/fnh-ui-26/gradle-26.log; do
+            [ -f "$f" ] || continue
+            body+="### $f"$'\n\n```\n'"$(tail -n 260 "$f")"$'\n```\n\n'
+          done
+          [ -n "$body" ] || body="No gradle log written."
           printf '%s' "$body" > comment.md
           gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
+
+      - name: Stage multi-version UI bundles
+        run: |
+          mkdir -p dist-bundles
+          cp mods/horizon/build/libs/fnh-menu-1.21.11-1.9.0.jar dist-bundles/
+          cp mods/fnh-ui-26/build/libs/fnh-menu-26.3-1.9.0.jar dist-bundles/
+          cp fh/assets/FnH-Dark-Glass.zip dist-bundles/
+          ls -lh dist-bundles/
+
       - uses: actions/upload-artifact@v7
         with:
-          name: fnh-menu-1.8.0
-          path: mods/horizon/build/libs/fnh-menu-1.8.0.jar
+          name: fnh-menu-bundles-1.9.0
+          path: dist-bundles/*
           if-no-files-found: error
 
   windows:
@@ -103,8 +140,8 @@ jobs:
           clean: true
       - uses: actions/download-artifact@v8
         with:
-          name: fnh-menu-1.8.0
-          path: fh/mod-dist
+          name: fnh-menu-bundles-1.9.0
+          path: fh/assets
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
         with:
           toolchain: stable
@@ -114,7 +151,9 @@ jobs:
           workspaces: fh
           shared-key: fh-windows
       - name: The version this build is
-        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+        run: |
+          ls -lh assets/
+          echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
       - name: Room on the drives
         run: |
           df -h
@@ -172,17 +211,18 @@ jobs:
           print('subsystem', subsystem)
           raise SystemExit(0 if subsystem == 2 else 1)
           " target/release/FH.exe
-      - name: Package FnHLauncher.zip and fnh-menu-1.8.0.jar
+      - name: Package FnHLauncher.zip and UI bundles
         run: |
           set -euo pipefail
           rm -rf dist && mkdir -p dist/fnh
           cp target/release/FH.exe dist/fnh/
-          cp mod-dist/fnh-menu-1.8.0.jar dist/fnh/
-          cp mod-dist/fnh-menu-1.8.0.jar dist/fnh-menu-1.8.0.jar
+          cp assets/FnH-Dark-Glass.zip dist/FnH-Dark-Glass.zip
+          cp assets/fnh-menu-1.21.11-1.9.0.jar dist/fnh-menu-1.21.11-1.9.0.jar
+          cp assets/fnh-menu-26.3-1.9.0.jar dist/fnh-menu-26.3-1.9.0.jar
           sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/fnh/README.txt
           cd dist
           powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'FnHLauncher.zip' -Force"
-          ls -lh "FnHLauncher.zip" "fnh-menu-1.8.0.jar"
+          ls -lh "FnHLauncher.zip" "FnH-Dark-Glass.zip" "fnh-menu-1.21.11-1.9.0.jar" "fnh-menu-26.3-1.9.0.jar"
       - uses: actions/upload-artifact@v7
         with:
           name: FnHLauncher-${{ env.VERSION }}
@@ -215,13 +255,18 @@ jobs:
             echo "::notice::$tag is published already: nothing to do (bump fh/VERSION)"
             exit 0
           fi
-          gh release create "$tag" "dist/FnHLauncher.zip" "dist/fnh-menu-1.8.0.jar" \
-            --title "FNH v$VERSION — The Menu UI Update" \
+          gh release create "$tag" \
+            "dist/FnHLauncher.zip" \
+            "dist/fnh-menu-1.21.11-1.9.0.jar" \
+            "dist/fnh-menu-26.3-1.9.0.jar" \
+            "dist/FnH-Dark-Glass.zip" \
+            --title "FNH v$VERSION — Universal Dark-Glass UI (1.21.11, 26.3 & Horizon)" \
             --latest \
-            --notes "FNH (Fabric n Horizon) v$VERSION — **The Menu UI Update** — made by Buffer.
+            --notes "FNH (Fabric n Horizon) v$VERSION — **Universal Dark-Glass UI Update** — made by Buffer.
 
-          ### Downloads
-          - **\`FnHLauncher.zip\`** — Native Windows x64 launcher (\`FH.exe\` v$VERSION) with \`fnh-menu-1.8.0.jar\` bundled and auto-installed into Fabric 1.21.11 instances (or update in 1 click from inside FnH).
-          - **\`fnh-menu-1.8.0.jar\`** — Standalone Fabric 1.21.11 Menu UI mod: Minecraft's own UI layouts (\`TitleScreen\`, \`Options\`, \`Singleplayer\`, \`Create New World\`, \`Multiplayer\`, \`Mods\`) redesigned in FnH Dark Glass with stretched Milky Way animated background, custom background support, 3D walk-in player skin with cursor eye tracking, subtle rim glow, and smooth transitions.
-
-          [Live Menu Preview](https://fnh.is-cool.dev/menupreview) · [fnh.is-cool.dev](https://fnh.is-cool.dev) · [Documentation](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"
+          ### Highlights
+          - **Universal Cross-Version & Horizon Support**: \`FH.exe\` now embeds and auto-activates \`FnH-Dark-Glass.zip\` across **all** Minecraft Java versions and **Horizon 26.3 (Rust)**, plus auto-installs version-matched dynamic Fabric mods for **Minecraft 1.21.11** (\`fnh-menu-1.21.11-1.9.0.jar\`) and **Minecraft 26.x / 26.3** (\`fnh-menu-26.3-1.9.0.jar\`).
+          - **Crisp Anti-Aliased 3D Skin from Live Microsoft Account**: Pulls directly from Mojang's live \`sessionserver.mojang.com\` / \`textures.minecraft.net\` (never stale third-party caches) and renders via a 2×2 supersampled GPU \`DynamicTexture\` with dark-suit rim shading.
+          - **Directional Motion-Blur Menu Transitions (Menus Only)**: Menus slide **up** when opening and **down** when closing with multi-sample vertical motion blur; **all** in-game screen/item animations are disabled so server containers (\`/ah\`) stay crisp and static.
+          - **Dark-Glass In-Game HUD, Containers & Smooth Hotbar Glide**: Sleek dark-glass Inventory, Chests/\`/ah\`, Crafting, Furnace & Hotbar with sub-pixel smooth hotbar slot switching.
+          - **GUI Scale Layout Lock & First-Launch Fix**: Logo, \`[FnH] EDITION\`, 3D skin, and buttons stay cohesively grouped at every GUI scale, and first-launch onboarding/fade glitches are fixed."

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "fnh_ui",
+  "version": "${version}",
+  "name": "FnH UI",
+  "description": "FnH Dark-Glass Menu & HUD UI for Minecraft 26.x — animated Milky Way sky, live Microsoft Account 3D skin, directional motion-blur menu transitions, and smooth hotbar glide. Made by Buffer.",
+  "authors": [
+    "Buffer"
+  ],
+  "contact": {
+    "homepage": "https://fnh.is-cool.dev"
+  },
+  "license": "MIT",
+  "icon": "assets/fnh_ui/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.horizonlab.fnh.FnHMenuMod"
+    ]
+  },
+  "mixins": [
+    "fnh_ui.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": ">=26.1",
+    "java": ">=25"
+  }
+}

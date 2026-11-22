@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FnH 1.8 — Menu UI Update Preview</title>
-<meta name="description" content="Live preview of FnH Update 1.8: Minecraft's UI redesigned in FnH Dark Glass.">
+<title>FnH 1.9 — Universal Dark-Glass UI Preview</title>
+<meta name="description" content="Live preview of FnH Update 1.9: Dark-Glass Minecraft & Horizon UI, live Microsoft 3D skin, and directional motion-blur menu transitions.">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/assets/icon.png" sizes="256x256" type="image/png">
 <style>
@@ -140,10 +140,10 @@
   @keyframes mbScreenIn {
     0% {
       opacity: 0;
-      transform: scale(0.975) translate3d(0, 12px, 0);
-      filter: blur(calc(12px * var(--mb-mult)));
+      transform: translate3d(0, 68px, 0) scaleY(1.03);
+      filter: url(#mb-vert-blur) blur(calc(6px * var(--mb-mult)));
     }
-    70% {
+    65% {
       opacity: 1;
       filter: blur(calc(1.8px * var(--mb-mult)));
     }
@@ -157,13 +157,16 @@
   @keyframes mbScreenOut {
     0% {
       opacity: 1;
-      transform: scale(1);
+      transform: translate3d(0, 0, 0);
       filter: none;
+    }
+    35% {
+      filter: url(#mb-vert-blur) blur(calc(4px * var(--mb-mult)));
     }
     100% {
       opacity: 0;
-      transform: scale(1.028) translate3d(0, -8px, 0);
-      filter: blur(calc(11px * var(--mb-mult)));
+      transform: translate3d(0, 82px, 0) scaleY(1.035);
+      filter: url(#mb-vert-blur) blur(calc(9px * var(--mb-mult)));
     }
   }
 
@@ -405,8 +408,8 @@
 
   .splash {
     position: absolute;
-    right: -12px;
-    bottom: -5px;
+    right: -44px;
+    bottom: -4px;
     transform: rotate(-17deg);
     color: #ffffff;
     font-family: "Courier New", Consolas, monospace;
@@ -485,9 +488,18 @@
 
   .menu-row-split {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 34px;
     gap: 6px;
     width: 100%;
+  }
+
+  .fnh-inline-icon-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .footer-bar {
@@ -819,6 +831,14 @@
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute;pointer-events:none;" aria-hidden="true">
+  <defs>
+    <filter id="mb-vert-blur" x="-10%" y="-35%" width="120%" height="170%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0 11"/>
+    </filter>
+  </defs>
+</svg>
+
 <!-- Full-Window Stretched Background -->
 <div class="bg-layer">
   <img
@@ -868,20 +888,21 @@
         <div class="menu-row-split mb-stagger" style="--i: 4;">
           <button class="mc-btn glow-ui" data-nav="options"><span>Options...</span></button>
           <button class="mc-btn glow-ui" data-nav="quit"><span>Quit Game</span></button>
+          <button class="mc-btn glow-ui fnh-inline-icon-btn" data-nav="fnh" type="button" title="FnH UI &amp; Background Settings">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <circle cx="16.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/>
+              <path d="M4 18l5.2-5.5 3.8 4 3-3.2L20 18"/>
+            </svg>
+          </button>
         </div>
       </div>
     </div>
   </main>
 
   <footer class="footer-bar">
-    <div class="footer-meta">Minecraft 1.21.11/Fabric (FnH 1.8)</div>
-    <button class="mc-btn glow-ui fnh-corner-btn mb-stagger" style="--i: 5;" data-nav="fnh" type="button">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-      <span>FnH</span>
-    </button>
+    <div class="footer-meta">FnH 1.9  ·  Minecraft 1.21.11 &amp; 26.3</div>
+    <div class="footer-meta">Copyright Mojang AB. Do not distribute!</div>
   </footer>
 
   <!-- 2. Full-Screen Minecraft Sub-Screens Container -->
@@ -1028,7 +1049,7 @@
     language: "English (US)",
 
     packs: [
-      { name: "FnH Dark Glass UI", desc: "Built-in FnH 1.8 menu & widget theme", selected: true, locked: true },
+      { name: "FnH Dark Glass UI", desc: "Built-in FnH 1.9 menu & widget theme", selected: true, locked: true },
       { name: "Low Fire 1.21", desc: "Cleaner view when on fire", selected: true, locked: false },
       { name: "Default", desc: "The default look and feel of Minecraft", selected: true, locked: true }
     ],
@@ -1053,7 +1074,7 @@
 
     selectedServer: 0,
     servers: [
-      { name: "FnH Official SMP", ip: "smp.fnh.is-cool.dev", motd: "FnH 1.8 · Menu UI Update Live", players: "18/60", ping: "11ms", tag: "FnH" },
+      { name: "FnH Official SMP", ip: "smp.fnh.is-cool.dev", motd: "FnH 1.9 · Menu UI Update Live", players: "18/60", ping: "11ms", tag: "FnH" },
       { name: "Hypixel", ip: "mc.hypixel.net", motd: "Hypixel Network [1.8-1.21]", players: "42,310/200,000", ping: "25ms", tag: "HYP" }
     ],
 
@@ -2290,7 +2311,7 @@
       dragYawOffset = 0;
       state.introStart = performance.now();
       navigateTo("home");
-      showToast("Relaunched FnH 1.8 Main Menu");
+      showToast("Relaunched FnH 1.9 Main Menu");
     });
   }
 
@@ -2335,23 +2356,41 @@
     state.username = clean;
     const isBuffer = clean.toLowerCase() === "bufferclick";
     const urls = [];
-    if (isBuffer) {
-      urls.push(
-        "https://mc-heads.net/skin/" + BUFFERCLICK_UUID,
-        "https://crafthead.net/skin/" + BUFFERCLICK_UUID,
-        "https://minotar.net/skin/" + BUFFERCLICK_UUID
-      );
-    } else {
-      try {
-        const r = await fetch("https://playerdb.co/api/player/minecraft/" + encodeURIComponent(clean));
-        if (r.ok) {
-          const j = await r.json();
-          const rawId = j && j.data && j.data.player && j.data.player.raw_id;
-          if (rawId) urls.push("https://mc-heads.net/skin/" + rawId, "https://crafthead.net/skin/" + rawId);
+    let explicitSlim = null;
+
+    // 1. Live Mojang texture URL via Ashcon / PlayerDB (content-addressed `textures.minecraft.net/<hash>`, zero stale skin cache!)
+    try {
+      const target = isBuffer ? BUFFERCLICK_UUID : encodeURIComponent(clean);
+      const r = await fetch("https://api.ashcon.app/mojang/v2/user/" + target, { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.textures && j.textures.skin && j.textures.skin.url) {
+          urls.push(j.textures.skin.url.replace(/^http:\/\/textures\.minecraft\.net\//, "https://textures.minecraft.net/"));
+          explicitSlim = !!j.textures.slim;
         }
-      } catch (_) {}
-      urls.push("https://mc-heads.net/skin/" + encodeURIComponent(clean), "https://minotar.net/skin/" + encodeURIComponent(clean));
+      }
+    } catch (_) {}
+
+    try {
+      const r2 = await fetch("https://playerdb.co/api/player/minecraft/" + encodeURIComponent(clean), { cache: "no-store" });
+      if (r2.ok) {
+        const j2 = await r2.json();
+        const p = j2 && j2.data && j2.data.player;
+        if (p && p.skin_texture) {
+          urls.push(p.skin_texture.replace(/^http:\/\/textures\.minecraft\.net\//, "https://textures.minecraft.net/"));
+        }
+        if (p && p.raw_id) {
+          urls.push("https://crafthead.net/skin/" + p.raw_id);
+        }
+      }
+    } catch (_) {}
+
+    if (isBuffer) {
+      urls.push("https://crafthead.net/skin/" + BUFFERCLICK_UUID, "https://minotar.net/skin/" + BUFFERCLICK_UUID);
+    } else {
+      urls.push("https://crafthead.net/skin/" + encodeURIComponent(clean), "https://minotar.net/skin/" + encodeURIComponent(clean));
     }
+
     for (const url of urls) {
       const im = await new Promise((res) => {
         const i = new Image();
@@ -2362,6 +2401,10 @@
       });
       if (im && im.width >= 64) {
         ingestSkinImage(im);
+        if (explicitSlim !== null) {
+          state.slimArms = explicitSlim;
+          rebuildArmMeshes();
+        }
         return;
       }
     }
@@ -2391,9 +2434,10 @@
         if (uAlphaMode < 0.5) { if (c.a < 0.1) discard; c.a = 1.0; }
         else { if (c.a < 0.04) discard; }
         vec3 n = normalize(vNorm);
-        float diff = max(dot(n, normalize(vec3(0.32, 0.76, 0.78))), 0.0) * 0.40
+        float diff = max(dot(n, normalize(vec3(0.32, 0.76, 0.78))), 0.0) * 0.42
                    + max(dot(n, normalize(vec3(-0.48, 0.24, -0.45))), 0.0) * 0.16;
-        gl_FragColor = vec4(c.rgb * (0.63 + diff), c.a);
+        vec3 rim = vec3(0.055, 0.062, 0.08) * max(diff - 0.12, 0.0);
+        gl_FragColor = vec4(min(vec3(1.0), c.rgb * (0.63 + diff) + rim), c.a);
       }
     `;
     const comp = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); return sh; };

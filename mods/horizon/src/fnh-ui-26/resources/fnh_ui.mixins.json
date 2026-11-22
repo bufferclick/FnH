@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.horizonlab.fnh.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "GuiMixin",
+    "ScreenAccessor",
+    "ScreenMixin",
+    "TitleScreenMixin",
+    "GuiGraphicsExtractorMixin",
+    "OptionsScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
