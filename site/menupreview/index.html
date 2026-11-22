@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FnH — Main Menu Preview</title>
-<meta name="description" content="Live preview of the FnH custom Minecraft main menu.">
+<meta name="description" content="Live preview of the Minecraft FnH Edition main menu.">
 <link rel="icon" href="/site/assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/site/assets/icon.png" sizes="256x256" type="image/png">
 <style>
   :root {
     --ui-font: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-    --glass-bg: rgba(10, 11, 14, 0.68);
-    --glass-bg-hover: rgba(24, 26, 32, 0.84);
-    --glass-border: rgba(255, 255, 255, 0.14);
-    --glass-border-hover: rgba(255, 255, 255, 0.42);
-    --text-main: rgba(246, 247, 249, 0.95);
-    --text-muted: rgba(255, 255, 255, 0.44);
+    --glass-bg: rgba(10, 11, 16, 0.66);
+    --glass-bg-hover: rgba(24, 27, 38, 0.84);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --glass-border-hover: rgba(255, 255, 255, 0.44);
+    --text-main: rgba(247, 248, 250, 0.96);
+    --text-muted: rgba(255, 255, 255, 0.46);
   }
 
   * {
@@ -30,13 +30,13 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #050507;
+    background: #04050a;
     color: var(--text-main);
     font-family: var(--ui-font);
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Full-Window Stretched Background Layer (GIF / Image / Video) */
+  /* Always-Stretched Full-Window Background */
   .bg-layer {
     position: fixed;
     inset: 0;
@@ -44,7 +44,7 @@
     height: 100vh;
     z-index: 0;
     overflow: hidden;
-    background: #050507;
+    background: #04050a;
   }
 
   #bg-img,
@@ -54,7 +54,6 @@
     left: 0;
     width: 100%;
     height: 100%;
-    /* Stretches any smaller or larger GIF/image/video to match exact window dimensions */
     object-fit: fill;
     display: block;
   }
@@ -69,10 +68,10 @@
     z-index: 1;
     pointer-events: none;
     background:
-      radial-gradient(circle at 50% 48%, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0.46) 100%);
+      linear-gradient(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.14)),
+      radial-gradient(circle at 50% 48%, rgba(0, 0, 0, 0.04) 0%, rgba(0, 0, 0, 0.42) 100%);
   }
 
-  /* Drag-and-drop custom background indicator */
   body.dragging-file::after {
     content: "Drop GIF / Image / Video to set Custom Background";
     position: fixed;
@@ -80,18 +79,17 @@
     z-index: 60;
     border: 1.5px dashed rgba(255, 255, 255, 0.65);
     border-radius: 12px;
-    background: rgba(8, 9, 12, 0.76);
+    background: rgba(8, 9, 14, 0.78);
     backdrop-filter: blur(10px);
     display: grid;
     place-items: center;
     font-size: 15px;
     font-weight: 500;
-    letter-spacing: 0.02em;
     color: #fff;
     pointer-events: none;
   }
 
-  /* Main Fullscreen Viewport */
+  /* Centered Vertical Main Menu Stack */
   .screen {
     position: relative;
     z-index: 2;
@@ -101,52 +99,50 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 24px 16px 44px;
+    padding: 20px 16px 46px;
   }
 
-  /* Center Vertical Stack: Title -> BufferClick Skin -> Singleplayer & Menu Buttons */
   .center-stack {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 100%;
-    max-width: 380px;
+    max-width: 440px;
   }
 
-  /* Pixel Title Block */
+  /* 1. Actual Minecraft Logo + [FnH Emblem] EDITION underneath */
   .title-block {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    margin-bottom: clamp(4px, 1vh, 10px);
+    gap: 7px;
+    margin-bottom: clamp(4px, 0.9vh, 10px);
   }
 
-  #title-canvas {
-    display: block;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-    max-width: min(360px, 88vw);
+  .mc-logo {
+    width: clamp(290px, 34vw, 410px);
+    max-width: 90vw;
     height: auto;
-    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.72));
+    display: block;
+    filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.72));
+    pointer-events: none;
   }
 
-  #subtitle-canvas {
+  #fnh-edition-canvas {
     display: block;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    height: 14px;
+    height: clamp(20px, 2.6vh, 25px);
     width: auto;
-    opacity: 0.9;
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.85));
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.82));
   }
 
-  /* 3D Player Model (Above Singleplayer, Under Title) */
+  /* 2. BufferClick 3D Skin (Under Logo, Above Singleplayer) */
   .skin-wrap {
     position: relative;
-    width: clamp(150px, 21vh, 200px);
-    height: clamp(170px, 26vh, 240px);
-    margin: 2px 0 clamp(8px, 1.4vh, 14px);
+    width: clamp(150px, 21vh, 198px);
+    height: clamp(168px, 25.5vh, 236px);
+    margin: 2px 0 clamp(8px, 1.3vh, 14px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -157,16 +153,20 @@
     cursor: grabbing;
   }
 
+  body.hide-skin .skin-wrap {
+    display: none;
+  }
+
   #skin-canvas {
     width: 100%;
     height: 100%;
     display: block;
-    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.65));
+    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.68));
   }
 
-  /* Clean Minimal Smoked-Glass Buttons */
+  /* 3. Clean Smoked-Glass Menu Buttons */
   .menu-buttons {
-    width: clamp(248px, 26vw, 284px);
+    width: clamp(252px, 26vw, 288px);
     display: flex;
     flex-direction: column;
     gap: 7px;
@@ -195,10 +195,11 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 7px;
     cursor: pointer;
     transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
     box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.38),
+      0 4px 16px rgba(0, 0, 0, 0.4),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
@@ -207,7 +208,7 @@
     border-color: var(--glass-border-hover);
     color: #ffffff;
     box-shadow:
-      0 6px 22px rgba(0, 0, 0, 0.52),
+      0 6px 22px rgba(0, 0, 0, 0.55),
       inset 0 1px 0 rgba(255, 255, 255, 0.11);
   }
 
@@ -215,7 +216,6 @@
     transform: translateY(1px);
   }
 
-  /* Classic Stone alternative (only if switched in Tuner) */
   body.btn-classic .btn {
     border-radius: 0;
     background: linear-gradient(180deg, rgba(112, 112, 112, 0.92) 0%, rgba(82, 82, 82, 0.94) 100%);
@@ -231,14 +231,14 @@
     background: linear-gradient(180deg, rgba(135, 135, 142, 0.95) 0%, rgba(98, 98, 106, 0.95) 100%);
   }
 
-  /* Subtle Minimal Footer + In-Game Background Switcher */
+  /* Bottom Bar with Bottom-Right FnH Settings Button */
   .footer-bar {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 10;
-    padding: 11px 16px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -250,151 +250,161 @@
     font-size: 11.5px;
     color: var(--text-muted);
     letter-spacing: 0.01em;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
 
-  .footer-controls {
+  .fnh-settings-btn {
     pointer-events: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+    height: 34px;
+    padding: 0 13px;
+    font-size: 12.5px;
   }
 
-  .chip-bar {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 3px;
-    border-radius: 7px;
-    background: rgba(10, 11, 14, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(12px);
+  .fnh-settings-btn svg {
+    opacity: 0.86;
   }
 
-  .chip-btn {
-    height: 24px;
-    padding: 0 9px;
-    border-radius: 5px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.62);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.12s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .chip-btn:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.07);
-  }
-
-  .chip-btn.active {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.22);
-  }
-
-  /* Compact Discreet Preview Popover (Closed by default!) */
-  .tuner-popover {
+  /* FnH Settings Modal */
+  .settings-backdrop {
     position: fixed;
-    right: 16px;
-    bottom: 48px;
-    width: 288px;
-    z-index: 30;
-    padding: 14px;
-    border-radius: 10px;
-    background: rgba(11, 12, 15, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(18px);
-    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.75);
+    inset: 0;
+    z-index: 40;
+    background: rgba(4, 5, 10, 0.62);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     display: none;
-    flex-direction: column;
-    gap: 11px;
+    place-items: center;
+    padding: 16px;
   }
 
-  .tuner-popover.open {
+  .settings-backdrop.open {
+    display: grid;
+  }
+
+  .settings-dialog {
+    width: min(400px, 94vw);
+    border-radius: 11px;
+    background: rgba(12, 13, 19, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.78);
+    padding: 18px;
     display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
-  .tuner-header {
+  .settings-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 7px;
+    padding-bottom: 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.09);
-    font-size: 12px;
+  }
+
+  .settings-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .settings-title-wrap img {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+
+  .settings-top h3 {
+    margin: 0;
+    font-size: 14.5px;
     font-weight: 600;
     color: #fff;
   }
 
-  .tuner-x {
+  .close-icon-btn {
     background: none;
     border: none;
     color: rgba(255, 255, 255, 0.55);
+    font-size: 16px;
     cursor: pointer;
-    font-size: 14px;
-    padding: 0 4px;
+    padding: 2px 6px;
   }
 
-  .tuner-x:hover {
+  .close-icon-btn:hover {
     color: #fff;
   }
 
-  .tuner-section {
+  .field-group {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
   }
 
-  .tuner-lbl {
-    font-size: 10.5px;
+  .field-label {
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: rgba(255, 255, 255, 0.48);
   }
 
-  .seg-grid {
+  .bg-actions-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
-    gap: 4px;
+    grid-template-columns: 1fr 1.35fr;
+    gap: 7px;
   }
 
-  .seg {
-    padding: 5px 6px;
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.11);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.72);
+  .s-btn {
+    height: 33px;
+    padding: 0 11px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.85);
     font-family: var(--ui-font);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    text-align: center;
+    transition: all 0.12s ease;
   }
 
-  .seg:hover {
+  .s-btn:hover {
     color: #fff;
-    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.28);
   }
 
-  .seg.active {
+  .s-btn.active {
+    color: #fff;
     background: rgba(255, 255, 255, 0.16);
     border-color: rgba(255, 255, 255, 0.48);
+  }
+
+  .input-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .input-row input {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(0, 0, 0, 0.42);
     color: #fff;
+    font-family: var(--ui-font);
+    font-size: 12px;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .range-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, 0.75);
+    gap: 10px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
   }
 
   .range-row input[type="range"] {
@@ -403,56 +413,36 @@
     cursor: pointer;
   }
 
-  .input-row {
+  .toggle-row {
     display: flex;
-    gap: 5px;
-  }
-
-  .input-row input {
-    flex: 1;
-    min-width: 0;
-    height: 28px;
-    padding: 0 8px;
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(0, 0, 0, 0.45);
-    color: #fff;
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    user-select: text;
-    -webkit-user-select: text;
-  }
-
-  .copy-btn {
-    height: 30px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    font-weight: 600;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.88);
+    padding: 3px 0;
     cursor: pointer;
   }
 
-  .copy-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
+  .toggle-row input {
+    accent-color: #ffffff;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
   }
 
-  /* Subtle Toast Notification */
   .toast {
     position: fixed;
     top: 18px;
     left: 50%;
     transform: translateX(-50%) translateY(-8px);
-    z-index: 50;
+    z-index: 55;
     padding: 7px 14px;
     border-radius: 7px;
-    background: rgba(10, 11, 14, 0.86);
+    background: rgba(10, 11, 16, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.16);
     backdrop-filter: blur(12px);
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(255, 255, 255, 0.92);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.18s ease, transform 0.18s ease;
@@ -466,23 +456,27 @@
 </head>
 <body>
 
-<!-- Stretched Full-Window Background (Preset GIFs or Player Custom GIF/Image/Video) -->
+<!-- Full-Window Stretched Background (Default Galaxy GIF or Custom Player Background) -->
 <div class="bg-layer">
-  <img id="bg-img" src="/menupreview/presets/bg1.gif" alt="">
+  <img id="bg-img" src="/menupreview/presets/default-bg.gif" onerror="this.onerror=null;this.src='presets/default-bg.gif'" alt="">
   <video id="bg-video" autoplay loop muted playsinline></video>
 </div>
 <div class="bg-dim" id="bg-dim"></div>
 
-<!-- Hidden Custom Background File Input -->
 <input type="file" id="custom-bg-input" accept="image/*,video/*" hidden>
 
-<!-- Main Centered Vertical Menu -->
+<!-- Main Menu Vertical Stack -->
 <main class="screen">
   <div class="center-stack">
-    <!-- 1. Title: MINECRAFT + pixelated FnH EDITION (or Just FnH) -->
+    <!-- 1. Official Minecraft Logo + [FnH Emblem] EDITION underneath -->
     <div class="title-block">
-      <canvas id="title-canvas"></canvas>
-      <canvas id="subtitle-canvas"></canvas>
+      <img
+        class="mc-logo"
+        src="/menupreview/presets/minecraft-logo.png"
+        onerror="this.onerror=null;this.src='presets/minecraft-logo.png'"
+        alt="MINECRAFT"
+      >
+      <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
     </div>
 
     <!-- 2. BufferClick 3D Skin (Under Title, Above Singleplayer) -->
@@ -490,7 +484,7 @@
       <canvas id="skin-canvas" width="440" height="520"></canvas>
     </div>
 
-    <!-- 3. Clean Menu Buttons -->
+    <!-- 3. Menu Buttons -->
     <div class="menu-buttons">
       <button class="btn" data-action="Singleplayer">Singleplayer</button>
       <button class="btn" data-action="Multiplayer">Multiplayer</button>
@@ -503,81 +497,73 @@
   </div>
 </main>
 
-<!-- Whisper-Clean Bottom Bar + Background Preset / Custom Picker -->
+<!-- Bottom Bar: Version Info Left + FnH Settings Button Right -->
 <footer class="footer-bar">
   <div class="footer-meta">Minecraft 1.21.11 · FnH</div>
 
-  <div class="footer-controls">
-    <div class="chip-bar" role="group" aria-label="Background Presets">
-      <button class="chip-btn active" data-bg="1" type="button" title="Preset 1">BG 1</button>
-      <button class="chip-btn" data-bg="2" type="button" title="Preset 2">BG 2</button>
-      <button class="chip-btn" data-bg="3" type="button" title="Preset 3">BG 3</button>
-      <button class="chip-btn" id="custom-bg-btn" type="button" title="Choose custom GIF, image, or video">Custom…</button>
-    </div>
-    <div class="chip-bar">
-      <button class="chip-btn" id="tuner-btn" type="button" title="Toggle preview options (H)">Customize (H)</button>
-    </div>
-  </div>
+  <button class="btn fnh-settings-btn" id="open-settings-btn" type="button">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+    <span>FnH Settings</span>
+  </button>
 </footer>
 
-<!-- Optional Preview Tuner Popover (Closed by default so the menu is 100% clean) -->
-<aside class="tuner-popover" id="tuner-popover">
-  <div class="tuner-header">
-    <span>Menu Preview Options</span>
-    <button class="tuner-x" id="tuner-close" type="button">&#x2715;</button>
-  </div>
-
-  <div class="tuner-section">
-    <span class="tuner-lbl">Top Title Style</span>
-    <div class="seg-grid" data-seg="titleMode">
-      <button class="seg active" data-val="mc_fnh" type="button">MINECRAFT + FnH</button>
-      <button class="seg" data-val="fnh_only" type="button">Just FnH</button>
-      <button class="seg" data-val="fnh_mark" type="button">FnH Emblem</button>
+<!-- FnH Settings Modal -->
+<div class="settings-backdrop" id="settings-backdrop">
+  <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="fnh-settings-heading">
+    <div class="settings-top">
+      <div class="settings-title-wrap">
+        <img src="/site/assets/icon.svg" onerror="this.onerror=null;this.src='/assets/icon.svg'" alt="">
+        <h3 id="fnh-settings-heading">FnH Settings</h3>
+      </div>
+      <button class="close-icon-btn" id="close-settings-btn" type="button" title="Close (Esc)">&#x2715;</button>
     </div>
-  </div>
 
-  <div class="tuner-section">
-    <span class="tuner-lbl">Button Style</span>
-    <div class="seg-grid" data-seg="buttons">
-      <button class="seg active" data-val="glass" type="button">Dark Glass</button>
-      <button class="seg" data-val="classic" type="button">Classic Stone</button>
+    <div class="field-group">
+      <span class="field-label">Menu Background</span>
+      <div class="bg-actions-row">
+        <button class="s-btn active" id="default-bg-btn" type="button">Default Galaxy</button>
+        <button class="s-btn" id="pick-custom-bg-btn" type="button">Choose Custom File…</button>
+      </div>
+      <div class="input-row">
+        <input type="text" id="bg-url-input" placeholder="Or paste GIF / image URL…" spellcheck="false">
+        <button class="s-btn" id="bg-url-btn" type="button">Apply</button>
+      </div>
     </div>
-  </div>
 
-  <div class="tuner-section">
-    <span class="tuner-lbl">Background Fit</span>
-    <div class="seg-grid" data-seg="bgFit">
-      <button class="seg active" data-val="fill" type="button">Stretch to Window</button>
-      <button class="seg" data-val="cover" type="button">Crop / Cover</button>
+    <div class="field-group">
+      <span class="field-label">Background Dimming</span>
+      <div class="range-row">
+        <input type="range" id="dim-slider" min="0" max="65" value="14">
+        <span id="dim-val">14%</span>
+      </div>
     </div>
-  </div>
 
-  <div class="tuner-section">
-    <span class="tuner-lbl">Background Dimming</span>
-    <div class="range-row">
-      <input type="range" id="dim-slider" min="0" max="70" value="22">
-      <span id="dim-val">22%</span>
+    <div class="field-group">
+      <span class="field-label">Main Menu Appearance</span>
+      <label class="toggle-row">
+        <span>Show 3D Player Skin</span>
+        <input type="checkbox" id="chk-show-skin" checked>
+      </label>
+      <div class="bg-actions-row" style="grid-template-columns: 1fr 1fr; margin-top: 2px;">
+        <button class="s-btn active" id="style-glass-btn" type="button">Dark Glass Buttons</button>
+        <button class="s-btn" id="style-classic-btn" type="button">Classic Stone Buttons</button>
+      </div>
     </div>
-  </div>
 
-  <div class="tuner-section">
-    <span class="tuner-lbl">Custom Background URL (.gif / .png)</span>
-    <div class="input-row">
-      <input type="text" id="bg-url-input" placeholder="https://... or drop a file" spellcheck="false">
-      <button class="seg active" id="bg-url-btn" type="button">Set</button>
+    <div class="field-group">
+      <span class="field-label">Preview Player Skin</span>
+      <div class="input-row">
+        <input type="text" id="skin-input" value="BufferClick" spellcheck="false">
+        <button class="s-btn" id="skin-btn" type="button">Load</button>
+      </div>
     </div>
-  </div>
 
-  <div class="tuner-section">
-    <span class="tuner-lbl">Player Skin</span>
-    <div class="input-row">
-      <input type="text" id="skin-input" value="BufferClick" spellcheck="false">
-      <button class="seg active" id="skin-btn" type="button">Load</button>
-    </div>
+    <button class="btn" id="done-settings-btn" type="button" style="width: 100%; margin-top: 2px;">Done</button>
   </div>
-
-  <button class="copy-btn" id="copy-prefs-btn" type="button">Copy Choices for Chat</button>
-</aside>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -586,20 +572,13 @@
   "use strict";
 
   const BUFFERCLICK_UUID = "1b7a28177df149828231b48f5909ca95";
-  const PRESET_URLS = {
-    "1": "/menupreview/presets/bg1.gif",
-    "2": "/menupreview/presets/bg2.gif",
-    "3": "/menupreview/presets/bg3.gif"
-  };
+  const DEFAULT_BG = "/menupreview/presets/default-bg.gif";
 
   const state = {
-    titleMode: "mc_fnh", // "mc_fnh" | "fnh_only" | "fnh_mark"
-    buttons: "glass",
-    bgPreset: "1",
-    bgFit: "fill",
-    bgDim: 22,
-    username: "BufferClick",
-    slimArms: false
+    bgDim: 14,
+    showSkin: true,
+    slimArms: false,
+    username: "BufferClick"
   };
 
   let toastTimer = null;
@@ -612,19 +591,43 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Crisp Pixel-Art Title & Pixelated "FnH EDITION" Renderer
+  // 1. Render "[FnH Emblem] EDITION" Subtitle in Chiseled Warm Stone
+  //    (Matched to the stone palette of the official MINECRAFT logo above it)
   // ---------------------------------------------------------------------------
-  const BIG_GLYPHS = {
-    M: [
-      "111000111",
-      "111101111",
-      "111111111",
-      "111010111",
-      "111000111",
-      "111000111",
-      "111000111",
-      "111000111",
-      "111000111"
+  const FNH_EMBLEM = [
+    "111110101",
+    "100000101",
+    "100000101",
+    "111000101",
+    "100000111",
+    "102220101",
+    "102020101",
+    "102020101",
+    "102020101"
+  ];
+
+  const EDITION_GLYPHS = {
+    E: [
+      "1111111",
+      "1111111",
+      "1100000",
+      "1111110",
+      "1111110",
+      "1100000",
+      "1100000",
+      "1111111",
+      "1111111"
+    ],
+    D: [
+      "1111110",
+      "1111111",
+      "1100011",
+      "1100011",
+      "1100011",
+      "1100011",
+      "1100011",
+      "1111111",
+      "1111110"
     ],
     I: [
       "111111",
@@ -637,72 +640,6 @@
       "111111",
       "111111"
     ],
-    N: [
-      "11100011",
-      "11110011",
-      "11111011",
-      "11111111",
-      "11011111",
-      "11001111",
-      "11000111",
-      "11000111",
-      "11000111"
-    ],
-    E: [
-      "1111111",
-      "1111111",
-      "1100000",
-      "1111110",
-      "1111110",
-      "1100000",
-      "1100000",
-      "1111111",
-      "1111111"
-    ],
-    C: [
-      "0111111",
-      "1111111",
-      "1110000",
-      "1100000",
-      "1100000",
-      "1100000",
-      "1110000",
-      "1111111",
-      "0111111"
-    ],
-    R: [
-      "1111110",
-      "1111111",
-      "1100011",
-      "1100011",
-      "1111110",
-      "1111100",
-      "1101110",
-      "1100111",
-      "1100011"
-    ],
-    A: [
-      "0111110",
-      "1111111",
-      "1100011",
-      "1100011",
-      "1111111",
-      "1111111",
-      "1100011",
-      "1100011",
-      "1100011"
-    ],
-    F: [
-      "1111111",
-      "1111111",
-      "1100000",
-      "1111110",
-      "1111110",
-      "1100000",
-      "1100000",
-      "1100000",
-      "1100000"
-    ],
     T: [
       "11111111",
       "11111111",
@@ -714,77 +651,52 @@
       "00011000",
       "00011000"
     ],
-    H: [
-      "11100111",
-      "11100111",
-      "11100111",
-      "11111111",
-      "11111111",
-      "11100111",
-      "11100111",
-      "11100111",
-      "11100111"
-    ],
-    n: [
-      "0000000",
-      "0000000",
-      "1111110",
+    O: [
+      "0111110",
       "1111111",
       "1100011",
       "1100011",
       "1100011",
       "1100011",
-      "1100011"
+      "1100011",
+      "1111111",
+      "0111110"
+    ],
+    N: [
+      "11100011",
+      "11110011",
+      "11111011",
+      "11111111",
+      "11011111",
+      "11001111",
+      "11000111",
+      "11000111",
+      "11000111"
     ]
   };
 
-  // Buffer's exact 9x9 pixel monogram from site/assets/icon.svg
-  const FNH_EMBLEM_GRID = [
-    "111110101",
-    "100000101",
-    "100000101",
-    "111000101",
-    "100000111",
-    "102220101",
-    "102020101",
-    "102020101",
-    "102020101"
-  ];
-
-  const SMALL_PIXEL = {
-    F: ["11111","10000","10000","11110","10000","10000","10000"],
-    n: ["00000","00000","11110","10001","10001","10001","10001"],
-    H: ["10001","10001","10001","11111","10001","10001","10001"],
-    " ": ["000","000","000","000","000","000","000"],
-    E: ["11111","10000","10000","11110","10000","10000","11111"],
-    D: ["11110","10001","10001","10001","10001","10001","11110"],
-    I: ["111","010","010","010","010","010","111"],
-    T: ["11111","00100","00100","00100","00100","00100","00100"],
-    O: ["01110","10001","10001","10001","10001","10001","01110"],
-    N: ["10001","11001","10101","10011","10001","10001","10001"]
-  };
-
-  function buildWordGrid(word, glyphMap, spacing) {
-    const rows = glyphMap[word[0]].length;
-    const out = Array.from({ length: rows }, () => "");
-    for (let i = 0; i < word.length; i++) {
-      const g = glyphMap[word[i]];
-      for (let r = 0; r < rows; r++) {
-        out[r] += g[r] + (i + 1 < word.length ? "0".repeat(spacing) : "");
+  function renderFnhEditionSubtitle() {
+    const canvas = document.getElementById("fnh-edition-canvas");
+    const word = "EDITION";
+    const rows = 9;
+    const grid = [];
+    for (let r = 0; r < rows; r++) {
+      let line = FNH_EMBLEM[r] + "0000";
+      for (let i = 0; i < word.length; i++) {
+        line += EDITION_GLYPHS[word[i]][r] + (i + 1 < word.length ? "0" : "");
       }
+      grid.push(line);
     }
-    return out;
-  }
 
-  function drawBlockyGrid(canvas, grid, scale, depthRows) {
     const h = grid.length;
     const w = grid[0].length;
+    const scale = 4;
+    const depthRows = 2;
     const pad = 2;
     const cw = (w + pad * 2) * scale;
     const ch = (h + depthRows + pad * 2) * scale;
     canvas.width = cw;
     canvas.height = ch;
-    canvas.style.width = Math.round(cw * 0.92) + "px";
 
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
@@ -792,8 +704,8 @@
 
     const has = (r, c) => r >= 0 && r < h && c >= 0 && c < w && grid[r][c] !== "0";
 
-    // Pass 1: 1px crisp dark outline around face + 3D extrusion
-    ctx.fillStyle = "#08090c";
+    // Pass 1: Crisp dark stone outline
+    ctx.fillStyle = "#090808";
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         if (!has(r, c)) continue;
@@ -806,9 +718,9 @@
       }
     }
 
-    // Pass 2: 3D stone depth extrusion underneath
+    // Pass 2: 3D bottom stone extrusion (matching MINECRAFT's warm dark underside)
     for (let d = depthRows; d >= 1; d--) {
-      ctx.fillStyle = d === depthRows ? "#1c1e24" : "#2c3039";
+      ctx.fillStyle = d === depthRows ? "#3a3533" : "#59514e";
       for (let r = 0; r < h; r++) {
         for (let c = 0; c < w; c++) {
           if (!has(r, c)) continue;
@@ -817,10 +729,10 @@
       }
     }
 
-    // Pass 3: Chiseled monochrome stone face + top pixel bevel
-    const shades = [
-      "#eff1f5", "#e6e9ef", "#dde1e8", "#d2d7df",
-      "#c8cdd7", "#bec4cf", "#b4bac6", "#aab1bd", "#9fa7b4"
+    // Pass 3: Chiseled warm stone face matching official MINECRAFT logo (#cfc7c3 -> #a69c98)
+    const stoneShades = [
+      "#dcd5d1", "#d5cdc9", "#cec6c2", "#c6beba",
+      "#bfb6b2", "#b8afab", "#b1a7a3", "#aa9f9b", "#a39894"
     ];
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
@@ -830,104 +742,48 @@
         const py = (r + pad) * scale;
         const topEdge = !has(r - 1, c);
         if (cell === "2") {
-          ctx.fillStyle = topEdge ? "#d8dce4" : "#9ba2b0";
+          // Tucked lowercase 'n' inside the FnH emblem — slightly deeper chiseled tone for clarity
+          ctx.fillStyle = topEdge ? "#d2cbc7" : "#928884";
         } else {
-          // Subtle deterministic stone grain
-          const grain = ((r * 17 + c * 31) % 5 === 0) ? -1 : 0;
-          const idx = Math.max(0, Math.min(shades.length - 1, r + grain));
-          ctx.fillStyle = topEdge ? "#ffffff" : shades[idx];
+          const grain = ((r * 13 + c * 29) % 6 === 0) ? -1 : 0;
+          const idx = Math.max(0, Math.min(stoneShades.length - 1, r + grain));
+          ctx.fillStyle = topEdge ? "#ede7e4" : stoneShades[idx];
         }
         ctx.fillRect(px, py, scale, scale);
       }
     }
   }
 
-  function renderTitles() {
-    const titleCanvas = document.getElementById("title-canvas");
-    const subCanvas = document.getElementById("subtitle-canvas");
-
-    if (state.titleMode === "mc_fnh") {
-      const mcGrid = buildWordGrid("MINECRAFT", BIG_GLYPHS, 1);
-      drawBlockyGrid(titleCanvas, mcGrid, 4, 2);
-
-      // Crisp pixelated "FnH EDITION" underneath
-      const subGrid = buildWordGrid("FnH EDITION", SMALL_PIXEL, 2);
-      const sw = subGrid[0].length;
-      const sh = subGrid.length;
-      const sScale = 2;
-      subCanvas.width = (sw + 2) * sScale;
-      subCanvas.height = (sh + 2) * sScale;
-      subCanvas.style.display = "block";
-      subCanvas.style.height = "15px";
-      const sctx = subCanvas.getContext("2d");
-      sctx.imageSmoothingEnabled = false;
-      sctx.clearRect(0, 0, subCanvas.width, subCanvas.height);
-      for (let r = 0; r < sh; r++) {
-        for (let c = 0; c < sw; c++) {
-          if (subGrid[r][c] === "0") continue;
-          const x = (c + 1) * sScale;
-          const y = (r + 1) * sScale;
-          sctx.fillStyle = "#07080b";
-          sctx.fillRect(x + sScale, y + sScale, sScale, sScale);
-          sctx.fillStyle = "#d9dde5";
-          sctx.fillRect(x, y, sScale, sScale);
-        }
-      }
-    } else if (state.titleMode === "fnh_only") {
-      const fnhGrid = buildWordGrid("FnH", BIG_GLYPHS, 2);
-      drawBlockyGrid(titleCanvas, fnhGrid, 6, 2);
-      subCanvas.style.display = "none";
-    } else {
-      drawBlockyGrid(titleCanvas, FNH_EMBLEM_GRID, 6, 2);
-      subCanvas.style.display = "none";
-    }
-  }
-
   // ---------------------------------------------------------------------------
-  // 2. Background Presets + Custom File/URL + Stretch-to-Window
+  // 2. Background Manager (Default Galaxy GIF + Custom File/URL, Always Stretched)
   // ---------------------------------------------------------------------------
   const bgImg = document.getElementById("bg-img");
   const bgVideo = document.getElementById("bg-video");
   const bgDim = document.getElementById("bg-dim");
+  const defaultBgBtn = document.getElementById("default-bg-btn");
+  const customBgBtn = document.getElementById("pick-custom-bg-btn");
   let customObjectUrl = null;
-
-  function applyBgFit() {
-    const fit = state.bgFit === "cover" ? "cover" : "fill";
-    bgImg.style.objectFit = fit;
-    bgVideo.style.objectFit = fit;
-  }
 
   function applyBgDim() {
     const a = (state.bgDim / 100).toFixed(2);
     bgDim.style.background =
-      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 48%, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.38) 100%)`;
+      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 48%, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.42) 100%)`;
   }
 
-  function setActiveBgChip(key) {
-    document.querySelectorAll("[data-bg]").forEach((b) => {
-      b.classList.toggle("active", b.getAttribute("data-bg") === key);
-    });
-    document.getElementById("custom-bg-btn").classList.toggle("active", key === "custom");
-  }
-
-  function setPresetBackground(id) {
-    const url = PRESET_URLS[id];
-    if (!url) return;
-    state.bgPreset = id;
+  function setDefaultBackground() {
     bgVideo.pause();
     bgVideo.style.display = "none";
     bgImg.style.display = "block";
     bgImg.onerror = () => {
-      // Fallback relative path if served under a subpath
       bgImg.onerror = null;
-      bgImg.src = "presets/bg" + id + ".gif";
+      bgImg.src = "presets/default-bg.gif";
     };
-    bgImg.src = url;
-    setActiveBgChip(id);
+    bgImg.src = DEFAULT_BG;
+    defaultBgBtn.classList.add("active");
+    customBgBtn.classList.remove("active");
   }
 
-  function setCustomMediaSource(src, isVideo, label) {
-    state.bgPreset = "custom";
+  function setCustomBackground(src, isVideo, label) {
     if (isVideo) {
       bgImg.style.display = "none";
       bgVideo.style.display = "block";
@@ -939,29 +795,28 @@
       bgImg.style.display = "block";
       bgImg.src = src;
     }
-    setActiveBgChip("custom");
-    if (label) showToast("Background: " + label);
+    defaultBgBtn.classList.remove("active");
+    customBgBtn.classList.add("active");
+    if (label) showToast("Background set: " + label);
   }
 
   function handleCustomFile(file) {
     if (!file) return;
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
     customObjectUrl = URL.createObjectURL(file);
-    const isVid = file.type.startsWith("video/");
-    setCustomMediaSource(customObjectUrl, isVid, file.name);
+    setCustomBackground(customObjectUrl, file.type.startsWith("video/"), file.name);
   }
 
-  document.querySelectorAll("[data-bg]").forEach((btn) => {
-    btn.addEventListener("click", () => setPresetBackground(btn.getAttribute("data-bg")));
-  });
-
   const fileInput = document.getElementById("custom-bg-input");
-  document.getElementById("custom-bg-btn").addEventListener("click", () => fileInput.click());
+  defaultBgBtn.addEventListener("click", () => {
+    setDefaultBackground();
+    showToast("Restored default background");
+  });
+  customBgBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
     if (fileInput.files && fileInput.files[0]) handleCustomFile(fileInput.files[0]);
   });
 
-  // Drag & drop any custom GIF/image/video right onto the window
   window.addEventListener("dragover", (e) => {
     e.preventDefault();
     document.body.classList.add("dragging-file");
@@ -977,7 +832,7 @@
   });
 
   // ---------------------------------------------------------------------------
-  // 3. WebGL 3D Player Renderer (BufferClick — Under Title, Above Singleplayer)
+  // 3. WebGL 3D Player Renderer (BufferClick)
   // ---------------------------------------------------------------------------
   const skinCanvas = document.getElementById("skin-canvas");
   const gl = skinCanvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: false });
@@ -1276,7 +1131,7 @@
   }
 
   function renderSkin(t) {
-    if (!gl) return;
+    if (!gl || !state.showSkin) return;
     gl.viewport(0, 0, skinCanvas.width, skinCanvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1322,42 +1177,21 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 4. UI Interactions & Tuner Controls
+  // 4. Menu Buttons & FnH Settings Dialog
   // ---------------------------------------------------------------------------
   document.querySelectorAll(".menu-buttons .btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      showToast(btn.getAttribute("data-action"));
-    });
+    btn.addEventListener("click", () => showToast(btn.getAttribute("data-action")));
   });
 
-  const popover = document.getElementById("tuner-popover");
-  function togglePopover() {
-    popover.classList.toggle("open");
-  }
-  document.getElementById("tuner-btn").addEventListener("click", togglePopover);
-  document.getElementById("tuner-close").addEventListener("click", () => popover.classList.remove("open"));
+  const backdrop = document.getElementById("settings-backdrop");
+  const openSettings = () => backdrop.classList.add("open");
+  const closeSettings = () => backdrop.classList.remove("open");
 
-  window.addEventListener("keydown", (e) => {
-    const tag = document.activeElement && document.activeElement.tagName;
-    if (tag === "INPUT") return;
-    if (e.key === "h" || e.key === "H") togglePopover();
-    if (e.key === "Escape") popover.classList.remove("open");
-  });
-
-  document.querySelectorAll("[data-seg]").forEach((grid) => {
-    const key = grid.getAttribute("data-seg");
-    grid.querySelectorAll(".seg").forEach((b) => {
-      b.addEventListener("click", () => {
-        grid.querySelectorAll(".seg").forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
-        const val = b.getAttribute("data-val");
-        state[key] = val;
-        if (key === "titleMode") renderTitles();
-        if (key === "buttons") document.body.classList.toggle("btn-classic", val === "classic");
-        if (key === "bgFit") applyBgFit();
-      });
-    });
-  });
+  document.getElementById("open-settings-btn").addEventListener("click", openSettings);
+  document.getElementById("close-settings-btn").addEventListener("click", closeSettings);
+  document.getElementById("done-settings-btn").addEventListener("click", closeSettings);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeSettings(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSettings(); });
 
   const dimSlider = document.getElementById("dim-slider");
   const dimVal = document.getElementById("dim-val");
@@ -1371,8 +1205,25 @@
   document.getElementById("bg-url-btn").addEventListener("click", () => {
     const u = bgUrlInput.value.trim();
     if (!u) return;
-    const isVid = /\.(mp4|webm|ogg)(\?|$)/i.test(u);
-    setCustomMediaSource(u, isVid, "Custom URL");
+    setCustomBackground(u, /\.(mp4|webm|ogg)(\?|$)/i.test(u), "Custom URL");
+  });
+
+  document.getElementById("chk-show-skin").addEventListener("change", (e) => {
+    state.showSkin = e.target.checked;
+    document.body.classList.toggle("hide-skin", !state.showSkin);
+  });
+
+  const glassBtn = document.getElementById("style-glass-btn");
+  const classicBtn = document.getElementById("style-classic-btn");
+  glassBtn.addEventListener("click", () => {
+    document.body.classList.remove("btn-classic");
+    glassBtn.classList.add("active");
+    classicBtn.classList.remove("active");
+  });
+  classicBtn.addEventListener("click", () => {
+    document.body.classList.add("btn-classic");
+    classicBtn.classList.add("active");
+    glassBtn.classList.remove("active");
   });
 
   const skinInput = document.getElementById("skin-input");
@@ -1381,27 +1232,10 @@
     if (e.key === "Enter") loadPlayerSkin(skinInput.value);
   });
 
-  const copyBtn = document.getElementById("copy-prefs-btn");
-  copyBtn.addEventListener("click", async () => {
-    const text = [
-      "FnH v1.8 Menu Choices:",
-      "- Title: " + state.titleMode,
-      "- Buttons: " + state.buttons,
-      "- Default BG Preset: " + state.bgPreset,
-      "- Background Fit: " + state.bgFit,
-      "- Background Dimming: " + state.bgDim + "%"
-    ].join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast("Copied choices to clipboard");
-    } catch (_) {}
-  });
-
   // Boot
-  renderTitles();
-  applyBgFit();
+  renderFnhEditionSubtitle();
   applyBgDim();
-  setPresetBackground("1");
+  setDefaultBackground();
   drawFallbackSkin();
   initWebGL();
   loadPlayerSkin("BufferClick");
