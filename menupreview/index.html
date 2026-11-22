@@ -3,18 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FnH — Main Menu Preview</title>
-<meta name="description" content="Interactive live preview of the Minecraft FnH Edition main menu.">
+<title>FnH — Universal UI &amp; Main Menu Preview</title>
+<meta name="description" content="Interactive live preview of the universal Minecraft FnH Edition dark-glass UI and main menu.">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/assets/icon.png" sizes="256x256" type="image/png">
 <style>
   :root {
     --ui-font: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-    --glass-bg: rgba(10, 12, 20, 0.64);
-    --glass-bg-hover: rgba(18, 22, 36, 0.78);
+    --glass-bg: rgba(10, 12, 20, 0.66);
+    --glass-bg-hover: rgba(20, 24, 38, 0.80);
+    --glass-panel: rgba(9, 11, 19, 0.78);
+    --glass-card: rgba(14, 17, 28, 0.62);
+    --glass-card-selected: rgba(28, 34, 54, 0.82);
     --glass-border: rgba(255, 255, 255, 0.13);
     --text-main: rgba(248, 249, 252, 0.96);
-    --text-muted: rgba(255, 255, 255, 0.52);
+    --text-sub: rgba(255, 255, 255, 0.66);
+    --text-muted: rgba(255, 255, 255, 0.46);
+    --mb-mult: 1;
   }
 
   * {
@@ -35,7 +40,9 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Always-Stretched Full-Window Background */
+  /* =========================================================================
+     Always-Stretched Full-Window Background
+     ========================================================================= */
   .bg-layer {
     position: fixed;
     inset: 0;
@@ -66,20 +73,27 @@
     inset: 0;
     z-index: 1;
     pointer-events: none;
+    transition: background 0.25s ease;
     background:
       linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)),
       radial-gradient(circle at 50% 45%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.34) 100%);
+  }
+
+  body.in-subscreen .bg-dim {
+    background:
+      linear-gradient(rgba(4, 6, 14, 0.46), rgba(4, 6, 14, 0.46)),
+      radial-gradient(circle at 50% 45%, rgba(4, 6, 14, 0.24) 0%, rgba(4, 6, 14, 0.68) 100%) !important;
   }
 
   body.dragging-file::after {
     content: "Drop GIF / Image / Video to set Custom Background";
     position: fixed;
     inset: 16px;
-    z-index: 60;
+    z-index: 90;
     border: 1.5px dashed rgba(255, 255, 255, 0.68);
     border-radius: 12px;
-    background: rgba(8, 10, 18, 0.8);
-    backdrop-filter: blur(10px);
+    background: rgba(8, 10, 18, 0.82);
+    backdrop-filter: blur(12px);
     display: grid;
     place-items: center;
     font-size: 15px;
@@ -88,17 +102,229 @@
     pointer-events: none;
   }
 
-  /* Main Centered Vertical Screen (shifted slightly upward so upper elements breathe) */
-  .screen {
+  /* =========================================================================
+     Motion Blur Animations (Always resolves to filter: none so backdrop-filter stays crisp)
+     ========================================================================= */
+  @keyframes mbEnterUp {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 16px, 0) scale(0.975);
+      filter: blur(calc(12px * var(--mb-mult)));
+    }
+    65% {
+      opacity: 1;
+      filter: blur(calc(2.5px * var(--mb-mult)));
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+  }
+
+  @keyframes mbScreenIn {
+    0% {
+      opacity: 0;
+      transform: scale(0.962) translate3d(0, 18px, 0);
+      filter: blur(calc(15px * var(--mb-mult)));
+    }
+    70% {
+      opacity: 1;
+      filter: blur(calc(2px * var(--mb-mult)));
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+  }
+
+  @keyframes mbScreenOut {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+      filter: none;
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.038) translate3d(0, -10px, 0);
+      filter: blur(calc(14px * var(--mb-mult)));
+    }
+  }
+
+  @keyframes mbTabSlide {
+    0% {
+      opacity: 0;
+      transform: translate3d(18px, 0, 0);
+      filter: blur(calc(11px * var(--mb-mult)));
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+  }
+
+  .mb-stagger {
+    animation: mbEnterUp 0.34s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    animation-delay: calc(var(--i, 0) * 38ms);
+  }
+
+  .mb-tab-anim {
+    animation: mbTabSlide 0.24s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+  }
+
+  /* =========================================================================
+     Universal Cursor-Tracking Glow System
+     ========================================================================= */
+  .glow-ui {
+    --mx: -999px;
+    --my: -999px;
     position: relative;
+  }
+
+  .glow-ui::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      220px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.88),
+      rgba(202, 216, 255, 0.34) 42%,
+      transparent 74%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
     z-index: 2;
-    width: 100vw;
-    height: 100vh;
+  }
+
+  .glow-ui::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      165px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.16),
+      rgba(195, 210, 255, 0.05) 48%,
+      transparent 75%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .glow-panel::after {
+    background: radial-gradient(
+      320px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.065),
+      transparent 72%
+    );
+  }
+
+  .glow-ui > * {
+    position: relative;
+    z-index: 3;
+  }
+
+  /* =========================================================================
+     Universal Dark-Glass Buttons & Controls
+     ========================================================================= */
+  .btn {
+    height: clamp(35px, 4.3vh, 39px);
+    padding: 0 15px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    color: var(--text-main);
+    font-family: var(--ui-font);
+    font-size: 13.5px;
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1),
+      box-shadow 0.16s ease,
+      color 0.14s ease,
+      filter 0.14s ease;
+    box-shadow:
+      0 4px 16px rgba(0, 0, 0, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .btn:hover:not(:disabled) {
+    background: var(--glass-bg-hover);
+    color: #ffffff;
+    transform: translateY(-1px) scale(1.012);
+    box-shadow:
+      0 7px 24px rgba(0, 0, 0, 0.54),
+      0 0 18px rgba(215, 225, 255, 0.14);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.985);
+    filter: blur(calc(1.2px * var(--mb-mult)));
+  }
+
+  .btn:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+  }
+
+  .btn-sm {
+    height: 33px;
+    padding: 0 12px;
+    font-size: 12.5px;
+  }
+
+  .btn-primary {
+    background: rgba(240, 244, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #fff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: rgba(165, 38, 48, 0.42);
+    border-color: rgba(255, 120, 130, 0.45);
+  }
+
+  /* =========================================================================
+     Home Main Menu Screen
+     ========================================================================= */
+  .home-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 6px 0 60px;
+    padding: 8px 0 56px;
+    transition: opacity 0.22s ease;
+  }
+
+  .home-screen.leaving {
+    pointer-events: none;
+    animation: mbScreenOut 0.22s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+  }
+
+  .home-screen.hidden {
+    display: none;
+  }
+
+  .home-screen.entering {
+    animation: mbScreenIn 0.3s cubic-bezier(0.2, 0.88, 0.28, 1) both;
   }
 
   .center-stack {
@@ -108,13 +334,14 @@
     width: 100%;
   }
 
-  /* 1. Official Minecraft Logo + White Splash + Bigger [FnH Emblem] EDITION */
+  /* 1. Title Block */
   .title-block {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    z-index: 4;
   }
 
   .mc-logo-wrap {
@@ -123,24 +350,23 @@
   }
 
   .mc-logo {
-    width: clamp(300px, 34vw, 430px);
-    max-width: 90vw;
+    width: clamp(290px, 32.5vw, 415px);
+    max-width: 88vw;
     height: auto;
     display: block;
-    filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.72));
+    filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.74));
     pointer-events: none;
   }
 
-  /* Crisp White Splash "made by Buffer" */
   .splash {
     position: absolute;
     right: -12px;
-    bottom: -6px;
+    bottom: -5px;
     transform: rotate(-17deg);
     color: #ffffff;
     font-family: "Courier New", Consolas, monospace;
     font-weight: 700;
-    font-size: clamp(13px, 1.35vw, 16px);
+    font-size: clamp(13px, 1.32vw, 15.5px);
     letter-spacing: 0.02em;
     white-space: nowrap;
     text-shadow:
@@ -155,48 +381,51 @@
     to   { transform: rotate(-17deg) scale(1.065); }
   }
 
-  /* Bigger Chiseled [FnH Emblem] EDITION Subtitle */
   #fnh-edition-canvas {
     display: block;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    height: clamp(36px, 4.6vh, 48px);
+    height: clamp(35px, 4.5vh, 46px);
     width: auto;
     max-width: 86vw;
     filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.82));
   }
 
-  /* 2. Full-Viewport-Width Stage so BufferClick walks in from OUTSIDE the right screen edge */
+  /* 2. Unobstructed Walk-In Lane + Distortion-Free Narrow-FOV Skin Viewport */
   .skin-stage {
     position: relative;
     width: 100vw;
-    height: clamp(162px, 23.5vh, 224px);
-    margin: 0 0 clamp(20px, 3vh, 30px);
+    height: clamp(168px, 23vh, 218px);
+    margin: 2px 0 clamp(16px, 2.5vh, 24px);
     display: flex;
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    z-index: 3;
   }
 
   body.hide-skin .skin-stage {
     display: none;
   }
 
+  /* Narrow square-ish mover eliminates ALL wide-angle edge stretching during walk-in */
+  .skin-mover {
+    position: relative;
+    width: clamp(168px, 23vh, 218px);
+    height: 100%;
+    will-change: transform, filter;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62));
+  }
+
   #skin-canvas {
     width: 100%;
     height: 100%;
     display: block;
-    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62));
   }
 
-  /* Centered interactive drag hit-box */
   .skin-hit-box {
     position: absolute;
-    width: 136px;
-    height: 92%;
-    left: 50%;
-    top: 4%;
-    transform: translateX(-50%);
+    inset: 6% 14%;
     pointer-events: auto;
     cursor: grab;
   }
@@ -205,12 +434,13 @@
     cursor: grabbing;
   }
 
-  /* 3. Dark-Glass Menu Buttons with Dynamic Cursor-Tracking Glow */
+  /* 3. Main Menu Buttons */
   .menu-buttons {
-    width: clamp(252px, 26vw, 290px);
+    width: clamp(254px, 26vw, 292px);
     display: flex;
     flex-direction: column;
     gap: 7px;
+    z-index: 4;
   }
 
   .menu-row-split {
@@ -220,109 +450,24 @@
     width: 100%;
   }
 
-  .btn,
-  .s-btn,
-  .settings-dialog {
-    --mx: -999px;
-    --my: -999px;
-  }
-
-  .btn {
-    position: relative;
-    height: clamp(35px, 4.3vh, 39px);
-    padding: 0 14px;
-    border-radius: 6px;
-    border: 1px solid var(--glass-border);
-    background: var(--glass-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    color: var(--text-main);
-    font-family: var(--ui-font);
-    font-size: 13.5px;
-    font-weight: 500;
-    letter-spacing: 0.015em;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    cursor: pointer;
-    transition: background 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease, color 0.14s ease;
-    box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  }
-
-  /* Proximity Cursor-Tracking Luminous Rim Border */
-  .btn::before,
-  .s-btn::before,
-  .settings-dialog::before {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    padding: 1px;
-    background: radial-gradient(
-      215px circle at var(--mx) var(--my),
-      rgba(255, 255, 255, 0.85),
-      rgba(205, 218, 255, 0.34) 42%,
-      transparent 74%
-    );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    pointer-events: none;
-    z-index: 2;
-  }
-
-  /* Proximity Cursor-Tracking Inner Glass Surface Glow */
-  .btn::after,
-  .s-btn::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: radial-gradient(
-      155px circle at var(--mx) var(--my),
-      rgba(255, 255, 255, 0.18),
-      rgba(195, 210, 255, 0.06) 48%,
-      transparent 76%
-    );
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .btn > *,
-  .s-btn > * {
-    position: relative;
-    z-index: 3;
-  }
-
-  .btn:hover {
-    background: var(--glass-bg-hover);
-    color: #ffffff;
-    box-shadow:
-      0 6px 24px rgba(0, 0, 0, 0.52),
-      0 0 18px rgba(215, 225, 255, 0.14);
-  }
-
-  .btn:active {
-    transform: translateY(1px);
-  }
-
-  /* Bottom Bar: Version Left + "FnH" Button Bottom-Right */
+  /* Bottom Bar */
   .footer-bar {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 10;
+    z-index: 8;
     padding: 12px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  body.in-subscreen .footer-bar {
+    opacity: 0;
   }
 
   .footer-meta {
@@ -340,171 +485,454 @@
     font-weight: 600;
   }
 
-  /* FnH Dialog */
-  .settings-backdrop {
+  /* =========================================================================
+     Universal FnH Sub-Screens (Singleplayer, Multiplayer, Mods, Options, FnH)
+     ========================================================================= */
+  .subscreen-layer {
     position: fixed;
     inset: 0;
-    z-index: 40;
-    background: rgba(4, 6, 14, 0.62);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    z-index: 20;
     display: none;
-    place-items: center;
-    padding: 16px;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(14px, 3vh, 32px) clamp(14px, 3vw, 36px);
   }
 
-  .settings-backdrop.open {
-    display: grid;
+  .subscreen-layer.active {
+    display: flex;
   }
 
-  .settings-dialog {
-    position: relative;
-    width: min(390px, 94vw);
-    border-radius: 11px;
-    background: rgba(11, 13, 22, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.78);
-    padding: 18px;
+  .u-window {
+    width: min(880px, 96vw);
+    height: min(610px, 90vh);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--glass-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow:
+      0 28px 80px rgba(0, 0, 0, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    overflow: hidden;
   }
 
-  .settings-top {
+  .u-window.compact {
+    width: min(460px, 94vw);
+    height: auto;
+    max-height: 90vh;
+  }
+
+  .u-window.entering {
+    animation: mbScreenIn 0.28s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+  }
+
+  .u-window.leaving {
+    pointer-events: none;
+    animation: mbScreenOut 0.2s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+  }
+
+  .u-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    gap: 14px;
+    flex-shrink: 0;
   }
 
-  .settings-title-wrap {
+  .u-title-group {
     display: flex;
     align-items: center;
+    gap: 10px;
+  }
+
+  .u-title-group h2 {
+    margin: 0;
+    font-size: 15.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #fff;
+  }
+
+  .u-pill {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-sub);
+  }
+
+  .u-search {
+    width: clamp(170px, 24vw, 250px);
+    height: 32px;
+    padding: 0 11px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(0, 0, 0, 0.36);
+    color: #fff;
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .u-search:focus {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(0, 0, 0, 0.52);
+  }
+
+  .u-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    will-change: filter;
+  }
+
+  .u-body::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .u-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+  }
+
+  .u-footer {
+    padding: 13px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    background: rgba(5, 7, 14, 0.38);
+  }
+
+  .u-footer-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Universal Selectable Cards (Worlds / Servers / Mods / Resource Packs) */
+  .u-card {
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    background: var(--glass-card);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    cursor: pointer;
+    transition: background 0.14s ease, transform 0.14s ease, border-color 0.14s ease;
+  }
+
+  .u-card:hover {
+    background: rgba(22, 27, 44, 0.75);
+    transform: translateY(-1px);
+  }
+
+  .u-card.selected {
+    background: var(--glass-card-selected);
+    border-color: rgba(255, 255, 255, 0.38);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
+  }
+
+  .u-card-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .u-icon-box {
+    width: 40px;
+    height: 40px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.9);
+    flex-shrink: 0;
+  }
+
+  .u-card-info {
+    min-width: 0;
+  }
+
+  .u-card-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .u-card-meta {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .u-card-right {
+    text-align: right;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-sub);
+  }
+
+  .ping-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: rgba(210, 245, 225, 0.9);
+  }
+
+  .ping-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #6ee7b7;
+    box-shadow: 0 0 8px rgba(110, 231, 183, 0.65);
+  }
+
+  /* Two-Pane Split Layout (Mods & Options Tabs) */
+  .u-split {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 215px 1fr;
+    overflow: hidden;
+  }
+
+  @media (max-width: 680px) {
+    .u-split {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
+  }
+
+  .u-sidebar {
+    border-right: 1px solid rgba(255, 255, 255, 0.09);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    overflow-y: auto;
+    background: rgba(5, 7, 14, 0.28);
+  }
+
+  .u-tab-btn {
+    height: 35px;
+    padding: 0 12px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-sub);
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.13s ease;
+  }
+
+  .u-tab-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .u-tab-btn.active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.13);
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+
+  .u-pane {
+    padding: 16px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    will-change: filter;
+  }
+
+  /* Universal Settings Rows (Sliders, Toggles, Cycle Pills, Keybinds) */
+  .setting-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 9px;
   }
 
-  .settings-title-wrap img {
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
+  @media (max-width: 640px) {
+    .setting-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .settings-top h3 {
-    margin: 0;
-    font-size: 14.5px;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .close-icon-btn {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.55);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 2px 6px;
-  }
-
-  .close-icon-btn:hover {
-    color: #fff;
-  }
-
-  .field-group {
+  .setting-item {
+    padding: 10px 13px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(14, 17, 28, 0.58);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    justify-content: center;
+    gap: 7px;
   }
 
-  .field-label {
+  .setting-item.row-inline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .setting-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .setting-val {
+    font-size: 11.5px;
+    color: var(--text-sub);
+    font-variant-numeric: tabular-nums;
+  }
+
+  input[type="range"].u-range {
+    width: 100%;
+    accent-color: #ffffff;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  /* Sleek Glass Switch */
+  .u-switch {
+    position: relative;
+    width: 38px;
+    height: 21px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease;
+    flex-shrink: 0;
+  }
+
+  .u-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.8);
+    transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.16s ease;
+  }
+
+  .u-switch.on {
+    background: rgba(255, 255, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.58);
+  }
+
+  .u-switch.on::after {
+    transform: translateX(17px);
+    background: #ffffff;
+  }
+
+  .keybind-btn {
+    min-width: 92px;
+    height: 28px;
+    padding: 0 10px;
+    font-size: 11.5px;
+    font-family: "Courier New", Consolas, monospace;
+    font-weight: 600;
+  }
+
+  .keybind-btn.listening {
+    background: rgba(255, 255, 255, 0.24);
+    border-color: #fff;
+    color: #fff;
+  }
+
+  .u-field-label {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.48);
+    color: var(--text-muted);
+    margin-top: 2px;
   }
 
-  .bg-actions-row {
-    display: grid;
-    grid-template-columns: 1fr 1.35fr;
+  .u-input-row {
+    display: flex;
     gap: 7px;
   }
 
-  .s-btn {
-    position: relative;
-    height: 33px;
-    padding: 0 11px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.86);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-  }
-
-  .s-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.11);
-  }
-
-  .s-btn.active {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.44);
-  }
-
-  .input-row {
-    display: flex;
-    gap: 6px;
-  }
-
-  .input-row input {
+  .u-input {
     flex: 1;
     min-width: 0;
-    height: 32px;
-    padding: 0 10px;
+    height: 34px;
+    padding: 0 11px;
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     background: rgba(0, 0, 0, 0.42);
     color: #fff;
     font-family: var(--ui-font);
-    font-size: 12px;
+    font-size: 12.5px;
+    outline: none;
     user-select: text;
     -webkit-user-select: text;
   }
 
-  .range-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+  .u-input:focus {
+    border-color: rgba(255, 255, 255, 0.45);
   }
 
-  .range-row input[type="range"] {
-    flex: 1;
-    accent-color: #ffffff;
-    cursor: pointer;
+  /* Loading / Connecting Overlay */
+  .loading-bar-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    margin: 10px 0 4px;
   }
 
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12.5px;
-    color: rgba(255, 255, 255, 0.88);
-    padding: 3px 0;
-    cursor: pointer;
-  }
-
-  .toggle-row input {
-    accent-color: #ffffff;
-    width: 15px;
-    height: 15px;
-    cursor: pointer;
+  .loading-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 999px;
+    transition: width 0.22s ease;
   }
 
   .toast {
@@ -512,14 +940,14 @@
     top: 18px;
     left: 50%;
     transform: translateX(-50%) translateY(-8px);
-    z-index: 55;
+    z-index: 80;
     padding: 7px 14px;
     border-radius: 7px;
-    background: rgba(10, 12, 20, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(10, 12, 20, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     backdrop-filter: blur(12px);
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.92);
+    color: rgba(255, 255, 255, 0.94);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.18s ease, transform 0.18s ease;
@@ -547,11 +975,12 @@
 
 <input type="file" id="custom-bg-input" accept="image/*,video/*" hidden>
 
-<!-- Main Menu Vertical Stack -->
-<main class="screen">
+<!-- =========================================================================
+     1. HOME MAIN MENU SCREEN
+     ========================================================================= -->
+<main class="home-screen" id="home-screen">
   <div class="center-stack">
-    <!-- 1. Official MINECRAFT Logo + White "made by Buffer" Splash + Larger [FnH Emblem] EDITION -->
-    <div class="title-block">
+    <div class="title-block mb-stagger" style="--i: 0;">
       <div class="mc-logo-wrap">
         <img
           class="mc-logo"
@@ -564,30 +993,32 @@
       <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
     </div>
 
-    <!-- 2. BufferClick 3D Skin: Walks in from outside right edge of screen, then stands straight & tracks cursor -->
+    <!-- Distortion-Free Narrow-FOV Mover: walks in from completely off-screen right -->
     <div class="skin-stage">
-      <canvas id="skin-canvas" width="1280" height="440"></canvas>
-      <div class="skin-hit-box" id="skin-drag-area" title="Drag to spin"></div>
+      <div class="skin-mover" id="skin-mover">
+        <canvas id="skin-canvas" width="440" height="440"></canvas>
+        <div class="skin-hit-box" id="skin-drag-area" title="Drag to spin"></div>
+      </div>
     </div>
 
-    <!-- 3. Dark-Glass Menu Buttons -->
-    <div class="menu-buttons">
-      <button class="btn glow-ui" data-action="Singleplayer"><span>Singleplayer</span></button>
-      <button class="btn glow-ui" data-action="Multiplayer"><span>Multiplayer</span></button>
-      <button class="btn glow-ui" data-action="Mods"><span>Mods</span></button>
-      <div class="menu-row-split">
-        <button class="btn glow-ui" data-action="Options"><span>Options...</span></button>
-        <button class="btn glow-ui" data-action="Quit Game"><span>Quit Game</span></button>
+    <!-- Universal Dark-Glass Menu Buttons with Staggered Motion-Blur Entrance -->
+    <div class="menu-buttons" id="main-menu-buttons">
+      <button class="btn glow-ui mb-stagger" style="--i: 1;" data-screen="singleplayer"><span>Singleplayer</span></button>
+      <button class="btn glow-ui mb-stagger" style="--i: 2;" data-screen="multiplayer"><span>Multiplayer</span></button>
+      <button class="btn glow-ui mb-stagger" style="--i: 3;" data-screen="mods"><span>Mods</span></button>
+      <div class="menu-row-split mb-stagger" style="--i: 4;">
+        <button class="btn glow-ui" data-screen="options"><span>Options...</span></button>
+        <button class="btn glow-ui" data-screen="quit"><span>Quit Game</span></button>
       </div>
     </div>
   </div>
 </main>
 
-<!-- Bottom Bar: Version Info Left + "FnH" Button Bottom-Right -->
+<!-- Bottom Bar -->
 <footer class="footer-bar">
-  <div class="footer-meta">Minecraft 1.21.11 · FnH</div>
+  <div class="footer-meta">Minecraft 1.21.11 · FnH Universal UI</div>
 
-  <button class="btn glow-ui fnh-corner-btn" id="open-settings-btn" type="button">
+  <button class="btn glow-ui fnh-corner-btn mb-stagger" style="--i: 5;" data-screen="fnh" type="button">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"/>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -596,56 +1027,11 @@
   </button>
 </footer>
 
-<!-- FnH Modal -->
-<div class="settings-backdrop" id="settings-backdrop">
-  <div class="settings-dialog glow-ui" role="dialog" aria-modal="true" aria-labelledby="fnh-settings-heading">
-    <div class="settings-top">
-      <div class="settings-title-wrap">
-        <img src="/assets/icon.svg" onerror="this.onerror=null;this.src='/site/assets/icon.svg'" alt="">
-        <h3 id="fnh-settings-heading">FnH</h3>
-      </div>
-      <button class="close-icon-btn" id="close-settings-btn" type="button" title="Close (Esc)">&#x2715;</button>
-    </div>
-
-    <div class="field-group">
-      <span class="field-label">Menu Background</span>
-      <div class="bg-actions-row">
-        <button class="s-btn glow-ui active" id="default-bg-btn" type="button"><span>Default</span></button>
-        <button class="s-btn glow-ui" id="pick-custom-bg-btn" type="button"><span>Choose Custom File…</span></button>
-      </div>
-      <div class="input-row">
-        <input type="text" id="bg-url-input" placeholder="Or paste GIF / image URL…" spellcheck="false">
-        <button class="s-btn glow-ui" id="bg-url-btn" type="button"><span>Apply</span></button>
-      </div>
-    </div>
-
-    <div class="field-group">
-      <span class="field-label">Background Dimming</span>
-      <div class="range-row">
-        <input type="range" id="dim-slider" min="0" max="65" value="8">
-        <span id="dim-val">8%</span>
-      </div>
-    </div>
-
-    <div class="field-group">
-      <span class="field-label">Main Menu</span>
-      <label class="toggle-row">
-        <span>Show 3D Player Skin</span>
-        <input type="checkbox" id="chk-show-skin" checked>
-      </label>
-      <button class="s-btn glow-ui" id="replay-intro-btn" type="button" style="width: 100%; margin-top: 2px;"><span>Replay Walk-In</span></button>
-    </div>
-
-    <div class="field-group">
-      <span class="field-label">Preview Player Skin</span>
-      <div class="input-row">
-        <input type="text" id="skin-input" value="BufferClick" spellcheck="false">
-        <button class="s-btn glow-ui" id="skin-btn" type="button"><span>Load</span></button>
-      </div>
-    </div>
-
-    <button class="btn glow-ui" id="done-settings-btn" type="button" style="width: 100%; margin-top: 2px;"><span>Done</span></button>
-  </div>
+<!-- =========================================================================
+     2. UNIVERSAL SUB-SCREEN CONTAINER (Renders Singleplayer / Multiplayer / Mods / Options / Quit / FnH)
+     ========================================================================= -->
+<div class="subscreen-layer" id="subscreen-layer">
+  <div class="u-window glow-ui glow-panel" id="u-window"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -657,13 +1043,127 @@
   const BUFFERCLICK_UUID = "1b7a28177df149828231b48f5909ca95";
   const DEFAULT_BG = "/menupreview/presets/milkyway-bg.gif";
 
+  // Universal State across Main Menu + All Minecraft / FnH Settings
   const state = {
     bgDim: 8,
+    bgIsCustom: false,
+    motionBlur: 100, // 0..100%
     showSkin: true,
     slimArms: false,
     username: "BufferClick",
-    introStart: performance.now()
+    introStart: performance.now(),
+    activeScreen: null,
+    optionsTab: "video",
+
+    // Live 3D Skin Layers (wired directly to Options -> Skin Customization!)
+    skinLayers: {
+      hat: true,
+      jacket: true,
+      lSleeve: true,
+      rSleeve: true,
+      lPants: true,
+      rPants: true
+    },
+
+    // Video Settings
+    video: {
+      renderDistance: 16,
+      simDistance: 12,
+      maxFps: 240,
+      fov: 90,
+      guiScale: "Auto",
+      graphics: "Fabulous!",
+      brightness: 100,
+      vsync: false,
+      fullscreen: false,
+      dynamicFov: true,
+      entityShadows: true
+    },
+
+    // Audio Settings
+    audio: {
+      master: 100,
+      music: 35,
+      blocks: 100,
+      hostile: 100,
+      players: 100,
+      weather: 70,
+      ambient: 85,
+      subtitles: true
+    },
+
+    // Controls & Keybinds
+    controls: {
+      sensitivity: 100,
+      rawInput: true,
+      autoJump: false,
+      toggleSprint: true,
+      toggleSneak: false,
+      binds: [
+        { action: "Walk Forward", key: "W" },
+        { action: "Strafe Left", key: "A" },
+        { action: "Walk Backward", key: "S" },
+        { action: "Strafe Right", key: "D" },
+        { action: "Jump", key: "Space" },
+        { action: "Sprint", key: "Left Ctrl" },
+        { action: "Sneak", key: "Left Shift" },
+        { action: "Inventory", key: "E" },
+        { action: "Swap Offhand", key: "F" },
+        { action: "Open Chat", key: "T" },
+        { action: "FnH Overlay", key: "Right Shift" }
+      ]
+    },
+
+    // Accessibility & Chat
+    chat: {
+      opacity: 100,
+      scale: 100,
+      textBgOpacity: 50,
+      fovEffects: 100,
+      distortionEffects: 100,
+      highContrast: false
+    },
+
+    // Resource Packs
+    packs: [
+      { id: "fnh-glass", name: "FnH Universal Dark Glass", desc: "Built-in universal smoked-glass UI & cursor glow", enabled: true, locked: true },
+      { id: "low-fire", name: "Low Shield & Fire 1.21", desc: "Cleaner PvP/survival first-person view", enabled: true, locked: false },
+      { id: "comp", name: "Complementary Unbound", desc: "Atmospheric sky & water reflections", enabled: false, locked: false },
+      { id: "vanilla", name: "Minecraft Default", desc: "Base 1.21.11 game textures", enabled: true, locked: true }
+    ],
+
+    // Singleplayer Worlds
+    selectedWorld: 0,
+    worlds: [
+      { name: "Buffer's Survival", mode: "Survival Mode", info: "Cheats Off · 1.21.11 · Day 284", last: "Today, 16:14", tag: "SURV" },
+      { name: "UI & Redstone Test", mode: "Creative Mode", info: "Superflat · Cheats On · 1.21.11", last: "Yesterday", tag: "CREA" },
+      { name: "Hardcore Run #4", mode: "Hardcore Mode", info: "Locked Difficulty · 1.21.11 · Day 96", last: "3 days ago", tag: "HARD" }
+    ],
+
+    // Multiplayer Servers
+    selectedServer: 0,
+    servers: [
+      { name: "FnH Official SMP", ip: "smp.fnh.is-cool.dev", motd: "Season 2 · Universal Dark Glass Update", players: "18 / 60", ping: 11, tag: "FnH" },
+      { name: "Hypixel Network", ip: "mc.hypixel.net", motd: "SkyBlock, BedWars & Arcade Games [1.8-1.21]", players: "42,610 / 200,000", ping: 26, tag: "HYP" },
+      { name: "Hoplite", ip: "hoplite.gg", motd: "Battle Royale & Duels · 1.21.11", players: "3,480 / 10,000", ping: 29, tag: "HOP" },
+      { name: "Minemen Club", ip: "eu.minemen.club", motd: "Competitive Practice · Low Ping EU", players: "1,940 / 5,000", ping: 17, tag: "MMC" }
+    ],
+
+    // Mods
+    selectedMod: 0,
+    mods: [
+      { name: "FnH Universal UI", ver: "v1.8.0", author: "Buffer", enabled: true, locked: true, desc: "Replaces all main menu, world, server, and settings screens with universal dark smoked-glass, cursor-tracking rim glow, and directional motion blur." },
+      { name: "Sodium", ver: "v0.6.5", author: "CaffeineMC", enabled: true, locked: false, desc: "Modern chunk & terrain rendering engine delivering massive frame rate gains and micro-stutter elimination." },
+      { name: "Iris Shaders", ver: "v1.8.4", author: "IMS & Coderbot", enabled: true, locked: false, desc: "Seamless shader pack pipeline built for Sodium on Minecraft 1.21.11." },
+      { name: "Lithium", ver: "v0.14.3", author: "CaffeineMC", enabled: true, locked: false, desc: "General-purpose server/physics/AI tick optimizations without altering vanilla behavior." },
+      { name: "FerriteCore", ver: "v7.1.1", author: "malte0811", enabled: true, locked: false, desc: "Reduces RAM footprint of blockstates and model baked quads." }
+    ]
   };
+
+  function syncMotionBlurVar() {
+    document.documentElement.style.setProperty("--mb-mult", (state.motionBlur / 100).toFixed(2));
+  }
+  syncMotionBlurVar();
 
   let toastTimer = null;
   function showToast(msg) {
@@ -671,20 +1171,20 @@
     el.textContent = msg;
     el.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1900);
   }
 
-  // ---------------------------------------------------------------------------
-  // 0. Dynamic Cursor-Tracking Glow Across All UI Elements
-  // ---------------------------------------------------------------------------
-  const glowTargets = Array.from(document.querySelectorAll(".glow-ui"));
+  // =========================================================================
+  // 0. Universal Cursor-Tracking Glow + Scroll Motion Blur
+  // =========================================================================
   let cursorClientX = window.innerWidth * 0.5;
   let cursorClientY = window.innerHeight * 0.5;
   let hasMovedCursor = false;
 
-  function updateUiGlow(cx, cy) {
-    for (let i = 0; i < glowTargets.length; i++) {
-      const el = glowTargets[i];
+  function updateAllGlows(cx, cy) {
+    const els = document.querySelectorAll(".glow-ui");
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue;
       el.style.setProperty("--mx", (cx - r.left).toFixed(1) + "px");
@@ -696,19 +1196,40 @@
     cursorClientX = e.clientX;
     cursorClientY = e.clientY;
     hasMovedCursor = true;
-    updateUiGlow(cursorClientX, cursorClientY);
+    updateAllGlows(cursorClientX, cursorClientY);
   });
 
   window.addEventListener("pointerleave", () => {
-    for (let i = 0; i < glowTargets.length; i++) {
-      glowTargets[i].style.setProperty("--mx", "-999px");
-      glowTargets[i].style.setProperty("--my", "-999px");
+    const els = document.querySelectorAll(".glow-ui");
+    for (let i = 0; i < els.length; i++) {
+      els[i].style.setProperty("--mx", "-999px");
+      els[i].style.setProperty("--my", "-999px");
     }
   });
 
-  // ---------------------------------------------------------------------------
-  // 1. Render Larger Bold "[FnH Emblem] EDITION" in Chiseled Warm Stone
-  // ---------------------------------------------------------------------------
+  function attachScrollMotionBlur(scrollEl) {
+    if (!scrollEl) return;
+    let lastTop = scrollEl.scrollTop;
+    let clearTimer = null;
+    scrollEl.addEventListener("scroll", () => {
+      const dy = Math.abs(scrollEl.scrollTop - lastTop);
+      lastTop = scrollEl.scrollTop;
+      const mult = state.motionBlur / 100;
+      const blur = Math.min(4.5, dy * 0.14) * mult;
+      if (blur > 0.25) {
+        scrollEl.style.filter = `blur(${blur.toFixed(2)}px)`;
+      }
+      updateAllGlows(cursorClientX, cursorClientY);
+      clearTimeout(clearTimer);
+      clearTimer = setTimeout(() => {
+        scrollEl.style.filter = "none";
+      }, 75);
+    }, { passive: true });
+  }
+
+  // =========================================================================
+  // 1. Chiseled "[FnH Emblem] EDITION" Subtitle
+  // =========================================================================
   const FNH_EMBLEM_13 = [
     "111111110110011",
     "111111110110011",
@@ -726,85 +1247,24 @@
   ];
 
   const EDITION_GLYPHS = {
-    E: [
-      "1111111",
-      "1111111",
-      "1100000",
-      "1111110",
-      "1111110",
-      "1100000",
-      "1100000",
-      "1111111",
-      "1111111"
-    ],
-    D: [
-      "1111110",
-      "1111111",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1111111",
-      "1111110"
-    ],
-    I: [
-      "111111",
-      "111111",
-      "001100",
-      "001100",
-      "001100",
-      "001100",
-      "001100",
-      "111111",
-      "111111"
-    ],
-    T: [
-      "11111111",
-      "11111111",
-      "00011000",
-      "00011000",
-      "00011000",
-      "00011000",
-      "00011000",
-      "00011000",
-      "00011000"
-    ],
-    O: [
-      "0111110",
-      "1111111",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1100011",
-      "1111111",
-      "0111110"
-    ],
-    N: [
-      "11100011",
-      "11110011",
-      "11111011",
-      "11111111",
-      "11011111",
-      "11001111",
-      "11000111",
-      "11000111",
-      "11000111"
-    ]
+    E: ["1111111","1111111","1100000","1111110","1111110","1100000","1100000","1111111","1111111"],
+    D: ["1111110","1111111","1100011","1100011","1100011","1100011","1100011","1111111","1111110"],
+    I: ["111111","111111","001100","001100","001100","001100","001100","111111","111111"],
+    T: ["11111111","11111111","00011000","00011000","00011000","00011000","00011000","00011000","00011000"],
+    O: ["0111110","1111111","1100011","1100011","1100011","1100011","1100011","1111111","0111110"],
+    N: ["11100011","11110011","11111011","11111111","11011111","11001111","11000111","11000111","11000111"]
   };
 
   function renderFnhEditionSubtitle() {
     const canvas = document.getElementById("fnh-edition-canvas");
     const word = "EDITION";
-    const totalRows = 13;
     let editionWidth = 0;
     for (let i = 0; i < word.length; i++) {
       editionWidth += EDITION_GLYPHS[word[i]][0].length + (i + 1 < word.length ? 1 : 0);
     }
 
     const grid = [];
-    for (let r = 0; r < totalRows; r++) {
+    for (let r = 0; r < 13; r++) {
       let edLine = "";
       if (r >= 2 && r < 11) {
         const er = r - 2;
@@ -817,20 +1277,14 @@
       grid.push(FNH_EMBLEM_13[r] + "00000" + edLine);
     }
 
-    const h = grid.length;
-    const w = grid[0].length;
-    const scale = 6;
-    const depthRows = 3;
-    const pad = 2;
-    const cw = (w + pad * 2) * scale;
-    const ch = (h + depthRows + pad * 2) * scale;
+    const h = grid.length, w = grid[0].length, scale = 6, depthRows = 3, pad = 2;
+    const cw = (w + pad * 2) * scale, ch = (h + depthRows + pad * 2) * scale;
     canvas.width = cw;
     canvas.height = ch;
 
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cw, ch);
-
     const has = (r, c) => r >= 0 && r < h && c >= 0 && c < w && grid[r][c] !== "0";
 
     ctx.fillStyle = "#090808";
@@ -838,8 +1292,7 @@
       for (let c = 0; c < w; c++) {
         if (!has(r, c)) continue;
         for (let d = 0; d <= depthRows; d++) {
-          const px = (c + pad) * scale;
-          const py = (r + pad + d) * scale;
+          const px = (c + pad) * scale, py = (r + pad + d) * scale;
           ctx.fillRect(px - scale, py, scale * 3, scale);
           ctx.fillRect(px, py - scale, scale, scale * 3);
         }
@@ -850,23 +1303,21 @@
       ctx.fillStyle = d === depthRows ? "#35302e" : d === 2 ? "#4a4340" : "#5d5552";
       for (let r = 0; r < h; r++) {
         for (let c = 0; c < w; c++) {
-          if (!has(r, c)) continue;
-          ctx.fillRect((c + pad) * scale, (r + pad + d) * scale, scale, scale);
+          if (has(r, c)) ctx.fillRect((c + pad) * scale, (r + pad + d) * scale, scale, scale);
         }
       }
     }
 
     const stoneShades = [
-      "#e0d9d5", "#dad2ce", "#d4ccc8", "#cec5c1", "#c7beba",
-      "#c1b8b4", "#bbb1ad", "#b4aba7", "#aea4a0", "#a89d99",
-      "#a29793", "#9d928e", "#988d89"
+      "#e0d9d5","#dad2ce","#d4ccc8","#cec5c1","#c7beba",
+      "#c1b8b4","#bbb1ad","#b4aba7","#aea4a0","#a89d99",
+      "#a29793","#9d928e","#988d89"
     ];
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         const cell = grid[r][c];
         if (cell === "0") continue;
-        const px = (c + pad) * scale;
-        const py = (r + pad) * scale;
+        const px = (c + pad) * scale, py = (r + pad) * scale;
         const topEdge = !has(r - 1, c);
         if (cell === "2") {
           ctx.fillStyle = topEdge ? "#d4cdc9" : "#948985";
@@ -880,14 +1331,13 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 2. Background Manager (Default Milky Way GIF + Custom File/URL, Always Stretched)
-  // ---------------------------------------------------------------------------
+  // =========================================================================
+  // 2. Background Manager (Default Milky Way GIF + Custom File/URL)
+  // =========================================================================
   const bgImg = document.getElementById("bg-img");
   const bgVideo = document.getElementById("bg-video");
   const bgDim = document.getElementById("bg-dim");
-  const defaultBgBtn = document.getElementById("default-bg-btn");
-  const customBgBtn = document.getElementById("pick-custom-bg-btn");
+  const fileInput = document.getElementById("custom-bg-input");
   let customObjectUrl = null;
 
   function applyBgDim() {
@@ -905,8 +1355,7 @@
       bgImg.src = "presets/milkyway-bg.gif";
     };
     bgImg.src = DEFAULT_BG;
-    defaultBgBtn.classList.add("active");
-    customBgBtn.classList.remove("active");
+    state.bgIsCustom = false;
   }
 
   function setCustomBackground(src, isVideo, label) {
@@ -921,8 +1370,7 @@
       bgImg.style.display = "block";
       bgImg.src = src;
     }
-    defaultBgBtn.classList.remove("active");
-    customBgBtn.classList.add("active");
+    state.bgIsCustom = true;
     if (label) showToast("Background set: " + label);
   }
 
@@ -931,14 +1379,9 @@
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
     customObjectUrl = URL.createObjectURL(file);
     setCustomBackground(customObjectUrl, file.type.startsWith("video/"), file.name);
+    if (state.activeScreen === "fnh") renderFnHScreen(false);
   }
 
-  const fileInput = document.getElementById("custom-bg-input");
-  defaultBgBtn.addEventListener("click", () => {
-    setDefaultBackground();
-    showToast("Restored default background");
-  });
-  customBgBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
     if (fileInput.files && fileInput.files[0]) handleCustomFile(fileInput.files[0]);
   });
@@ -957,12 +1400,946 @@
     if (f) handleCustomFile(f);
   });
 
-  // ---------------------------------------------------------------------------
-  // 3. WebGL 3D Player Renderer:
-  //    - Starts completely outside right screen border, walks in to x=0
-  //    - Stands dead-straight (0 tilt) with generous clearance above Singleplayer
-  //    - Exact 3D eye-to-cursor tracking so eyes look directly at your cursor
-  // ---------------------------------------------------------------------------
+  // =========================================================================
+  // 3. Universal Screen Router with Motion-Blur Transitions & Button Stagger
+  // =========================================================================
+  const homeScreen = document.getElementById("home-screen");
+  const subscreenLayer = document.getElementById("subscreen-layer");
+  const uWindow = document.getElementById("u-window");
+  let activeKeybindListener = null;
+
+  function retriggerHomeStagger() {
+    const items = homeScreen.querySelectorAll(".mb-stagger");
+    items.forEach((el) => {
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "";
+    });
+    const cornerBtn = document.querySelector(".fnh-corner-btn");
+    if (cornerBtn) {
+      cornerBtn.style.animation = "none";
+      void cornerBtn.offsetWidth;
+      cornerBtn.style.animation = "";
+    }
+  }
+
+  function openScreen(screenName) {
+    if (activeKeybindListener) {
+      window.removeEventListener("keydown", activeKeybindListener);
+      activeKeybindListener = null;
+    }
+    state.activeScreen = screenName;
+    document.body.classList.add("in-subscreen");
+
+    homeScreen.classList.remove("entering");
+    homeScreen.classList.add("leaving");
+    setTimeout(() => {
+      if (state.activeScreen) homeScreen.classList.add("hidden");
+    }, 210);
+
+    subscreenLayer.classList.add("active");
+    uWindow.classList.remove("leaving", "entering");
+    void uWindow.offsetWidth;
+    uWindow.classList.add("entering");
+
+    if (screenName === "singleplayer") renderSingleplayerScreen();
+    else if (screenName === "multiplayer") renderMultiplayerScreen();
+    else if (screenName === "mods") renderModsScreen();
+    else if (screenName === "options") renderOptionsScreen();
+    else if (screenName === "quit") renderQuitScreen();
+    else if (screenName === "fnh") renderFnHScreen(true);
+
+    requestAnimationFrame(() => updateAllGlows(cursorClientX, cursorClientY));
+  }
+
+  function closeScreenToHome(replayWalkIn) {
+    if (activeKeybindListener) {
+      window.removeEventListener("keydown", activeKeybindListener);
+      activeKeybindListener = null;
+    }
+    if (!state.activeScreen) return;
+    state.activeScreen = null;
+    document.body.classList.remove("in-subscreen");
+
+    uWindow.classList.remove("entering");
+    uWindow.classList.add("leaving");
+
+    homeScreen.classList.remove("hidden", "leaving");
+    retriggerHomeStagger();
+    if (replayWalkIn) {
+      dragYawOffset = 0;
+      state.introStart = performance.now();
+    }
+
+    setTimeout(() => {
+      if (!state.activeScreen) {
+        subscreenLayer.classList.remove("active");
+        uWindow.classList.remove("leaving");
+      }
+      updateAllGlows(cursorClientX, cursorClientY);
+    }, 200);
+  }
+
+  document.querySelectorAll("[data-screen]").forEach((btn) => {
+    btn.addEventListener("click", () => openScreen(btn.getAttribute("data-screen")));
+  });
+
+  subscreenLayer.addEventListener("click", (e) => {
+    if (e.target === subscreenLayer) closeScreenToHome(false);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.activeScreen && !activeKeybindListener) {
+      closeScreenToHome(false);
+    }
+  });
+
+  function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen A: SINGLEPLAYER (Worlds, Search, Play Loading, Create New World)
+  // -------------------------------------------------------------------------
+  function renderSingleplayerScreen(filterText) {
+    uWindow.classList.remove("compact");
+    const q = (filterText || "").toLowerCase();
+    const visible = state.worlds
+      .map((w, idx) => ({ w, idx }))
+      .filter(({ w }) => w.name.toLowerCase().includes(q) || w.mode.toLowerCase().includes(q));
+
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group">
+          <h2>Select World</h2>
+          <span class="u-pill">${state.worlds.length} Worlds</span>
+        </div>
+        <input class="u-search" id="sp-search" type="text" placeholder="Search worlds…" value="${escHtml(filterText || "")}" spellcheck="false">
+      </div>
+      <div class="u-body" id="sp-list">
+        ${visible.map(({ w, idx }, i) => `
+          <div class="u-card glow-ui mb-stagger ${idx === state.selectedWorld ? "selected" : ""}" style="--i:${i};" data-widx="${idx}">
+            <div class="u-card-left">
+              <div class="u-icon-box">${escHtml(w.tag)}</div>
+              <div class="u-card-info">
+                <div class="u-card-title">${escHtml(w.name)}</div>
+                <div class="u-card-meta">${escHtml(w.mode)} · ${escHtml(w.info)}</div>
+              </div>
+            </div>
+            <div class="u-card-right">${escHtml(w.last)}</div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="u-footer">
+        <div class="u-footer-group">
+          <button class="btn btn-sm btn-primary glow-ui" id="sp-play-btn" ${state.worlds.length ? "" : "disabled"}><span>Play Selected World</span></button>
+          <button class="btn btn-sm glow-ui" id="sp-create-btn"><span>Create New World</span></button>
+        </div>
+        <div class="u-footer-group">
+          <button class="btn btn-sm btn-danger glow-ui" id="sp-delete-btn" ${state.worlds.length ? "" : "disabled"}><span>Delete</span></button>
+          <button class="btn btn-sm glow-ui" id="sp-back-btn"><span>Back</span></button>
+        </div>
+      </div>
+    `;
+
+    const searchEl = document.getElementById("sp-search");
+    searchEl.addEventListener("input", () => {
+      const pos = searchEl.selectionStart;
+      renderSingleplayerScreen(searchEl.value);
+      const next = document.getElementById("sp-search");
+      next.focus();
+      next.setSelectionRange(pos, pos);
+    });
+
+    attachScrollMotionBlur(document.getElementById("sp-list"));
+
+    uWindow.querySelectorAll("[data-widx]").forEach((card) => {
+      card.addEventListener("click", () => {
+        state.selectedWorld = Number(card.getAttribute("data-widx"));
+        uWindow.querySelectorAll("[data-widx]").forEach((c) => c.classList.remove("selected"));
+        card.classList.add("selected");
+      });
+      card.addEventListener("dblclick", () => launchLoadingSimulation("Loading World", state.worlds[state.selectedWorld].name, "Reading world data · Building terrain…"));
+    });
+
+    document.getElementById("sp-play-btn").addEventListener("click", () => {
+      const w = state.worlds[state.selectedWorld];
+      if (w) launchLoadingSimulation("Loading World", w.name, "Preparing spawn area · 100%");
+    });
+    document.getElementById("sp-create-btn").addEventListener("click", renderCreateWorldSubscreen);
+    document.getElementById("sp-delete-btn").addEventListener("click", () => {
+      if (!state.worlds.length) return;
+      const removed = state.worlds.splice(state.selectedWorld, 1)[0];
+      state.selectedWorld = Math.max(0, Math.min(state.selectedWorld, state.worlds.length - 1));
+      showToast("Deleted world: " + removed.name);
+      renderSingleplayerScreen(searchEl.value);
+    });
+    document.getElementById("sp-back-btn").addEventListener("click", () => closeScreenToHome(false));
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  function renderCreateWorldSubscreen() {
+    uWindow.classList.add("compact");
+    let mode = "Survival";
+    let diff = "Normal";
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group"><h2>Create New World</h2></div>
+      </div>
+      <div class="u-body mb-tab-anim">
+        <span class="u-field-label">World Name</span>
+        <input class="u-input" id="cw-name" value="New World" spellcheck="false">
+        <div class="setting-grid" style="margin-top:4px;">
+          <button class="btn btn-sm glow-ui" id="cw-mode-btn"><span>Game Mode: Survival</span></button>
+          <button class="btn btn-sm glow-ui" id="cw-diff-btn"><span>Difficulty: Normal</span></button>
+        </div>
+        <span class="u-field-label">World Seed (Optional)</span>
+        <input class="u-input" id="cw-seed" placeholder="Leave blank for random seed" spellcheck="false">
+      </div>
+      <div class="u-footer">
+        <button class="btn btn-sm glow-ui" id="cw-cancel"><span>Cancel</span></button>
+        <button class="btn btn-sm btn-primary glow-ui" id="cw-go"><span>Create New World</span></button>
+      </div>
+    `;
+    const modes = ["Survival", "Creative", "Hardcore"];
+    const diffs = ["Normal", "Hard", "Peaceful", "Easy"];
+    document.getElementById("cw-mode-btn").addEventListener("click", (e) => {
+      mode = modes[(modes.indexOf(mode) + 1) % modes.length];
+      e.currentTarget.querySelector("span").textContent = "Game Mode: " + mode;
+    });
+    document.getElementById("cw-diff-btn").addEventListener("click", (e) => {
+      diff = diffs[(diffs.indexOf(diff) + 1) % diffs.length];
+      e.currentTarget.querySelector("span").textContent = "Difficulty: " + diff;
+    });
+    document.getElementById("cw-cancel").addEventListener("click", () => renderSingleplayerScreen());
+    document.getElementById("cw-go").addEventListener("click", () => {
+      const name = document.getElementById("cw-name").value.trim() || "New World";
+      state.worlds.unshift({
+        name,
+        mode: mode + " Mode",
+        info: diff + " · 1.21.11 · Day 1",
+        last: "Just now",
+        tag: mode.slice(0, 4).toUpperCase()
+      });
+      state.selectedWorld = 0;
+      launchLoadingSimulation("Creating World", name, "Generating chunks · Building terrain…");
+    });
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen B: MULTIPLAYER (Servers, Direct Connect, Add Server, Refresh)
+  // -------------------------------------------------------------------------
+  function renderMultiplayerScreen() {
+    uWindow.classList.remove("compact");
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group">
+          <h2>Play Multiplayer</h2>
+          <span class="u-pill">${state.servers.length} Servers</span>
+        </div>
+        <button class="btn btn-sm glow-ui" id="mp-refresh-btn"><span>Refresh</span></button>
+      </div>
+      <div class="u-body" id="mp-list">
+        ${state.servers.map((s, idx) => `
+          <div class="u-card glow-ui mb-stagger ${idx === state.selectedServer ? "selected" : ""}" style="--i:${idx};" data-sidx="${idx}">
+            <div class="u-card-left">
+              <div class="u-icon-box">${escHtml(s.tag)}</div>
+              <div class="u-card-info">
+                <div class="u-card-title">${escHtml(s.name)}</div>
+                <div class="u-card-meta">${escHtml(s.motd)}</div>
+              </div>
+            </div>
+            <div class="u-card-right">
+              <div>${escHtml(s.players)}</div>
+              <div class="ping-badge"><span class="ping-dot"></span>${s.ping} ms</div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="u-footer">
+        <div class="u-footer-group">
+          <button class="btn btn-sm btn-primary glow-ui" id="mp-join-btn"><span>Join Server</span></button>
+          <button class="btn btn-sm glow-ui" id="mp-direct-btn"><span>Direct Connection</span></button>
+          <button class="btn btn-sm glow-ui" id="mp-add-btn"><span>Add Server</span></button>
+        </div>
+        <div class="u-footer-group">
+          <button class="btn btn-sm glow-ui" id="mp-back-btn"><span>Back</span></button>
+        </div>
+      </div>
+    `;
+
+    attachScrollMotionBlur(document.getElementById("mp-list"));
+
+    uWindow.querySelectorAll("[data-sidx]").forEach((card) => {
+      card.addEventListener("click", () => {
+        state.selectedServer = Number(card.getAttribute("data-sidx"));
+        uWindow.querySelectorAll("[data-sidx]").forEach((c) => c.classList.remove("selected"));
+        card.classList.add("selected");
+      });
+      card.addEventListener("dblclick", () => {
+        const s = state.servers[state.selectedServer];
+        launchLoadingSimulation("Connecting to Server", s.name, "Encrypting · Logging in to " + s.ip + "…");
+      });
+    });
+
+    document.getElementById("mp-refresh-btn").addEventListener("click", () => {
+      state.servers.forEach((s) => {
+        s.ping = Math.max(8, s.ping + Math.round((Math.random() - 0.5) * 6));
+      });
+      renderMultiplayerScreen();
+      showToast("Pinging servers…");
+    });
+
+    document.getElementById("mp-join-btn").addEventListener("click", () => {
+      const s = state.servers[state.selectedServer];
+      if (s) launchLoadingSimulation("Connecting to Server", s.name, "Encrypting · Logging in to " + s.ip + "…");
+    });
+
+    document.getElementById("mp-direct-btn").addEventListener("click", () => {
+      uWindow.classList.add("compact");
+      uWindow.innerHTML = `
+        <div class="u-header"><div class="u-title-group"><h2>Direct Connection</h2></div></div>
+        <div class="u-body mb-tab-anim">
+          <span class="u-field-label">Server Address</span>
+          <input class="u-input" id="dc-ip" value="smp.fnh.is-cool.dev" spellcheck="false">
+        </div>
+        <div class="u-footer">
+          <button class="btn btn-sm glow-ui" id="dc-cancel"><span>Cancel</span></button>
+          <button class="btn btn-sm btn-primary glow-ui" id="dc-join"><span>Join Server</span></button>
+        </div>
+      `;
+      document.getElementById("dc-cancel").addEventListener("click", renderMultiplayerScreen);
+      document.getElementById("dc-join").addEventListener("click", () => {
+        const ip = document.getElementById("dc-ip").value.trim() || "localhost";
+        launchLoadingSimulation("Direct Connection", ip, "Connecting to " + ip + ":25565…");
+      });
+      updateAllGlows(cursorClientX, cursorClientY);
+    });
+
+    document.getElementById("mp-add-btn").addEventListener("click", () => {
+      uWindow.classList.add("compact");
+      uWindow.innerHTML = `
+        <div class="u-header"><div class="u-title-group"><h2>Edit Server Info</h2></div></div>
+        <div class="u-body mb-tab-anim">
+          <span class="u-field-label">Server Name</span>
+          <input class="u-input" id="as-name" value="Minecraft Server" spellcheck="false">
+          <span class="u-field-label">Server Address</span>
+          <input class="u-input" id="as-ip" placeholder="play.example.net" spellcheck="false">
+        </div>
+        <div class="u-footer">
+          <button class="btn btn-sm glow-ui" id="as-cancel"><span>Cancel</span></button>
+          <button class="btn btn-sm btn-primary glow-ui" id="as-done"><span>Done</span></button>
+        </div>
+      `;
+      document.getElementById("as-cancel").addEventListener("click", renderMultiplayerScreen);
+      document.getElementById("as-done").addEventListener("click", () => {
+        const name = document.getElementById("as-name").value.trim() || "Minecraft Server";
+        const ip = document.getElementById("as-ip").value.trim() || "play.example.net";
+        state.servers.unshift({ name, ip, motd: ip + " · 1.21.11", players: "0 / 20", ping: 19, tag: name.slice(0, 3).toUpperCase() });
+        state.selectedServer = 0;
+        renderMultiplayerScreen();
+      });
+      updateAllGlows(cursorClientX, cursorClientY);
+    });
+
+    document.getElementById("mp-back-btn").addEventListener("click", () => closeScreenToHome(false));
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  function launchLoadingSimulation(heading, targetName, detailText) {
+    uWindow.classList.add("compact");
+    uWindow.innerHTML = `
+      <div class="u-header"><div class="u-title-group"><h2>${escHtml(heading)}</h2></div></div>
+      <div class="u-body mb-tab-anim" style="padding: 22px 20px;">
+        <div style="font-size:14px;font-weight:600;color:#fff;">${escHtml(targetName)}</div>
+        <div style="font-size:12.5px;color:var(--text-sub);">${escHtml(detailText)}</div>
+        <div class="loading-bar-track"><div class="loading-bar-fill" id="sim-bar"></div></div>
+      </div>
+      <div class="u-footer" style="justify-content:flex-end;">
+        <button class="btn btn-sm glow-ui" id="sim-cancel"><span>Cancel</span></button>
+      </div>
+    `;
+    updateAllGlows(cursorClientX, cursorClientY);
+    const bar = document.getElementById("sim-bar");
+    requestAnimationFrame(() => { if (bar) bar.style.width = "100%"; });
+    const doneTimer = setTimeout(() => {
+      showToast("Preview ready: " + targetName);
+      closeScreenToHome(false);
+    }, 950);
+    document.getElementById("sim-cancel").addEventListener("click", () => {
+      clearTimeout(doneTimer);
+      closeScreenToHome(false);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen C: MODS (Horizon / Fabric Universal Mod Manager)
+  // -------------------------------------------------------------------------
+  function renderModsScreen() {
+    uWindow.classList.remove("compact");
+    const m = state.mods[state.selectedMod] || state.mods[0];
+
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group">
+          <h2>Mods</h2>
+          <span class="u-pill">${state.mods.length} Loaded</span>
+        </div>
+        <span class="u-pill">Horizon 1.21.11</span>
+      </div>
+      <div class="u-split">
+        <div class="u-sidebar" id="mods-sidebar">
+          ${state.mods.map((mod, i) => `
+            <button class="u-tab-btn glow-ui ${i === state.selectedMod ? "active" : ""}" data-midx="${i}">
+              <span>${escHtml(mod.name)}</span>
+              <span style="font-size:11px;opacity:0.6;">${escHtml(mod.ver)}</span>
+            </button>
+          `).join("")}
+        </div>
+        <div class="u-pane mb-tab-anim" id="mods-detail">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div>
+              <div style="font-size:17px;font-weight:600;color:#fff;">${escHtml(m.name)} <span style="font-size:12px;color:var(--text-sub);font-weight:400;">${escHtml(m.ver)}</span></div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">by ${escHtml(m.author)}</div>
+            </div>
+            <div class="setting-item row-inline" style="padding:7px 12px;gap:10px;">
+              <span style="font-size:12px;">${m.locked ? "Core Required" : "Enabled"}</span>
+              <div class="u-switch ${m.enabled ? "on" : ""}" id="mod-toggle-sw" style="${m.locked ? "opacity:0.5;pointer-events:none;" : ""}"></div>
+            </div>
+          </div>
+          <div style="font-size:13px;line-height:1.55;color:var(--text-sub);margin-top:4px;">${escHtml(m.desc)}</div>
+          ${m.name === "FnH Universal UI" ? `
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
+              <span class="u-field-label">Quick FnH UI Controls</span>
+              <div class="setting-item glow-ui">
+                <div class="setting-top"><span>Motion Blur Strength</span><span class="setting-val" id="mod-mb-val">${state.motionBlur}%</span></div>
+                <input type="range" class="u-range" id="mod-mb-range" min="0" max="150" value="${state.motionBlur}">
+              </div>
+              <button class="btn btn-sm glow-ui" id="mod-open-fnh" style="align-self:flex-start;"><span>Open Full FnH Customization…</span></button>
+            </div>
+          ` : ""}
+        </div>
+      </div>
+      <div class="u-footer">
+        <button class="btn btn-sm glow-ui" id="mods-folder-btn"><span>Open Mods Folder</span></button>
+        <button class="btn btn-sm btn-primary glow-ui" id="mods-done-btn"><span>Done</span></button>
+      </div>
+    `;
+
+    uWindow.querySelectorAll("[data-midx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedMod = Number(btn.getAttribute("data-midx"));
+        renderModsScreen();
+      });
+    });
+
+    const sw = document.getElementById("mod-toggle-sw");
+    if (sw && !m.locked) {
+      sw.addEventListener("click", () => {
+        m.enabled = !m.enabled;
+        sw.classList.toggle("on", m.enabled);
+        showToast(m.name + (m.enabled ? " enabled" : " disabled"));
+      });
+    }
+
+    const modMb = document.getElementById("mod-mb-range");
+    if (modMb) {
+      modMb.addEventListener("input", () => {
+        state.motionBlur = Number(modMb.value);
+        document.getElementById("mod-mb-val").textContent = state.motionBlur + "%";
+        syncMotionBlurVar();
+      });
+    }
+    const modOpenFnh = document.getElementById("mod-open-fnh");
+    if (modOpenFnh) modOpenFnh.addEventListener("click", () => openScreen("fnh"));
+
+    document.getElementById("mods-folder-btn").addEventListener("click", () => showToast("Opened .minecraft/mods"));
+    document.getElementById("mods-done-btn").addEventListener("click", () => closeScreenToHome(false));
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen D: OPTIONS... (Universal Dark-Glass Settings for ALL Categories!)
+  // -------------------------------------------------------------------------
+  const OPTION_TABS = [
+    { id: "video", label: "Video Settings" },
+    { id: "audio", label: "Music & Sounds" },
+    { id: "controls", label: "Controls & Keybinds" },
+    { id: "skin", label: "Skin Customization" },
+    { id: "packs", label: "Resource Packs" },
+    { id: "chat", label: "Chat & Accessibility" }
+  ];
+
+  function renderOptionsScreen() {
+    uWindow.classList.remove("compact");
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group">
+          <h2>Options</h2>
+          <span class="u-pill">Universal FnH Settings</span>
+        </div>
+        <button class="btn btn-sm glow-ui" id="opt-fnh-shortcut"><span>FnH Menu Theme…</span></button>
+      </div>
+      <div class="u-split">
+        <div class="u-sidebar">
+          ${OPTION_TABS.map((t) => `
+            <button class="u-tab-btn glow-ui ${state.optionsTab === t.id ? "active" : ""}" data-otab="${t.id}">
+              <span>${escHtml(t.label)}</span>
+            </button>
+          `).join("")}
+        </div>
+        <div class="u-pane mb-tab-anim" id="opt-pane"></div>
+      </div>
+      <div class="u-footer">
+        <span style="font-size:12px;color:var(--text-muted);">Changes apply live across FnH</span>
+        <button class="btn btn-sm btn-primary glow-ui" id="opt-done-btn"><span>Done</span></button>
+      </div>
+    `;
+
+    document.getElementById("opt-fnh-shortcut").addEventListener("click", () => openScreen("fnh"));
+    document.getElementById("opt-done-btn").addEventListener("click", () => closeScreenToHome(false));
+
+    uWindow.querySelectorAll("[data-otab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (activeKeybindListener) {
+          window.removeEventListener("keydown", activeKeybindListener);
+          activeKeybindListener = null;
+        }
+        state.optionsTab = btn.getAttribute("data-otab");
+        uWindow.querySelectorAll("[data-otab]").forEach((b) => b.classList.toggle("active", b === btn));
+        renderOptionsPane();
+      });
+    });
+
+    renderOptionsPane();
+  }
+
+  function renderOptionsPane() {
+    const pane = document.getElementById("opt-pane");
+    if (!pane) return;
+    pane.classList.remove("mb-tab-anim");
+    void pane.offsetWidth;
+    pane.classList.add("mb-tab-anim");
+    attachScrollMotionBlur(pane);
+
+    const tab = state.optionsTab;
+
+    if (tab === "video") {
+      const v = state.video;
+      pane.innerHTML = `
+        <div class="setting-grid">
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>FOV</span><span class="setting-val" id="v-fov">${v.fov === 70 ? "Normal" : v.fov === 110 ? "Quake Pro" : v.fov}</span></div>
+            <input type="range" class="u-range" data-vslider="fov" min="30" max="110" value="${v.fov}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Motion Blur</span><span class="setting-val" id="v-mb">${state.motionBlur}%</span></div>
+            <input type="range" class="u-range" id="v-mb-slider" min="0" max="150" value="${state.motionBlur}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Render Distance</span><span class="setting-val" id="v-rd">${v.renderDistance} chunks</span></div>
+            <input type="range" class="u-range" data-vslider="renderDistance" min="2" max="32" value="${v.renderDistance}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Simulation Distance</span><span class="setting-val" id="v-sd">${v.simDistance} chunks</span></div>
+            <input type="range" class="u-range" data-vslider="simDistance" min="5" max="32" value="${v.simDistance}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Max Framerate</span><span class="setting-val" id="v-fps">${v.maxFps >= 260 ? "Unlimited" : v.maxFps + " fps"}</span></div>
+            <input type="range" class="u-range" data-vslider="maxFps" min="30" max="260" step="10" value="${v.maxFps}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Brightness</span><span class="setting-val" id="v-br">${v.brightness === 100 ? "Bright" : v.brightness + "%"}</span></div>
+            <input type="range" class="u-range" data-vslider="brightness" min="0" max="100" value="${v.brightness}">
+          </div>
+          <button class="btn btn-sm glow-ui" id="v-gfx-btn"><span>Graphics: ${v.graphics}</span></button>
+          <button class="btn btn-sm glow-ui" id="v-gui-btn"><span>GUI Scale: ${v.guiScale}</span></button>
+          <div class="setting-item row-inline glow-ui">
+            <span style="font-size:12.5px;">VSync</span>
+            <div class="u-switch ${v.vsync ? "on" : ""}" data-vtoggle="vsync"></div>
+          </div>
+          <div class="setting-item row-inline glow-ui">
+            <span style="font-size:12.5px;">Entity Shadows</span>
+            <div class="u-switch ${v.entityShadows ? "on" : ""}" data-vtoggle="entityShadows"></div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("v-mb-slider").addEventListener("input", (e) => {
+        state.motionBlur = Number(e.target.value);
+        document.getElementById("v-mb").textContent = state.motionBlur + "%";
+        syncMotionBlurVar();
+      });
+
+      pane.querySelectorAll("[data-vslider]").forEach((sl) => {
+        sl.addEventListener("input", () => {
+          const k = sl.getAttribute("data-vslider");
+          v[k] = Number(sl.value);
+          if (k === "fov") document.getElementById("v-fov").textContent = v.fov === 70 ? "Normal" : v.fov === 110 ? "Quake Pro" : v.fov;
+          if (k === "renderDistance") document.getElementById("v-rd").textContent = v.renderDistance + " chunks";
+          if (k === "simDistance") document.getElementById("v-sd").textContent = v.simDistance + " chunks";
+          if (k === "maxFps") document.getElementById("v-fps").textContent = v.maxFps >= 260 ? "Unlimited" : v.maxFps + " fps";
+          if (k === "brightness") document.getElementById("v-br").textContent = v.brightness === 100 ? "Bright" : v.brightness + "%";
+        });
+      });
+
+      const gfxModes = ["Fast", "Fancy", "Fabulous!"];
+      document.getElementById("v-gfx-btn").addEventListener("click", (e) => {
+        v.graphics = gfxModes[(gfxModes.indexOf(v.graphics) + 1) % gfxModes.length];
+        e.currentTarget.querySelector("span").textContent = "Graphics: " + v.graphics;
+      });
+      const guiModes = ["Auto", "1x", "2x", "3x", "4x"];
+      document.getElementById("v-gui-btn").addEventListener("click", (e) => {
+        v.guiScale = guiModes[(guiModes.indexOf(v.guiScale) + 1) % guiModes.length];
+        e.currentTarget.querySelector("span").textContent = "GUI Scale: " + v.guiScale;
+      });
+
+      pane.querySelectorAll("[data-vtoggle]").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          const k = sw.getAttribute("data-vtoggle");
+          v[k] = !v[k];
+          sw.classList.toggle("on", v[k]);
+        });
+      });
+    } else if (tab === "audio") {
+      const a = state.audio;
+      const sliders = [
+        ["master", "Master Volume"],
+        ["music", "Music"],
+        ["blocks", "Blocks"],
+        ["hostile", "Hostile Creatures"],
+        ["players", "Players"],
+        ["weather", "Weather"],
+        ["ambient", "Ambient / Environment"]
+      ];
+      pane.innerHTML = `
+        <div class="setting-grid">
+          ${sliders.map(([k, label]) => `
+            <div class="setting-item glow-ui" ${k === "master" ? 'style="grid-column: 1 / -1;"' : ""}>
+              <div class="setting-top"><span>${label}</span><span class="setting-val" id="au-${k}">${a[k] === 0 ? "OFF" : a[k] + "%"}</span></div>
+              <input type="range" class="u-range" data-aslider="${k}" min="0" max="100" value="${a[k]}">
+            </div>
+          `).join("")}
+          <div class="setting-item row-inline glow-ui" style="grid-column: 1 / -1;">
+            <span style="font-size:12.5px;">Show Subtitles</span>
+            <div class="u-switch ${a.subtitles ? "on" : ""}" id="au-subs"></div>
+          </div>
+        </div>
+      `;
+      pane.querySelectorAll("[data-aslider]").forEach((sl) => {
+        sl.addEventListener("input", () => {
+          const k = sl.getAttribute("data-aslider");
+          a[k] = Number(sl.value);
+          document.getElementById("au-" + k).textContent = a[k] === 0 ? "OFF" : a[k] + "%";
+        });
+      });
+      document.getElementById("au-subs").addEventListener("click", (e) => {
+        a.subtitles = !a.subtitles;
+        e.currentTarget.classList.toggle("on", a.subtitles);
+      });
+    } else if (tab === "controls") {
+      const c = state.controls;
+      pane.innerHTML = `
+        <div class="setting-grid">
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Mouse Sensitivity</span><span class="setting-val" id="c-sens">${c.sensitivity === 200 ? "HYPERSPEED!!!" : c.sensitivity + "%"}</span></div>
+            <input type="range" class="u-range" id="c-sens-sl" min="1" max="200" value="${c.sensitivity}">
+          </div>
+          <div class="setting-item row-inline glow-ui">
+            <span style="font-size:12.5px;">Raw Mouse Input</span>
+            <div class="u-switch ${c.rawInput ? "on" : ""}" data-ctoggle="rawInput"></div>
+          </div>
+          <div class="setting-item row-inline glow-ui">
+            <span style="font-size:12.5px;">Sprint: Toggle</span>
+            <div class="u-switch ${c.toggleSprint ? "on" : ""}" data-ctoggle="toggleSprint"></div>
+          </div>
+          <div class="setting-item row-inline glow-ui">
+            <span style="font-size:12.5px;">Auto-Jump</span>
+            <div class="u-switch ${c.autoJump ? "on" : ""}" data-ctoggle="autoJump"></div>
+          </div>
+        </div>
+        <span class="u-field-label" style="margin-top:6px;">Keybinds (Click any key to rebind)</span>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${c.binds.map((b, idx) => `
+            <div class="setting-item row-inline glow-ui" style="padding:8px 13px;">
+              <span style="font-size:12.5px;">${escHtml(b.action)}</span>
+              <button class="btn keybind-btn glow-ui" data-bidx="${idx}"><span>${escHtml(b.key)}</span></button>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      document.getElementById("c-sens-sl").addEventListener("input", (e) => {
+        c.sensitivity = Number(e.target.value);
+        document.getElementById("c-sens").textContent = c.sensitivity === 200 ? "HYPERSPEED!!!" : c.sensitivity + "%";
+      });
+      pane.querySelectorAll("[data-ctoggle]").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          const k = sw.getAttribute("data-ctoggle");
+          c[k] = !c[k];
+          sw.classList.toggle("on", c[k]);
+        });
+      });
+      pane.querySelectorAll("[data-bidx]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (activeKeybindListener) window.removeEventListener("keydown", activeKeybindListener);
+          pane.querySelectorAll("[data-bidx]").forEach((b) => b.classList.remove("listening"));
+          btn.classList.add("listening");
+          const idx = Number(btn.getAttribute("data-bidx"));
+          btn.querySelector("span").textContent = "> Press key <";
+          activeKeybindListener = (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const keyName = ev.key === " " ? "Space" : ev.key === "Escape" ? "None" : ev.key.length === 1 ? ev.key.toUpperCase() : ev.key;
+            c.binds[idx].key = keyName;
+            btn.classList.remove("listening");
+            btn.querySelector("span").textContent = keyName;
+            window.removeEventListener("keydown", activeKeybindListener);
+            activeKeybindListener = null;
+          };
+          window.addEventListener("keydown", activeKeybindListener);
+        });
+      });
+    } else if (tab === "skin") {
+      const sl = state.skinLayers;
+      const items = [
+        ["hat", "Hat Layer"],
+        ["jacket", "Jacket"],
+        ["lSleeve", "Left Sleeve"],
+        ["rSleeve", "Right Sleeve"],
+        ["lPants", "Left Pants Leg"],
+        ["rPants", "Right Pants Leg"]
+      ];
+      pane.innerHTML = `
+        <div style="font-size:12.5px;color:var(--text-sub);">Toggles the actual 3D outer layers on <strong>${escHtml(state.username)}</strong> on the Main Menu in real time.</div>
+        <div class="setting-grid">
+          ${items.map(([k, label]) => `
+            <div class="setting-item row-inline glow-ui">
+              <span style="font-size:12.5px;">${label}</span>
+              <div class="u-switch ${sl[k] ? "on" : ""}" data-slayer="${k}"></div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      pane.querySelectorAll("[data-slayer]").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          const k = sw.getAttribute("data-slayer");
+          sl[k] = !sl[k];
+          sw.classList.toggle("on", sl[k]);
+        });
+      });
+    } else if (tab === "packs") {
+      pane.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${state.packs.map((p, idx) => `
+            <div class="u-card glow-ui" data-pidx="${idx}">
+              <div class="u-card-left">
+                <div class="u-icon-box">PACK</div>
+                <div class="u-card-info">
+                  <div class="u-card-title">${escHtml(p.name)}</div>
+                  <div class="u-card-meta">${escHtml(p.desc)}</div>
+                </div>
+              </div>
+              <div class="u-switch ${p.enabled ? "on" : ""}" style="${p.locked ? "opacity:0.5;pointer-events:none;" : ""}"></div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      pane.querySelectorAll("[data-pidx]").forEach((card) => {
+        card.addEventListener("click", () => {
+          const p = state.packs[Number(card.getAttribute("data-pidx"))];
+          if (p.locked) return;
+          p.enabled = !p.enabled;
+          card.querySelector(".u-switch").classList.toggle("on", p.enabled);
+          showToast(p.name + (p.enabled ? " applied" : " removed"));
+        });
+      });
+    } else if (tab === "chat") {
+      const ch = state.chat;
+      pane.innerHTML = `
+        <div class="setting-grid">
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Chat Opacity</span><span class="setting-val" id="ch-op">${ch.opacity}%</span></div>
+            <input type="range" class="u-range" data-cslider="opacity" min="10" max="100" value="${ch.opacity}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Chat Scale</span><span class="setting-val" id="ch-sc">${ch.scale}%</span></div>
+            <input type="range" class="u-range" data-cslider="scale" min="20" max="100" value="${ch.scale}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Text Background Opacity</span><span class="setting-val" id="ch-bg">${ch.textBgOpacity}%</span></div>
+            <input type="range" class="u-range" data-cslider="textBgOpacity" min="0" max="100" value="${ch.textBgOpacity}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>FOV Effects</span><span class="setting-val" id="ch-fov">${ch.fovEffects}%</span></div>
+            <input type="range" class="u-range" data-cslider="fovEffects" min="0" max="100" value="${ch.fovEffects}">
+          </div>
+          <div class="setting-item row-inline glow-ui" style="grid-column:1/-1;">
+            <span style="font-size:12.5px;">High Contrast Glass Borders</span>
+            <div class="u-switch ${ch.highContrast ? "on" : ""}" id="ch-hc"></div>
+          </div>
+        </div>
+      `;
+      pane.querySelectorAll("[data-cslider]").forEach((sl) => {
+        sl.addEventListener("input", () => {
+          const k = sl.getAttribute("data-cslider");
+          ch[k] = Number(sl.value);
+          if (k === "opacity") document.getElementById("ch-op").textContent = ch.opacity + "%";
+          if (k === "scale") document.getElementById("ch-sc").textContent = ch.scale + "%";
+          if (k === "textBgOpacity") document.getElementById("ch-bg").textContent = ch.textBgOpacity + "%";
+          if (k === "fovEffects") document.getElementById("ch-fov").textContent = ch.fovEffects + "%";
+        });
+      });
+      document.getElementById("ch-hc").addEventListener("click", (e) => {
+        ch.highContrast = !ch.highContrast;
+        e.currentTarget.classList.toggle("on", ch.highContrast);
+        document.documentElement.style.setProperty("--glass-border", ch.highContrast ? "rgba(255,255,255,0.34)" : "rgba(255,255,255,0.13)");
+      });
+    }
+
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen E: QUIT GAME (Universal Dark-Glass Quit Confirmation)
+  // -------------------------------------------------------------------------
+  function renderQuitScreen() {
+    uWindow.classList.add("compact");
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group"><h2>Quit Game</h2></div>
+      </div>
+      <div class="u-body mb-tab-anim" style="padding:20px;">
+        <div style="font-size:13.5px;color:var(--text-sub);line-height:1.5;">Are you sure you want to close Minecraft 1.21.11 (FnH Edition)?</div>
+      </div>
+      <div class="u-footer">
+        <button class="btn btn-sm glow-ui" id="q-cancel"><span>Cancel</span></button>
+        <button class="btn btn-sm btn-danger glow-ui" id="q-confirm"><span>Quit to Desktop</span></button>
+      </div>
+    `;
+    document.getElementById("q-cancel").addEventListener("click", () => closeScreenToHome(false));
+    document.getElementById("q-confirm").addEventListener("click", () => {
+      uWindow.innerHTML = `
+        <div class="u-body mb-tab-anim" style="padding:28px 20px;align-items:center;text-align:center;">
+          <div style="font-size:15px;font-weight:600;color:#fff;">Game Closed</div>
+          <div style="font-size:12.5px;color:var(--text-sub);margin-bottom:8px;">Click below to relaunch the main menu with the full walk-in intro.</div>
+          <button class="btn btn-sm btn-primary glow-ui" id="q-relaunch"><span>Relaunch FnH Menu</span></button>
+        </div>
+      `;
+      document.getElementById("q-relaunch").addEventListener("click", () => closeScreenToHome(true));
+      updateAllGlows(cursorClientX, cursorClientY);
+    });
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  // -------------------------------------------------------------------------
+  // Screen F: FnH (Bottom-Right Button -> Menu Background, Motion Blur & Skin)
+  // -------------------------------------------------------------------------
+  function renderFnHScreen() {
+    uWindow.classList.add("compact");
+    uWindow.innerHTML = `
+      <div class="u-header">
+        <div class="u-title-group">
+          <img src="/assets/icon.svg" onerror="this.onerror=null;this.src='/site/assets/icon.svg'" alt="" style="width:20px;height:20px;border-radius:4px;">
+          <h2>FnH</h2>
+        </div>
+        <button class="btn btn-sm glow-ui" id="fnh-all-opts"><span>All Options…</span></button>
+      </div>
+      <div class="u-body mb-tab-anim">
+        <span class="u-field-label">Menu Background</span>
+        <div class="setting-grid">
+          <button class="btn btn-sm glow-ui ${!state.bgIsCustom ? "btn-primary" : ""}" id="fnh-default-bg"><span>Default</span></button>
+          <button class="btn btn-sm glow-ui ${state.bgIsCustom ? "btn-primary" : ""}" id="fnh-pick-bg"><span>Choose Custom File…</span></button>
+        </div>
+        <div class="u-input-row">
+          <input class="u-input" id="fnh-bg-url" placeholder="Or paste GIF / image URL…" spellcheck="false">
+          <button class="btn btn-sm glow-ui" id="fnh-apply-url"><span>Apply</span></button>
+        </div>
+
+        <div class="setting-grid" style="margin-top:4px;">
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Background Dimming</span><span class="setting-val" id="fnh-dim-val">${state.bgDim}%</span></div>
+            <input type="range" class="u-range" id="fnh-dim-sl" min="0" max="65" value="${state.bgDim}">
+          </div>
+          <div class="setting-item glow-ui">
+            <div class="setting-top"><span>Motion Blur</span><span class="setting-val" id="fnh-mb-val">${state.motionBlur}%</span></div>
+            <input type="range" class="u-range" id="fnh-mb-sl" min="0" max="150" value="${state.motionBlur}">
+          </div>
+        </div>
+
+        <span class="u-field-label" style="margin-top:4px;">3D Player Skin</span>
+        <div class="setting-item row-inline glow-ui">
+          <span style="font-size:12.5px;">Show 3D Player on Menu</span>
+          <div class="u-switch ${state.showSkin ? "on" : ""}" id="fnh-skin-sw"></div>
+        </div>
+        <div class="u-input-row">
+          <input class="u-input" id="fnh-skin-user" value="${escHtml(state.username)}" spellcheck="false">
+          <button class="btn btn-sm glow-ui" id="fnh-skin-load"><span>Load Skin</span></button>
+          <button class="btn btn-sm glow-ui" id="fnh-replay-walk"><span>Replay Walk-In</span></button>
+        </div>
+      </div>
+      <div class="u-footer" style="justify-content:flex-end;">
+        <button class="btn btn-sm btn-primary glow-ui" id="fnh-done"><span>Done</span></button>
+      </div>
+    `;
+
+    document.getElementById("fnh-all-opts").addEventListener("click", () => openScreen("options"));
+    document.getElementById("fnh-default-bg").addEventListener("click", () => {
+      setDefaultBackground();
+      renderFnHScreen();
+      showToast("Restored default background");
+    });
+    document.getElementById("fnh-pick-bg").addEventListener("click", () => fileInput.click());
+    document.getElementById("fnh-apply-url").addEventListener("click", () => {
+      const u = document.getElementById("fnh-bg-url").value.trim();
+      if (!u) return;
+      setCustomBackground(u, /\.(mp4|webm|ogg)(\?|$)/i.test(u), "Custom URL");
+      renderFnHScreen();
+    });
+
+    document.getElementById("fnh-dim-sl").addEventListener("input", (e) => {
+      state.bgDim = Number(e.target.value);
+      document.getElementById("fnh-dim-val").textContent = state.bgDim + "%";
+      applyBgDim();
+    });
+
+    document.getElementById("fnh-mb-sl").addEventListener("input", (e) => {
+      state.motionBlur = Number(e.target.value);
+      document.getElementById("fnh-mb-val").textContent = state.motionBlur + "%";
+      syncMotionBlurVar();
+    });
+
+    document.getElementById("fnh-skin-sw").addEventListener("click", (e) => {
+      state.showSkin = !state.showSkin;
+      e.currentTarget.classList.toggle("on", state.showSkin);
+      document.body.classList.toggle("hide-skin", !state.showSkin);
+    });
+
+    const userInp = document.getElementById("fnh-skin-user");
+    document.getElementById("fnh-skin-load").addEventListener("click", () => {
+      loadPlayerSkin(userInp.value);
+      showToast("Loading skin: " + (userInp.value.trim() || "BufferClick"));
+    });
+    userInp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        loadPlayerSkin(userInp.value);
+        showToast("Loading skin: " + (userInp.value.trim() || "BufferClick"));
+      }
+    });
+
+    document.getElementById("fnh-replay-walk").addEventListener("click", () => closeScreenToHome(true));
+    document.getElementById("fnh-done").addEventListener("click", () => closeScreenToHome(false));
+    updateAllGlows(cursorClientX, cursorClientY);
+  }
+
+  // =========================================================================
+  // 4. WebGL 3D Player Renderer:
+  //    - Zero wide-angle distortion: narrow-FOV square-ish canvas moved via CSS translate3d
+  //    - Starts 100% outside right screen edge, walks in with velocity motion blur
+  //    - Zero UI clipping & zero self-layer clipping (layered inflation + polygonOffset)
+  //    - Exact eye-to-cursor 3D aiming
+  // =========================================================================
+  const skinMover = document.getElementById("skin-mover");
   const skinCanvas = document.getElementById("skin-canvas");
   const gl = skinCanvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: false });
 
@@ -1174,24 +2551,25 @@
     return { buf, count: 36 };
   }
 
+  // Carefully tiered inflation (jacket 0.30 > sleeve 0.22 > pants 0.16) prevents all limb/waist z-fighting & clipping
   function rebuildArmMeshes() {
     if (!gl) return;
     const aw = state.slimArms ? 3 : 4;
     parts.rArm    = createMcBox(aw, 12, 4, 40, 16, 0.0,  0, -4, 0);
-    parts.rSleeve = createMcBox(aw, 12, 4, 40, 32, 0.26, 0, -4, 0);
+    parts.rSleeve = createMcBox(aw, 12, 4, 40, 32, 0.22, 0, -4, 0);
     parts.lArm    = createMcBox(aw, 12, 4, 32, 48, 0.0,  0, -4, 0);
-    parts.lSleeve = createMcBox(aw, 12, 4, 48, 48, 0.26, 0, -4, 0);
+    parts.lSleeve = createMcBox(aw, 12, 4, 48, 48, 0.22, 0, -4, 0);
   }
 
   function buildAllMeshes() {
     parts.head   = createMcBox(8, 8, 8,  0,  0, 0.0,  0, 4, 0);
-    parts.hat    = createMcBox(8, 8, 8, 32,  0, 0.45, 0, 4, 0);
+    parts.hat    = createMcBox(8, 8, 8, 32,  0, 0.48, 0, 4, 0);
     parts.body   = createMcBox(8, 12, 4, 16, 16, 0.0,  0, 0, 0);
-    parts.jacket = createMcBox(8, 12, 4, 16, 32, 0.26, 0, 0, 0);
+    parts.jacket = createMcBox(8, 12, 4, 16, 32, 0.30, 0, 0, 0);
     parts.rLeg   = createMcBox(4, 12, 4,  0, 16, 0.0,  0, -6, 0);
-    parts.rPants = createMcBox(4, 12, 4,  0, 32, 0.26, 0, -6, 0);
+    parts.rPants = createMcBox(4, 12, 4,  0, 32, 0.16, 0, -6, 0);
     parts.lLeg   = createMcBox(4, 12, 4, 16, 48, 0.0,  0, -6, 0);
-    parts.lPants = createMcBox(4, 12, 4,  0, 48, 0.26, 0, -6, 0);
+    parts.lPants = createMcBox(4, 12, 4,  0, 48, 0.16, 0, -6, 0);
     rebuildArmMeshes();
   }
 
@@ -1217,11 +2595,12 @@
   const matRotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; };
   const matRotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; };
 
-  // Standing base yaw = 0.0 (straight forward, zero tilt!)
   let dragYawOffset = 0.0;
+  let spinVelocity = 0.0;
   let dragging = false, lastX = 0;
   let smoothAimYaw = 0.0, smoothAimPitch = 0.0;
   let prevFrameMs = performance.now();
+  let prevOffsetPx = null;
 
   const dragArea = document.getElementById("skin-drag-area");
   dragArea.addEventListener("pointerdown", (e) => {
@@ -1231,7 +2610,9 @@
   });
   dragArea.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    dragYawOffset += (e.clientX - lastX) * 0.015;
+    const delta = (e.clientX - lastX) * 0.015;
+    dragYawOffset += delta;
+    spinVelocity = Math.abs(delta);
     lastX = e.clientX;
   });
   dragArea.addEventListener("pointerup", () => { dragging = false; });
@@ -1257,10 +2638,7 @@
 
   function walkEase(x) {
     const t = Math.max(0, Math.min(1, x));
-    // Steady brisk walk through the right edge of screen, smooth deceleration at center
-    if (t < 0.72) {
-      return (t / 0.72) * 0.82;
-    }
+    if (t < 0.72) return (t / 0.72) * 0.82;
     const u = (t - 0.72) / 0.28;
     return 0.82 + 0.18 * (1 - Math.pow(1 - u, 2.6));
   }
@@ -1291,78 +2669,90 @@
 
     const dt = Math.min(0.05, Math.max(0.001, (nowMs - prevFrameMs) * 0.001));
     prevFrameMs = nowMs;
-
     const t = nowMs * 0.001;
-    const fovRad = 32 * Math.PI / 180;
-    const camDist = 62.0;
-    const camOffsetY = 2.6; // Lifts player vertically inside stage so feet never touch buttons
-    const aspect = skinCanvas.width / skinCanvas.height;
 
-    // Exact off-screen right border in 3D world units (+12 margin so player starts 100% outside screen)
-    const halfFrustumWidth = camDist * Math.tan(fovRad * 0.5) * aspect;
-    const startX = halfFrustumWidth + 12.0;
-    const introDuration = Math.max(2.1, Math.min(3.1, startX / 62.0));
-
+    // 1. Distortion-Free Off-Screen Walk-In via CSS translate3d on #skin-mover
+    const startOffsetPx = window.innerWidth * 0.5 + 135;
+    const introDuration = Math.max(2.05, Math.min(2.9, startOffsetPx / 410));
     const introElapsed = Math.max(0, (nowMs - state.introStart) * 0.001);
     const introP = Math.min(1, introElapsed / introDuration);
 
-    const posX = (1 - walkEase(introP)) * startX;
+    const curOffsetPx = (1 - walkEase(introP)) * startOffsetPx;
+    skinMover.style.transform = `translate3d(${curOffsetPx.toFixed(2)}px, 0, 0)`;
+
+    // Real velocity-based motion blur on the moving character (resolves cleanly to drop-shadow only at rest)
+    const speedPxPerSec = prevOffsetPx === null ? 0 : Math.abs(curOffsetPx - prevOffsetPx) / dt;
+    prevOffsetPx = curOffsetPx;
+    spinVelocity *= Math.exp(-dt * 12);
+    const mbScale = state.motionBlur / 100;
+    const velBlur = Math.min(3.2, (speedPxPerSec * 0.0032 + spinVelocity * 7.5) * mbScale);
+    if (velBlur > 0.18) {
+      skinMover.style.filter = `blur(${velBlur.toFixed(2)}px) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62))`;
+    } else {
+      skinMover.style.filter = "drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62))";
+    }
+
     const turnBlend = smoothstep(0.74, 1.0, introP);
     const strideEnv = 1 - smoothstep(0.76, 1.0, introP);
 
-    const walkCycle = introElapsed * 9.6;
-    const legSwing = Math.sin(walkCycle) * 0.76 * strideEnv;
-    const armWalkSwing = Math.sin(walkCycle) * 0.66 * strideEnv;
-    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.52 * strideEnv;
-    const idleBreathe = Math.sin(t * 2.0) * 0.18 * turnBlend;
+    const walkCycle = introElapsed * 9.5;
+    const legSwing = Math.sin(walkCycle) * 0.60 * strideEnv;
+    const armWalkSwing = Math.sin(walkCycle) * 0.56 * strideEnv;
+    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.45 * strideEnv;
+    const idleBreathe = Math.sin(t * 2.0) * 0.16 * turnBlend;
     const posY = stepBounce + idleBreathe;
 
-    // Exact screen-space eye position for pinpoint cursor tracking
+    // 2. Pinpoint Screen-Space Eye-to-Cursor Aiming
     const rect = skinCanvas.getBoundingClientRect();
     const eyeScreenX = rect.left + rect.width * 0.5;
-    const eyeScreenY = rect.top + rect.height * 0.18;
+    const eyeScreenY = rect.top + rect.height * 0.24;
 
     let targetYaw = 0.0;
     let targetPitch = 0.0;
-    if (hasMovedCursor && !dragging) {
+    if (hasMovedCursor && !dragging && !state.activeScreen) {
       const dx = cursorClientX - eyeScreenX;
       const dy = cursorClientY - eyeScreenY;
-      // Virtual focal plane at 340px in front of eyes so head aims straight at the cursor
-      targetYaw = Math.max(-1.05, Math.min(1.05, Math.atan2(dx, 340)));
-      targetPitch = Math.max(-0.78, Math.min(0.82, Math.atan2(dy, 340)));
+      targetYaw = Math.max(-1.05, Math.min(1.05, Math.atan2(dx, 330)));
+      targetPitch = Math.max(-0.76, Math.min(0.80, Math.atan2(dy, 330)));
     }
 
     const damp = 1 - Math.exp(-dt * 15);
     smoothAimYaw += (targetYaw - smoothAimYaw) * damp;
     smoothAimPitch += (targetPitch - smoothAimPitch) * damp;
 
-    // Subtle torso follow (20% of aim) + remaining 80% in neck so total head direction == exact cursor direction
     const standingBodyYaw = dragYawOffset + smoothAimYaw * 0.20;
-    const walkYaw = -1.46; // Walking left from off-screen right edge
+    const walkYaw = -1.48; // Walking straight left onto screen
     const curBodyYaw = walkYaw * (1 - turnBlend) + standingBodyYaw * turnBlend;
 
     const standingHeadLocalYaw = Math.max(-0.92, Math.min(0.92, (dragYawOffset + smoothAimYaw) - standingBodyYaw));
     const headLocalYaw = standingHeadLocalYaw * turnBlend;
     const headPitch = smoothAimPitch * turnBlend;
 
-    // Zero camera X-tilt so the character stands completely straight and level
-    const proj = matPersp(fovRad, aspect, 2.0, 400.0);
-    const view = matTranslate(0, camOffsetY, -camDist);
+    // Narrow 26-deg lens inside 1:1 canvas = zero edge stretch + generous top/bottom buffer
+    const fovRad = 26 * Math.PI / 180;
+    const camDist = 84.0;
+    const aspect = skinCanvas.width / skinCanvas.height;
+    const proj = matPersp(fovRad, aspect, 2.0, 260.0);
+    const view = matTranslate(0, 1.9, -camDist);
     const vp = matMul(proj, view);
 
-    const root = matMul(matTranslate(posX, posY, 0), matRotY(curBodyYaw));
+    const root = matMul(matTranslate(0, posY, 0), matRotY(curBodyYaw));
     const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(headLocalYaw), matRotX(headPitch))));
 
-    const armX = 4 + (state.slimArms ? 1.5 : 2.0);
-    const idleSwing = Math.sin(t * 1.5) * 0.045 * turnBlend;
-    const flap = 0.04 + Math.cos(t * 1.3) * 0.018;
+    const armX = state.slimArms ? 5.65 : 6.18;
+    const legX = 2.08;
+    const idleSwing = Math.sin(t * 1.5) * 0.04 * turnBlend;
+    const flap = 0.038 + Math.cos(t * 1.3) * 0.016;
 
     const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(armWalkSwing + idleSwing))));
     const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-armWalkSwing - idleSwing))));
-    const rLegMat = matMul(root, matMul(matTranslate(-2, -6, 0), matRotX(-legSwing)));
-    const lLegMat = matMul(root, matMul(matTranslate( 2, -6, 0), matRotX( legSwing)));
+    const rLegMat = matMul(root, matMul(matTranslate(-legX, -6, 0), matRotX(-legSwing)));
+    const lLegMat = matMul(root, matMul(matTranslate( legX, -6, 0), matRotX( legSwing)));
 
+    // Inner opaque pass
+    gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.disable(gl.BLEND);
+    gl.depthMask(true);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
     drawMesh(parts.body, vp, root, false);
@@ -1372,72 +2762,26 @@
     drawMesh(parts.rLeg, vp, rLegMat, false);
     drawMesh(parts.lLeg, vp, lLegMat, false);
 
+    // Outer skin layer pass with polygonOffset to eliminate z-fighting & self-clipping
+    const sl = state.skinLayers;
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(-1.0, -1.0);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
     for (const face of [gl.FRONT, gl.BACK]) {
       gl.cullFace(face);
-      drawMesh(parts.jacket,  vp, root,    true);
-      drawMesh(parts.rPants,  vp, rLegMat, true);
-      drawMesh(parts.lPants,  vp, lLegMat, true);
-      drawMesh(parts.rSleeve, vp, rArmMat, true);
-      drawMesh(parts.lSleeve, vp, lArmMat, true);
-      drawMesh(parts.hat,     vp, headMat, true);
+      gl.depthMask(face === gl.BACK);
+      if (sl.rPants)  drawMesh(parts.rPants,  vp, rLegMat, true);
+      if (sl.lPants)  drawMesh(parts.lPants,  vp, lLegMat, true);
+      if (sl.rSleeve) drawMesh(parts.rSleeve, vp, rArmMat, true);
+      if (sl.lSleeve) drawMesh(parts.lSleeve, vp, lArmMat, true);
+      if (sl.jacket)  drawMesh(parts.jacket,  vp, root,    true);
+      if (sl.hat)     drawMesh(parts.hat,     vp, headMat, true);
     }
+    gl.depthMask(true);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
   }
-
-  // ---------------------------------------------------------------------------
-  // 4. Menu Buttons & "FnH" Modal Controls
-  // ---------------------------------------------------------------------------
-  document.querySelectorAll(".menu-buttons .btn").forEach((btn) => {
-    btn.addEventListener("click", () => showToast(btn.getAttribute("data-action")));
-  });
-
-  const backdrop = document.getElementById("settings-backdrop");
-  const openSettings = () => {
-    backdrop.classList.add("open");
-    requestAnimationFrame(() => updateUiGlow(cursorClientX, cursorClientY));
-  };
-  const closeSettings = () => backdrop.classList.remove("open");
-
-  document.getElementById("open-settings-btn").addEventListener("click", openSettings);
-  document.getElementById("close-settings-btn").addEventListener("click", closeSettings);
-  document.getElementById("done-settings-btn").addEventListener("click", closeSettings);
-  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeSettings(); });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeSettings();
-  });
-
-  const dimSlider = document.getElementById("dim-slider");
-  const dimVal = document.getElementById("dim-val");
-  dimSlider.addEventListener("input", () => {
-    state.bgDim = Number(dimSlider.value);
-    dimVal.textContent = state.bgDim + "%";
-    applyBgDim();
-  });
-
-  const bgUrlInput = document.getElementById("bg-url-input");
-  document.getElementById("bg-url-btn").addEventListener("click", () => {
-    const u = bgUrlInput.value.trim();
-    if (!u) return;
-    setCustomBackground(u, /\.(mp4|webm|ogg)(\?|$)/i.test(u), "Custom URL");
-  });
-
-  document.getElementById("chk-show-skin").addEventListener("change", (e) => {
-    state.showSkin = e.target.checked;
-    document.body.classList.toggle("hide-skin", !state.showSkin);
-  });
-
-  document.getElementById("replay-intro-btn").addEventListener("click", () => {
-    closeSettings();
-    dragYawOffset = 0;
-    state.introStart = performance.now();
-  });
-
-  const skinInput = document.getElementById("skin-input");
-  document.getElementById("skin-btn").addEventListener("click", () => loadPlayerSkin(skinInput.value));
-  skinInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loadPlayerSkin(skinInput.value);
-  });
 
   // Boot
   renderFnhEditionSubtitle();
