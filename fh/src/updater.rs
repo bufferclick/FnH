@@ -504,8 +504,11 @@ pub fn extract_update_zip(zip_path: &Path, staged_dir: &Path) -> Result<PathBuf,
             std::io::copy(&mut entry, &mut out)
                 .map_err(|e| format!("Failed to extract FH.exe: {e}"))?;
             found_exe = true;
-        } else if leaf.eq_ignore_ascii_case("README.txt") {
-            let dst = staged_dir.join("README.txt");
+        } else if leaf.eq_ignore_ascii_case("README.txt")
+            || leaf.eq_ignore_ascii_case("FnH-Dark-Glass.zip")
+            || (leaf.starts_with("fnh-menu-") && leaf.ends_with(".jar"))
+        {
+            let dst = staged_dir.join(leaf);
             if let Ok(mut out) = fs::File::create(&dst) {
                 let _ = std::io::copy(&mut entry, &mut out);
             }

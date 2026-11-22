@@ -4,10 +4,11 @@
   "package": "dev.horizonlab.fnh.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "MinecraftMixin",
     "ScreenAccessor",
     "ScreenMixin",
-    "GuiGraphicsMixin",
     "TitleScreenMixin",
+    "GuiGraphicsMixin",
     "OptionsScreenMixin"
   ],
   "injectors": {

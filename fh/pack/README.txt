@@ -18,8 +18,10 @@ Quick guide:
     (including an options.txt tuner), and Other Logs.
   - If a mod is incompatible or crashes Minecraft/Horizon, FNH opens a Fabric-style Crash & Mod
     Compatibility window with potential solutions and 1-click "Disable Mod".
-  - Fabric 1.21.11 instances automatically receive `fnh-menu-1.8.0.jar` (FnH's Dark Glass Minecraft UI,
-    animated Milky Way background & 3D walk-in skin; toggleable in Settings -> Minecraft).
+  - Every Java, Fabric, and Horizon 26.3 instance automatically receives `FnH-Dark-Glass.zip`
+    (universal Dark-Glass UI, HUD & containers), while Fabric 1.21.11 and Fabric 26.x instances also
+    receive the matching `fnh-menu` dynamic UI mod (animated Milky Way sky, live Microsoft Account 3D
+    skin, directional motion-blur menus & smooth hotbar glide; toggleable in Settings -> Minecraft).
   - Click "Update" in the top toolbar at any time to check for or install the latest FnHLauncher.zip.
   - Hold Ctrl + Shift + Alt while clicking "Add Instance" to wipe all FNH data and relaunch fresh.
 

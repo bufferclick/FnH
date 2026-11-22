@@ -1209,8 +1209,8 @@ impl SettingsWindow {
                     .child(
                         checkbox_row(
                             "mc-fnh-menu-ui",
-                            "Install FnH Menu UI (fnh-menu-1.8.0.jar) on Fabric 1.21.11",
-                            Some("Applies FnH's Dark Glass Minecraft UI, Milky Way background & 3D walk-in skin."),
+                            "Auto-install FnH Dark-Glass UI (Java, Fabric 1.21.11 / 26.x & Horizon)",
+                            Some("Provisions FnH-Dark-Glass.zip across all Java & Horizon instances plus animated Milky Way, live MSA 3D skin, motion-blur menus & smooth hotbar on Fabric 1.21.11 / 26.x."),
                             p.install_fnh_menu_ui,
                             true,
                             t,

@@ -24,10 +24,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.ARGB;
 import net.minecraft.util.Util;
 
 public final class FnHBackgroundRenderer {
 	private static final String DEFAULT_GIF_RESOURCE = "/assets/fnh_ui/textures/gui/milkyway_bg.gif";
+	private static final String LOGO_RESOURCE = "/assets/fnh_ui/textures/gui/minecraft_logo.png";
+	private static final String EDITION_RESOURCE = "/assets/fnh_ui/textures/gui/fnh_edition.png";
 
 	private static final List<Identifier> FRAME_IDS = new ArrayList<>();
 	private static final List<Integer> FRAME_DELAYS_MS = new ArrayList<>();
@@ -35,11 +38,54 @@ public final class FnHBackgroundRenderer {
 	private static String loadedSourceKey = null;
 	private static int generationCounter = 0;
 
+	private static Identifier registeredLogoId = null;
+	private static Identifier registeredEditionId = null;
+
 	private FnHBackgroundRenderer() {
 	}
 
 	public static void reload() {
 		loadedSourceKey = null;
+	}
+
+	/**
+	 * Registers `minecraft_logo.png` via `DynamicTexture` directly from classpath bytes so bare
+	 * Fabric Loader (without Fabric API resource-loader) never shows a pink/black missing texture.
+	 */
+	public static Identifier logoTexture() {
+		if (registeredLogoId == null) {
+			registeredLogoId = registerClasspathPng(LOGO_RESOURCE, "fnh_mc_logo");
+		}
+		return registeredLogoId != null
+			? registeredLogoId
+			: Identifier.withDefaultNamespace("textures/gui/title/minecraft.png");
+	}
+
+	/**
+	 * Registers `fnh_edition.png` (`512x64` `[FnH] EDITION`) via `DynamicTexture` from classpath bytes.
+	 */
+	public static Identifier editionTexture() {
+		if (registeredEditionId == null) {
+			registeredEditionId = registerClasspathPng(EDITION_RESOURCE, "fnh_edition_banner");
+		}
+		return registeredEditionId != null
+			? registeredEditionId
+			: Identifier.withDefaultNamespace("textures/gui/title/edition.png");
+	}
+
+	private static Identifier registerClasspathPng(String classpathPath, String name) {
+		try (InputStream in = FnHBackgroundRenderer.class.getResourceAsStream(classpathPath)) {
+			if (in == null) {
+				return null;
+			}
+			NativeImage img = NativeImage.read(in);
+			Identifier id = Identifier.fromNamespaceAndPath(FnHMenuMod.MOD_ID, "dynamic/" + name);
+			DynamicTexture tex = new DynamicTexture(() -> FnHMenuMod.MOD_ID + "_" + name, img);
+			Minecraft.getInstance().getTextureManager().register(id, tex);
+			return id;
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 
 	public static void render(GuiGraphics graphics, int width, int height, boolean applyTitleDim) {
@@ -56,7 +102,8 @@ public final class FnHBackgroundRenderer {
 				width,
 				height,
 				width,
-				height
+				height,
+				ARGB.white(1.0F)
 			);
 		} else {
 			graphics.fill(0, 0, width, height, 0xFF050712);
@@ -131,131 +178,119 @@ public final class FnHBackgroundRenderer {
 			return false;
 		}
 
-		if (preferGif || isGifMagic(bytes)) {
-			Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
-			if (readers.hasNext()) {
-				ImageReader reader = readers.next();
-				try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
-					reader.setInput(iis, false, false);
-					int numFrames = reader.getNumImages(true);
-					if (numFrames > 0) {
-						int canvasW = 0;
-						int canvasH = 0;
-						BufferedImage first = reader.read(0);
-						canvasW = first.getWidth();
-						canvasH = first.getHeight();
-						int[] master = new int[canvasW * canvasH];
+		if (preferGif) {
+			try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+				Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
+				if (readers.hasNext()) {
+					ImageReader reader = readers.next();
+					try {
+						reader.setInput(iis, false, false);
+						int count = reader.getNumImages(true);
+						if (count > 0) {
+							BufferedImage first = reader.read(0);
+							int canvasW = first.getWidth();
+							int canvasH = first.getHeight();
+							BufferedImage composite = new BufferedImage(canvasW, canvasH, BufferedImage.TYPE_INT_ARGB);
 
-						for (int i = 0; i < numFrames; i++) {
-							BufferedImage frame = (i == 0) ? first : reader.read(i);
-							int fx = 0;
-							int fy = 0;
-							int delayMs = 70;
-							String disposal = "none";
-
-							try {
-								IIOMetadata meta = reader.getImageMetadata(i);
-								Node root = meta.getAsTree("javax_imageio_gif_image_1.0");
-								NodeList children = root.getChildNodes();
-								for (int c = 0; c < children.getLength(); c++) {
-									Node node = children.item(c);
-									NamedNodeMap attrs = node.getAttributes();
-									if (attrs == null) {
-										continue;
-									}
-									if ("ImageDescriptor".equals(node.getNodeName())) {
-										fx = attrInt(attrs, "imageLeftPosition", 0);
-										fy = attrInt(attrs, "imageTopPosition", 0);
-									} else if ("GraphicControlExtension".equals(node.getNodeName())) {
-										int cs = attrInt(attrs, "delayTime", 7);
-										delayMs = Math.max(20, cs * 10);
-										Node dispNode = attrs.getNamedItem("disposalMethod");
-										if (dispNode != null) {
-											disposal = dispNode.getNodeValue();
-										}
-									}
+							int limit = Math.min(count, 64);
+							for (int i = 0; i < limit; i++) {
+								BufferedImage rawFrame = (i == 0) ? first : reader.read(i);
+								int ox = 0;
+								int oy = 0;
+								int delayMs = 70;
+								try {
+									IIOMetadata meta = reader.getImageMetadata(i);
+									String fmt = meta.getNativeMetadataFormatName();
+									Node root = meta.getAsTree(fmt);
+									delayMs = extractGifDelayMs(root, 70);
+									int[] offset = extractGifOffset(root);
+									ox = offset[0];
+									oy = offset[1];
+								} catch (Exception ignored) {
 								}
-							} catch (Exception ignored) {
+
+								java.awt.Graphics2D g2 = composite.createGraphics();
+								g2.drawImage(rawFrame, ox, oy, null);
+								g2.dispose();
+
+								registerBufferedFrame(composite, i, delayMs);
 							}
-
-							int[] backup = "restoreToPrevious".equals(disposal) ? master.clone() : null;
-							int fw = frame.getWidth();
-							int fh = frame.getHeight();
-							int[] sub = frame.getRGB(0, 0, fw, fh, null, 0, fw);
-							for (int y = 0; y < fh; y++) {
-								int dy = fy + y;
-								if (dy < 0 || dy >= canvasH) {
-									continue;
-								}
-								for (int x = 0; x < fw; x++) {
-									int dx = fx + x;
-									if (dx < 0 || dx >= canvasW) {
-										continue;
-									}
-									int argb = sub[y * fw + x];
-									int a = (argb >>> 24) & 0xFF;
-									if (a > 0) {
-										master[dy * canvasW + dx] = argb | 0xFF000000;
-									}
-								}
-							}
-
-							BufferedImage composed = new BufferedImage(canvasW, canvasH, BufferedImage.TYPE_INT_ARGB);
-							composed.setRGB(0, 0, canvasW, canvasH, master, 0, canvasW);
-							registerBufferedFrame(composed, i, delayMs);
-
-							if ("restoreToBackgroundColor".equals(disposal)) {
-								for (int y = 0; y < fh; y++) {
-									int dy = fy + y;
-									if (dy < 0 || dy >= canvasH) {
-										continue;
-									}
-									for (int x = 0; x < fw; x++) {
-										int dx = fx + x;
-										if (dx >= 0 && dx < canvasW) {
-											master[dy * canvasW + dx] = 0xFF050712;
-										}
-									}
-								}
-							} else if (backup != null) {
-								System.arraycopy(backup, 0, master, 0, master.length);
-							}
+							return !FRAME_IDS.isEmpty();
 						}
-						return !FRAME_IDS.isEmpty();
+					} finally {
+						reader.dispose();
 					}
-				} finally {
-					reader.dispose();
 				}
+			} catch (Exception ignored) {
 			}
 		}
 
-		BufferedImage single = ImageIO.read(new ByteArrayInputStream(bytes));
-		if (single != null) {
-			registerBufferedFrame(single, 0, 1000);
-			return true;
+		BufferedImage still = ImageIO.read(new ByteArrayInputStream(bytes));
+		if (still == null) {
+			return false;
 		}
-		return false;
+		registerBufferedFrame(still, 0, 1000);
+		return !FRAME_IDS.isEmpty();
 	}
 
-	private static void registerBufferedFrame(BufferedImage img, int idx, int delayMs) throws Exception {
-		ByteArrayOutputStream baos = new ByteArrayOutputStream(32768);
-		ImageIO.write(img, "png", baos);
-		NativeImage nativeImg = NativeImage.read(new ByteArrayInputStream(baos.toByteArray()));
-		String name = "bg_" + generationCounter + "_" + idx;
-		Identifier id = Identifier.fromNamespaceAndPath(FnHMenuMod.MOD_ID, name);
-		DynamicTexture tex = new DynamicTexture(() -> "fnh_" + name, nativeImg);
+	private static void registerBufferedFrame(BufferedImage img, int index, int delayMs) throws Exception {
+		ByteArrayOutputStream pngBytes = new ByteArrayOutputStream(32768);
+		ImageIO.write(img, "png", pngBytes);
+		NativeImage nativeImg = NativeImage.read(new ByteArrayInputStream(pngBytes.toByteArray()));
+
+		Identifier id = Identifier.fromNamespaceAndPath(
+			FnHMenuMod.MOD_ID,
+			"dynamic_bg_" + generationCounter + "_" + index
+		);
+		String label = FnHMenuMod.MOD_ID + "_bg_" + generationCounter + "_" + index;
+		DynamicTexture tex = new DynamicTexture(() -> label, nativeImg);
 		Minecraft.getInstance().getTextureManager().register(id, tex);
+
+		int safeDelay = Math.max(25, delayMs);
 		FRAME_IDS.add(id);
-		FRAME_DELAYS_MS.add(delayMs);
-		totalCycleMs += delayMs;
+		FRAME_DELAYS_MS.add(safeDelay);
+		totalCycleMs += safeDelay;
 	}
 
-	private static boolean isGifMagic(byte[] b) {
-		return b.length >= 6 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F';
+	private static int extractGifDelayMs(Node root, int fallbackMs) {
+		NodeList children = root.getChildNodes();
+		for (int i = 0; i < children.getLength(); i++) {
+			Node n = children.item(i);
+			if ("GraphicControlExtension".equals(n.getNodeName())) {
+				NamedNodeMap attrs = n.getAttributes();
+				if (attrs != null) {
+					Node delayNode = attrs.getNamedItem("delayTime");
+					if (delayNode != null) {
+						try {
+							int hundredths = Integer.parseInt(delayNode.getNodeValue());
+							return hundredths <= 1 ? 70 : hundredths * 10;
+						} catch (NumberFormatException ignored) {
+						}
+					}
+				}
+			}
+		}
+		return fallbackMs;
 	}
 
-	private static int attrInt(NamedNodeMap attrs, String name, int def) {
-		Node n = attrs.getNamedItem(name);
+	private static int[] extractGifOffset(Node root) {
+		NodeList children = root.getChildNodes();
+		for (int i = 0; i < children.getLength(); i++) {
+			Node n = children.item(i);
+			if ("ImageDescriptor".equals(n.getNodeName())) {
+				NamedNodeMap attrs = n.getAttributes();
+				if (attrs != null) {
+					int left = parseAttrInt(attrs, "imageLeftPosition", 0);
+					int top = parseAttrInt(attrs, "imageTopPosition", 0);
+					return new int[] { left, top };
+				}
+			}
+		}
+		return new int[] { 0, 0 };
+	}
+
+	private static int parseAttrInt(NamedNodeMap attrs, String key, int def) {
+		Node n = attrs.getNamedItem(key);
 		if (n == null) {
 			return def;
 		}
