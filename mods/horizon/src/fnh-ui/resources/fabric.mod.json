@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "fnh_ui",
+  "version": "${version}",
+  "name": "FnH Menu UI",
+  "description": "Minecraft's UI redesigned in FnH Dark Glass: animated Milky Way background, 3D walk-in skin with cursor eye tracking, subtle rim glow, and smooth screen transitions.",
+  "authors": [
+    "Buffer"
+  ],
+  "contact": {
+    "homepage": "https://fnh.is-cool.dev",
+    "sources": "https://github.com/bufferclick/FnH"
+  },
+  "license": "MIT",
+  "icon": "assets/fnh_ui/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.horizonlab.fnh.FnHMenuMod"
+    ]
+  },
+  "mixins": [
+    "fnh_ui.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}

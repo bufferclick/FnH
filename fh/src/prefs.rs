@@ -370,6 +370,7 @@ pub struct Prefs {
     pub console_timestamps: bool,
 
     // --- Minecraft -> General ---
+    pub install_fnh_menu_ui: bool,
     pub start_maximized: bool,
     pub start_fullscreen: bool,
     pub window_width: u32,
@@ -480,6 +481,7 @@ impl Default for Prefs {
             console_word_wrap: false,
             console_timestamps: false,
 
+            install_fnh_menu_ui: true,
             start_maximized: false,
             start_fullscreen: false,
             window_width: 854,

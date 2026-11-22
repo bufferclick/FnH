@@ -1,33 +1,24 @@
 name: fh
-# Builds FNH (fh/): JLac's window over Fabric & Horizon instances, one .exe that a player unzips
-# from FnHLauncher.zip and double-clicks. Windows x64 only — the only platform it exists for — on a
-# Windows runner, so the icon and the version resource in the .exe are the real Windows ones, not a
-# cross-build's guess.
-#
-# The version is fh/VERSION (v1.4 first, one tenth per update: v1.5 … v1.9, then v1.10). The
-# release is tagged fnh-v<version> and its download archive is always named FnHLauncher.zip so
-# players, fnh.is-cool.dev, and FNH's built-in self-updater always pull a single canonical zip.
-#
-# The release is created with --latest, so the newest FNH is the Latest release and the download
-# the website's button asks for (`releases/latest`).
-#
-# A branch's run only builds: the zip waits as the run's artifact.
+# Builds FNH (fh/) + FnH Menu UI Fabric Mod (mods/horizon -> fnh-menu-1.8.0.jar):
+#   1. `menu-mod` compiles `fnh-menu-1.8.0.jar` for Minecraft 1.21.11 (Fabric) via Gradle + Loom.
+#   2. `windows` builds native Windows x64 `FH.exe`, bundles `FH.exe` + `fnh-menu-1.8.0.jar` into
+#      `FnHLauncher.zip`, and publishes both `FnHLauncher.zip` and standalone `fnh-menu-1.8.0.jar`
+#      on the `fnh-v<VERSION>` GitHub Release.
 
 on:
   push:
     branches: [main, 'fh-*', 'fh/**']
     paths:
-      # Everything the .exe is built from: this crate, and the launcher's library it drives.
       - 'fh/**'
+      - 'mods/horizon/**'
       - 'launcher/**'
       - 'crates/**'
       - 'third_party/**'
       - '.github/workflows/fh.yml'
   pull_request:
-    # The first FH build lives in its own pull request, and a workflow that is not on the default
-    # branch yet cannot be dispatched: the pull request's runs are the build.
     paths:
       - 'fh/**'
+      - 'mods/horizon/**'
       - 'launcher/**'
       - 'crates/**'
       - 'third_party/**'
@@ -42,14 +33,63 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Test runs never reach the telemetry server: no live-count ping, no uploads (docs/telemetry.md).
   HORIZON_TELEMETRY_URL: "off"
-  # Readable in a comment, and complete: `tee` holds its last block in a buffer that a killed
-  # build never writes.
   CARGO_TERM_COLOR: never
 
 jobs:
+  menu-mod:
+    name: fnh-menu-jar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.8.2'
+      - name: Build fnh-menu-1.8.0.jar (Fabric 1.21.11)
+        working-directory: mods/horizon
+        run: |
+          if gradle build --no-daemon --stacktrace > gradle-build.log 2>&1; then
+            ls -lh build/libs/
+            test -f build/libs/fnh-menu-1.8.0.jar
+            python3 -c '
+          import zipfile
+          with zipfile.ZipFile("build/libs/fnh-menu-1.8.0.jar") as z:
+              names = set(z.namelist())
+              print("Jar entries:", len(names))
+              assert "fabric.mod.json" in names, "missing fabric.mod.json"
+              assert "fnh_ui.mixins.json" in names, "missing fnh_ui.mixins.json"
+          '
+            exit 0
+          fi
+          echo "::error::gradle build failed; gradle-build.log has $(wc -l < gradle-build.log) lines"
+          tail -n 120 gradle-build.log
+          exit 1
+      - name: Post Gradle failure log
+        if: failure()
+        working-directory: mods/horizon
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          body="### gradle-build.log"$'\n\n```\n'"$(tail -n 300 gradle-build.log 2>/dev/null || echo 'no log')"$'\n```\n'
+          printf '%s' "$body" > comment.md
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fnh-menu-1.8.0
+          path: mods/horizon/build/libs/fnh-menu-1.8.0.jar
+          if-no-files-found: error
+
   windows:
+    needs: menu-mod
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -61,6 +101,10 @@ jobs:
         with:
           persist-credentials: false
           clean: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: fnh-menu-1.8.0
+          path: fh/mod-dist
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
         with:
           toolchain: stable
@@ -93,9 +137,6 @@ jobs:
 
       - name: Build
         env:
-          # The C runtime linked in: without it the .exe asks for VCRUNTIME140.dll, which only the
-          # Visual C++ redistributable installs — a computer that has never played Minecraft has
-          # no reason to have one.
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
           if cargo build --release > cargo-build.log 2>&1; then
@@ -120,7 +161,6 @@ jobs:
           python ../tools/check_pe_arch.py x64 ./target/release/FH.exe
           python ../tools/check_imports.py ./target/release/FH.exe
       - name: A double-click opens no console
-        # A GUI-subsystem image (2): the page is the only window.
         run: |
           set -euo pipefail
           python -c "
@@ -132,23 +172,23 @@ jobs:
           print('subsystem', subsystem)
           raise SystemExit(0 if subsystem == 2 else 1)
           " target/release/FH.exe
-      - name: Package FnHLauncher.zip
+      - name: Package FnHLauncher.zip and fnh-menu-1.8.0.jar
         run: |
           set -euo pipefail
           rm -rf dist && mkdir -p dist/fnh
           cp target/release/FH.exe dist/fnh/
+          cp mod-dist/fnh-menu-1.8.0.jar dist/fnh/
+          cp mod-dist/fnh-menu-1.8.0.jar dist/fnh-menu-1.8.0.jar
           sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/fnh/README.txt
           cd dist
           powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'FnHLauncher.zip' -Force"
-          ls -l "FnHLauncher.zip"
+          ls -lh "FnHLauncher.zip" "fnh-menu-1.8.0.jar"
       - uses: actions/upload-artifact@v7
         with:
           name: FnHLauncher-${{ env.VERSION }}
           path: fh/dist/FnHLauncher.zip
           if-no-files-found: error
       - name: What failed, as a comment the failure can be read from
-        # The runner's raw log is not reachable from every place a failure is read, and a commit
-        # comment is.
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -157,7 +197,7 @@ jobs:
           body=""
           for f in cargo-test.log cargo-build.log; do
             [ -f "$f" ] || continue
-            body+="### $f: $(wc -l < "$f") lines, $(du -h "$f" | cut -f1); the last 400"$'\n\n```\n'"$(tail -n 400 "$f")"$'\n```\n\n'
+            body+="### $f: $(wc -l < "$f") lines, $(du -h "$f") ; the last 400"$'\n\n```\n'"$(tail -n 400 "$f")"$'\n```\n\n'
           done
           body+=$'### disk\n\n```\n'"$(df -h | tail -4)"$'\n```\n'
           [ -n "$body" ] || body="No cargo log was written: a step before cargo failed."
@@ -175,7 +215,13 @@ jobs:
             echo "::notice::$tag is published already: nothing to do (bump fh/VERSION)"
             exit 0
           fi
-          gh release create "$tag" "dist/FnHLauncher.zip" \
-            --title "FNH v$VERSION" \
+          gh release create "$tag" "dist/FnHLauncher.zip" "dist/fnh-menu-1.8.0.jar" \
+            --title "FNH v$VERSION — The Menu UI Update" \
             --latest \
-            --notes "FNH (Fabric n Horizon) v$VERSION for Windows x64 — made by Buffer. Download \`FnHLauncher.zip\`, unzip it, and double-click \`FH.exe\` (or update automatically from inside FnH). Includes fixed 9x9 FnH icons everywhere, full Horizon v0.2 Content/WASM/Native SDK \`.hmod\` + GitHub & Registry support, a Fabric-style Crash & Mod Compatibility window with 1-click Disable Mod, and automatic startup self-updates. [fnh.is-cool.dev](https://fnh.is-cool.dev) · [Documentation](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"
+            --notes "FNH (Fabric n Horizon) v$VERSION — **The Menu UI Update** — made by Buffer.
+
+          ### Downloads
+          - **\`FnHLauncher.zip\`** — Native Windows x64 launcher (\`FH.exe\` v$VERSION) with \`fnh-menu-1.8.0.jar\` bundled and auto-installed into Fabric 1.21.11 instances (or update in 1 click from inside FnH).
+          - **\`fnh-menu-1.8.0.jar\`** — Standalone Fabric 1.21.11 Menu UI mod: Minecraft's own UI layouts (\`TitleScreen\`, \`Options\`, \`Singleplayer\`, \`Create New World\`, \`Multiplayer\`, \`Mods\`) redesigned in FnH Dark Glass with stretched Milky Way animated background, custom background support, 3D walk-in player skin with cursor eye tracking, subtle rim glow, and smooth transitions.
+
+          [Live Menu Preview](https://fnh.is-cool.dev/menupreview) · [fnh.is-cool.dev](https://fnh.is-cool.dev) · [Documentation](https://github.com/${{ github.repository }}/blob/main/fh/README.md)"

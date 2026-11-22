@@ -48,6 +48,10 @@
       <a class="button" id="download" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">
         Download FnHLauncher.zip
       </a>
+      <a class="button quiet" id="download-mod" href="https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.8.0.jar" rel="noopener">
+        Download fnh-menu-1.8.0.jar
+      </a>
+      <a class="button quiet" href="/menupreview">Menu Preview</a>
       <a class="button quiet" href="https://github.com/bufferclick/FnH" rel="noopener">View on GitHub</a>
     </p>
     <p class="meta" id="release">Windows 10 or 11 · x64 · MIT licence</p>
@@ -147,6 +151,7 @@
 (function () {
   var repo = "bufferclick/fnh";
   var button = document.getElementById("download");
+  var modButton = document.getElementById("download-mod");
   var link = document.getElementById("download-link");
   var meta = document.getElementById("release");
   var size = document.getElementById("size");
@@ -169,6 +174,13 @@
       })[0] || assets.filter(function (a) {
         return /\.zip$/i.test(a.name);
       })[0];
+      var modAsset = assets.filter(function (a) {
+        return /^fnh-menu-.*\.jar$/i.test(a.name);
+      })[0];
+      if (modAsset && modButton) {
+        modButton.href = modAsset.browser_download_url;
+        modButton.textContent = "Download " + modAsset.name;
+      }
       if (!asset) return;
       var ver = (release.tag_name || "").replace(/^fnh-/i, "");
       button.href = asset.browser_download_url;

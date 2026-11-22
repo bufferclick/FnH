@@ -18,6 +18,8 @@ Quick guide:
     (including an options.txt tuner), and Other Logs.
   - If a mod is incompatible or crashes Minecraft/Horizon, FNH opens a Fabric-style Crash & Mod
     Compatibility window with potential solutions and 1-click "Disable Mod".
+  - Fabric 1.21.11 instances automatically receive `fnh-menu-1.8.0.jar` (FnH's Dark Glass Minecraft UI,
+    animated Milky Way background & 3D walk-in skin; toggleable in Settings -> Minecraft).
   - Click "Update" in the top toolbar at any time to check for or install the latest FnHLauncher.zip.
   - Hold Ctrl + Shift + Alt while clicking "Add Instance" to wipe all FNH data and relaunch fresh.
 

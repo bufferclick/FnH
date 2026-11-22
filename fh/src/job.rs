@@ -635,6 +635,7 @@ fn build_java_command(
     std::fs::create_dir_all(&effective.home)
         .map_err(|e| format!("{}: {e}", effective.home.display()))?;
     std::fs::create_dir_all(effective.home.join("mods")).ok();
+    sync_fnh_menu_mod(&effective, prefs, emit);
 
     let built = backend::java_game(&effective, server, emit);
 
@@ -658,6 +659,100 @@ fn build_java_command(
     }
 
     Ok(cmd)
+}
+
+const FNH_MENU_JAR_NAME: &str = "fnh-menu-1.8.0.jar";
+const FNH_MENU_RELEASE_URLS: &[&str] = &[
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.8/fnh-menu-1.8.0.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.8.0.jar",
+];
+
+/// Provisions (or removes, when disabled) `fnh-menu-1.8.0.jar` in Fabric 1.21.11 instances.
+fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) {
+    let Some(java) = instance.java.as_ref() else {
+        return;
+    };
+    if java.loader.as_ref().map(|l| l.kind) != Some(horizon_launcher::loaders::Kind::Fabric)
+        || !java.minecraft.trim().starts_with("1.21.11")
+    {
+        return;
+    }
+
+    let mods_dir = instance.home.join("mods");
+    let target = mods_dir.join(FNH_MENU_JAR_NAME);
+
+    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let s = file_name.to_string_lossy();
+            if s.starts_with("fnh-menu-") && s.ends_with(".jar") {
+                if !prefs.install_fnh_menu_ui || s != FNH_MENU_JAR_NAME {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    if !prefs.install_fnh_menu_ui {
+        return;
+    }
+
+    if std::fs::metadata(&target).map(|m| m.len() > 2048).unwrap_or(false) {
+        return;
+    }
+
+    // 1. Check alongside FH.exe (bundled inside FnHLauncher.zip).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join(FNH_MENU_JAR_NAME);
+            if std::fs::metadata(&bundled).map(|m| m.len() > 2048).unwrap_or(false)
+                && std::fs::copy(&bundled, &target).is_ok()
+            {
+                emit(format!("Installed {FNH_MENU_JAR_NAME} into instance mods."));
+                return;
+            }
+        }
+    }
+
+    // 2. Check %APPDATA%\FnH\cache\fnh-menu-1.8.0.jar.
+    let cache_dir = crate::paths::root().join("cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let cached = cache_dir.join(FNH_MENU_JAR_NAME);
+    if std::fs::metadata(&cached).map(|m| m.len() > 2048).unwrap_or(false)
+        && std::fs::copy(&cached, &target).is_ok()
+    {
+        emit(format!("Installed cached {FNH_MENU_JAR_NAME} into instance mods."));
+        return;
+    }
+
+    // 3. Fetch once from GitHub Releases (fnh-v1.8).
+    emit(format!("Downloading {FNH_MENU_JAR_NAME} from GitHub Releases..."));
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(6))
+        .timeout_read(Duration::from_secs(20))
+        .build();
+    for url in FNH_MENU_RELEASE_URLS {
+        if let Ok(resp) = agent
+            .get(url)
+            .set("User-Agent", &format!("FNH/{}", crate::VERSION))
+            .call()
+        {
+            let mut bytes = Vec::new();
+            if std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes).is_ok()
+                && bytes.len() > 2048
+                && bytes.starts_with(b"PK")
+            {
+                let _ = std::fs::write(&cached, &bytes);
+                if std::fs::write(&target, &bytes).is_ok() {
+                    emit(format!("Installed {FNH_MENU_JAR_NAME} into instance mods."));
+                }
+                return;
+            }
+        }
+    }
+    log::line(&format!(
+        "[FNH] Note: could not fetch {FNH_MENU_JAR_NAME} right now; continuing launch."
+    ));
 }
 
 /// Builds the complete Horizon `Command` with strict instance isolation & all Horizon settings.

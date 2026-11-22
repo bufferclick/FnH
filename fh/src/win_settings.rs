@@ -1208,6 +1208,19 @@ impl SettingsWindow {
                     )
                     .child(
                         checkbox_row(
+                            "mc-fnh-menu-ui",
+                            "Install FnH Menu UI (fnh-menu-1.8.0.jar) on Fabric 1.21.11",
+                            Some("Applies FnH's Dark Glass Minecraft UI, Milky Way background & 3D walk-in skin."),
+                            p.install_fnh_menu_ui,
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.mutate_prefs(cx, |p| p.install_fnh_menu_ui = !p.install_fnh_menu_ui);
+                        })),
+                    )
+                    .child(
+                        checkbox_row(
                             "mc-max",
                             "Start Minecraft maximized",
                             None,

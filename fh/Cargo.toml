@@ -2,7 +2,7 @@
 # Fabric n Horizon (FNH) — made by Buffer. JLac's Windows 11 launcher for Fabric and Horizon.
 # The version here and fh/VERSION move together (a test checks it).
 name = "horizon-fh"
-version = "1.7.1"
+version = "1.8.0"
 edition = "2021"
 authors = ["Buffer"]
 license = "MIT"
