@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FnH — Universal UI &amp; Main Menu Preview</title>
-<meta name="description" content="Interactive live preview of the universal Minecraft FnH Edition dark-glass UI and main menu.">
+<title>FnH 1.8 — Menu UI Update Preview</title>
+<meta name="description" content="Live preview of FnH Update 1.8: Minecraft's UI redesigned in FnH Dark Glass.">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/assets/icon.png" sizes="256x256" type="image/png">
 <style>
   :root {
     --ui-font: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-    --glass-bg: rgba(10, 12, 20, 0.66);
-    --glass-bg-hover: rgba(20, 24, 38, 0.80);
-    --glass-panel: rgba(9, 11, 19, 0.78);
-    --glass-card: rgba(14, 17, 28, 0.62);
-    --glass-card-selected: rgba(28, 34, 54, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.13);
+    --glass-bg: rgba(12, 14, 22, 0.66);
+    --glass-bg-hover: rgba(24, 28, 42, 0.80);
+    --glass-bg-disabled: rgba(10, 12, 18, 0.36);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-line: rgba(255, 255, 255, 0.18);
     --text-main: rgba(248, 249, 252, 0.96);
     --text-sub: rgba(255, 255, 255, 0.66);
     --text-muted: rgba(255, 255, 255, 0.46);
     --mb-mult: 1;
+    --gui-zoom: 1;
   }
 
   * {
@@ -41,7 +41,7 @@
   }
 
   /* =========================================================================
-     Always-Stretched Full-Window Background
+     Always-Stretched Full-Window Background (Unscaled by GUI Scale, just like MC!)
      ========================================================================= */
   .bg-layer {
     position: fixed;
@@ -73,16 +73,17 @@
     inset: 0;
     z-index: 1;
     pointer-events: none;
-    transition: background 0.25s ease;
+    transition: backdrop-filter 0.22s ease, -webkit-backdrop-filter 0.22s ease, background 0.22s ease;
     background:
       linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)),
       radial-gradient(circle at 50% 45%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.34) 100%);
   }
 
+  /* Vanilla 1.21 Menu Background Blur when inside Options / Singleplayer / Multiplayer */
   body.in-subscreen .bg-dim {
-    background:
-      linear-gradient(rgba(4, 6, 14, 0.46), rgba(4, 6, 14, 0.46)),
-      radial-gradient(circle at 50% 45%, rgba(4, 6, 14, 0.24) 0%, rgba(4, 6, 14, 0.68) 100%) !important;
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+    background: rgba(6, 8, 15, 0.42) !important;
   }
 
   body.dragging-file::after {
@@ -91,7 +92,7 @@
     inset: 16px;
     z-index: 90;
     border: 1.5px dashed rgba(255, 255, 255, 0.68);
-    border-radius: 12px;
+    border-radius: 8px;
     background: rgba(8, 10, 18, 0.82);
     backdrop-filter: blur(12px);
     display: grid;
@@ -103,17 +104,31 @@
   }
 
   /* =========================================================================
-     Motion Blur Animations (Always resolves to filter: none so backdrop-filter stays crisp)
+     Real Working GUI Scale Root (scales all Minecraft screens & widgets live!)
+     ========================================================================= */
+  .gui-scale-root {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    width: calc(100vw / var(--gui-zoom));
+    height: calc(100vh / var(--gui-zoom));
+    transform: scale(var(--gui-zoom));
+    transform-origin: top left;
+  }
+
+  /* =========================================================================
+     Motion Blur Animations (Resolves to filter: none so backdrop-filter stays crisp)
      ========================================================================= */
   @keyframes mbEnterUp {
     0% {
       opacity: 0;
-      transform: translate3d(0, 16px, 0) scale(0.975);
-      filter: blur(calc(12px * var(--mb-mult)));
+      transform: translate3d(0, 13px, 0) scale(0.982);
+      filter: blur(calc(10px * var(--mb-mult)));
     }
-    65% {
+    70% {
       opacity: 1;
-      filter: blur(calc(2.5px * var(--mb-mult)));
+      filter: blur(calc(2px * var(--mb-mult)));
     }
     100% {
       opacity: 1;
@@ -125,12 +140,12 @@
   @keyframes mbScreenIn {
     0% {
       opacity: 0;
-      transform: scale(0.962) translate3d(0, 18px, 0);
-      filter: blur(calc(15px * var(--mb-mult)));
+      transform: scale(0.975) translate3d(0, 12px, 0);
+      filter: blur(calc(12px * var(--mb-mult)));
     }
     70% {
       opacity: 1;
-      filter: blur(calc(2px * var(--mb-mult)));
+      filter: blur(calc(1.8px * var(--mb-mult)));
     }
     100% {
       opacity: 1;
@@ -147,35 +162,18 @@
     }
     100% {
       opacity: 0;
-      transform: scale(1.038) translate3d(0, -10px, 0);
-      filter: blur(calc(14px * var(--mb-mult)));
-    }
-  }
-
-  @keyframes mbTabSlide {
-    0% {
-      opacity: 0;
-      transform: translate3d(18px, 0, 0);
+      transform: scale(1.028) translate3d(0, -8px, 0);
       filter: blur(calc(11px * var(--mb-mult)));
-    }
-    100% {
-      opacity: 1;
-      transform: none;
-      filter: none;
     }
   }
 
   .mb-stagger {
-    animation: mbEnterUp 0.34s cubic-bezier(0.2, 0.88, 0.28, 1) both;
-    animation-delay: calc(var(--i, 0) * 38ms);
-  }
-
-  .mb-tab-anim {
-    animation: mbTabSlide 0.24s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+    animation: mbEnterUp 0.3s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    animation-delay: calc(var(--i, 0) * 32ms);
   }
 
   /* =========================================================================
-     Universal Cursor-Tracking Glow System
+     Tight, Subtle Cursor Rim Highlight (No big glow ball!)
      ========================================================================= */
   .glow-ui {
     --mx: -999px;
@@ -190,10 +188,10 @@
     border-radius: inherit;
     padding: 1px;
     background: radial-gradient(
-      220px circle at var(--mx) var(--my),
-      rgba(255, 255, 255, 0.88),
-      rgba(202, 216, 255, 0.34) 42%,
-      transparent 74%
+      62px circle at var(--mx) var(--my),
+      rgba(255, 255, 255, 0.48),
+      rgba(210, 220, 255, 0.14) 50%,
+      transparent 75%
     );
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
@@ -209,21 +207,12 @@
     inset: 0;
     border-radius: inherit;
     background: radial-gradient(
-      165px circle at var(--mx) var(--my),
-      rgba(255, 255, 255, 0.16),
-      rgba(195, 210, 255, 0.05) 48%,
-      transparent 75%
-    );
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .glow-panel::after {
-    background: radial-gradient(
-      320px circle at var(--mx) var(--my),
+      48px circle at var(--mx) var(--my),
       rgba(255, 255, 255, 0.065),
       transparent 72%
     );
+    pointer-events: none;
+    z-index: 1;
   }
 
   .glow-ui > * {
@@ -232,99 +221,157 @@
   }
 
   /* =========================================================================
-     Universal Dark-Glass Buttons & Controls
+     Minecraft Widgets Redesigned in FnH Dark Glass
+     (Exact 200px / 150px / 98px Minecraft proportions!)
      ========================================================================= */
-  .btn {
-    height: clamp(35px, 4.3vh, 39px);
-    padding: 0 15px;
-    border-radius: 6px;
+  .mc-btn {
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 4px;
     border: 1px solid var(--glass-border);
     background: var(--glass-bg);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     color: var(--text-main);
     font-family: var(--ui-font);
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 500;
-    letter-spacing: 0.015em;
+    letter-spacing: 0.01em;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    gap: 6px;
     cursor: pointer;
     transition:
-      background 0.15s ease,
-      transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1),
-      box-shadow 0.16s ease,
-      color 0.14s ease,
-      filter 0.14s ease;
-    box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      background 0.12s ease,
+      border-color 0.12s ease,
+      transform 0.12s ease,
+      color 0.12s ease;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.34);
+    white-space: nowrap;
   }
 
-  .btn:hover:not(:disabled) {
+  .mc-btn:hover:not(:disabled) {
     background: var(--glass-bg-hover);
-    color: #ffffff;
-    transform: translateY(-1px) scale(1.012);
-    box-shadow:
-      0 7px 24px rgba(0, 0, 0, 0.54),
-      0 0 18px rgba(215, 225, 255, 0.14);
-  }
-
-  .btn:active:not(:disabled) {
-    transform: translateY(1px) scale(0.985);
-    filter: blur(calc(1.2px * var(--mb-mult)));
-  }
-
-  .btn:disabled {
-    opacity: 0.42;
-    cursor: not-allowed;
-  }
-
-  .btn-sm {
-    height: 33px;
-    padding: 0 12px;
-    font-size: 12.5px;
-  }
-
-  .btn-primary {
-    background: rgba(240, 244, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.32);
     color: #fff;
   }
 
-  .btn-danger:hover:not(:disabled) {
-    background: rgba(165, 38, 48, 0.42);
-    border-color: rgba(255, 120, 130, 0.45);
+  .mc-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .mc-btn:disabled {
+    background: var(--glass-bg-disabled);
+    color: rgba(255, 255, 255, 0.36);
+    border-color: rgba(255, 255, 255, 0.07);
+    cursor: default;
+  }
+
+  /* Minecraft In-Button Slider Widget (like "FOV: Normal" in image-9.png!) */
+  .mc-slider {
+    position: relative;
+    height: 34px;
+    border-radius: 4px;
+    border: 1px solid var(--glass-border);
+    background: rgba(8, 10, 18, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--text-main);
+    font-family: var(--ui-font);
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ew-resize;
+    overflow: hidden;
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.45), 0 2px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  .mc-slider:hover {
+    border-color: rgba(255, 255, 255, 0.32);
+  }
+
+  .mc-slider-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .mc-slider-thumb {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    width: 10px;
+    margin-left: -5px;
+    border-radius: 3px;
+    background: rgba(220, 226, 242, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.58);
+    pointer-events: none;
+    z-index: 2;
+    transition: background 0.1s ease;
+  }
+
+  .mc-slider:hover .mc-slider-thumb {
+    background: rgba(245, 248, 255, 0.62);
+  }
+
+  .mc-slider-label {
+    position: relative;
+    z-index: 3;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  }
+
+  /* Minecraft Text Field Widget */
+  .mc-input {
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(4, 6, 12, 0.82);
+    color: #fff;
+    font-family: var(--ui-font);
+    font-size: 13px;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .mc-input:focus {
+    border-color: rgba(255, 255, 255, 0.68);
+  }
+
+  .mc-input::placeholder {
+    color: rgba(255, 255, 255, 0.36);
+    font-style: italic;
   }
 
   /* =========================================================================
-     Home Main Menu Screen
+     Home Main Menu Screen (TitleScreen)
      ========================================================================= */
   .home-screen {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    z-index: 5;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 8px 0 56px;
-    transition: opacity 0.22s ease;
+    padding: 6px 0 50px;
   }
 
   .home-screen.leaving {
     pointer-events: none;
-    animation: mbScreenOut 0.22s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+    animation: mbScreenOut 0.2s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
   }
 
   .home-screen.hidden {
     display: none;
-  }
-
-  .home-screen.entering {
-    animation: mbScreenIn 0.3s cubic-bezier(0.2, 0.88, 0.28, 1) both;
   }
 
   .center-stack {
@@ -334,14 +381,12 @@
     width: 100%;
   }
 
-  /* 1. Title Block */
   .title-block {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-    z-index: 4;
+    gap: 7px;
+    margin-bottom: 2px;
   }
 
   .mc-logo-wrap {
@@ -350,8 +395,8 @@
   }
 
   .mc-logo {
-    width: clamp(290px, 32.5vw, 415px);
-    max-width: 88vw;
+    width: 390px;
+    max-width: 86vw;
     height: auto;
     display: block;
     filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.74));
@@ -366,7 +411,7 @@
     color: #ffffff;
     font-family: "Courier New", Consolas, monospace;
     font-weight: 700;
-    font-size: clamp(13px, 1.32vw, 15.5px);
+    font-size: 14.5px;
     letter-spacing: 0.02em;
     white-space: nowrap;
     text-shadow:
@@ -385,34 +430,31 @@
     display: block;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    height: clamp(35px, 4.5vh, 46px);
+    height: 42px;
     width: auto;
-    max-width: 86vw;
+    max-width: 82vw;
     filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.82));
   }
 
-  /* 2. Unobstructed Walk-In Lane + Distortion-Free Narrow-FOV Skin Viewport */
   .skin-stage {
     position: relative;
-    width: 100vw;
-    height: clamp(168px, 23vh, 218px);
-    margin: 2px 0 clamp(16px, 2.5vh, 24px);
+    width: 100%;
+    height: 196px;
+    margin: 2px 0 18px;
     display: flex;
     align-items: center;
     justify-content: center;
     pointer-events: none;
-    z-index: 3;
   }
 
   body.hide-skin .skin-stage {
     display: none;
   }
 
-  /* Narrow square-ish mover eliminates ALL wide-angle edge stretching during walk-in */
   .skin-mover {
     position: relative;
-    width: clamp(168px, 23vh, 218px);
-    height: 100%;
+    width: 196px;
+    height: 196px;
     will-change: transform, filter;
     filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62));
   }
@@ -434,36 +476,31 @@
     cursor: grabbing;
   }
 
-  /* 3. Main Menu Buttons */
   .menu-buttons {
-    width: clamp(254px, 26vw, 292px);
+    width: 310px;
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    z-index: 4;
+    gap: 6px;
   }
 
   .menu-row-split {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 7px;
+    gap: 6px;
     width: 100%;
   }
 
-  /* Bottom Bar */
   .footer-bar {
-    position: fixed;
+    position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 8;
-    padding: 12px 16px;
+    padding: 10px 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.18s ease;
   }
 
   body.in-subscreen .footer-bar {
@@ -471,478 +508,299 @@
   }
 
   .footer-meta {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
-    letter-spacing: 0.01em;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.88);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
 
   .fnh-corner-btn {
     pointer-events: auto;
-    height: 34px;
-    padding: 0 14px;
-    font-size: 13px;
+    height: 32px;
+    padding: 0 13px;
     font-weight: 600;
   }
 
   /* =========================================================================
-     Universal FnH Sub-Screens (Singleplayer, Multiplayer, Mods, Options, FnH)
+     Full-Screen Minecraft Sub-Screens Redesigned for FnH
+     (Matches image-9, image-10, image-11, image-12, image-13!)
      ========================================================================= */
-  .subscreen-layer {
-    position: fixed;
+  .mc-screen {
+    position: absolute;
     inset: 0;
-    z-index: 20;
     display: none;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: clamp(14px, 3vh, 32px) clamp(14px, 3vw, 36px);
   }
 
-  .subscreen-layer.active {
+  .mc-screen.active {
     display: flex;
   }
 
-  .u-window {
-    width: min(880px, 96vw);
-    height: min(610px, 90vh);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: var(--glass-panel);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    box-shadow:
-      0 28px 80px rgba(0, 0, 0, 0.72),
-      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  .mc-screen.entering {
+    animation: mbScreenIn 0.24s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+  }
+
+  .mc-screen.leaving {
+    pointer-events: none;
+    animation: mbScreenOut 0.18s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+  }
+
+  /* Screen Header Title */
+  .mc-header {
+    width: 100%;
+    min-height: 48px;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-  }
-
-  .u-window.compact {
-    width: min(460px, 94vw);
-    height: auto;
-    max-height: 90vh;
-  }
-
-  .u-window.entering {
-    animation: mbScreenIn 0.28s cubic-bezier(0.2, 0.88, 0.28, 1) both;
-  }
-
-  .u-window.leaving {
-    pointer-events: none;
-    animation: mbScreenOut 0.2s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
-  }
-
-  .u-header {
-    padding: 15px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
-    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 14px;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
     flex-shrink: 0;
   }
 
-  .u-title-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .u-title-group h2 {
+  .mc-screen-title {
     margin: 0;
-    font-size: 15.5px;
+    font-size: 14.5px;
     font-weight: 600;
-    letter-spacing: 0.01em;
     color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
   }
 
-  .u-pill {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: var(--text-sub);
-  }
-
-  .u-search {
-    width: clamp(170px, 24vw, 250px);
-    height: 32px;
-    padding: 0 11px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(0, 0, 0, 0.36);
-    color: #fff;
-    font-family: var(--ui-font);
-    font-size: 12.5px;
-    outline: none;
-    user-select: text;
-    -webkit-user-select: text;
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .u-search:focus {
-    border-color: rgba(255, 255, 255, 0.42);
-    background: rgba(0, 0, 0, 0.52);
-  }
-
-  .u-body {
+  /* Full-width Minecraft List Band (between top & bottom 1px glass separator lines!) */
+  .mc-list-band {
+    width: 100%;
     flex: 1;
     min-height: 0;
+    border-top: 1px solid var(--glass-line);
+    border-bottom: 1px solid var(--glass-line);
+    background: rgba(4, 6, 12, 0.38);
     overflow-y: auto;
-    padding: 16px 20px;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    align-items: center;
+    padding: 14px 16px;
     will-change: filter;
   }
 
-  .u-body::-webkit-scrollbar {
+  .mc-list-band::-webkit-scrollbar {
     width: 6px;
   }
 
-  .u-body::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
-    border-radius: 999px;
+  .mc-list-band::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 2px;
   }
 
-  .u-footer {
-    padding: 13px 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.09);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-    background: rgba(5, 7, 14, 0.38);
-  }
-
-  .u-footer-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  /* Universal Selectable Cards (Worlds / Servers / Mods / Resource Packs) */
-  .u-card {
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.11);
-    background: var(--glass-card);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    cursor: pointer;
-    transition: background 0.14s ease, transform 0.14s ease, border-color 0.14s ease;
-  }
-
-  .u-card:hover {
-    background: rgba(22, 27, 44, 0.75);
-    transform: translateY(-1px);
-  }
-
-  .u-card.selected {
-    background: var(--glass-card-selected);
-    border-color: rgba(255, 255, 255, 0.38);
-    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
-  }
-
-  .u-card-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }
-
-  .u-icon-box {
-    width: 40px;
-    height: 40px;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    display: grid;
-    place-items: center;
-    font-size: 13px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.9);
-    flex-shrink: 0;
-  }
-
-  .u-card-info {
-    min-width: 0;
-  }
-
-  .u-card-title {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .u-card-meta {
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--text-sub);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .u-card-right {
-    text-align: right;
-    flex-shrink: 0;
-    font-size: 12px;
-    color: var(--text-sub);
-  }
-
-  .ping-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11.5px;
-    color: rgba(210, 245, 225, 0.9);
-  }
-
-  .ping-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #6ee7b7;
-    box-shadow: 0 0 8px rgba(110, 231, 183, 0.65);
-  }
-
-  /* Two-Pane Split Layout (Mods & Options Tabs) */
-  .u-split {
+  /* Borderless Open Screen Body (like main OptionsScreen in image-9.png!) */
+  .mc-open-body {
+    width: 100%;
     flex: 1;
     min-height: 0;
-    display: grid;
-    grid-template-columns: 215px 1fr;
-    overflow: hidden;
-  }
-
-  @media (max-width: 680px) {
-    .u-split {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
-    }
-  }
-
-  .u-sidebar {
-    border-right: 1px solid rgba(255, 255, 255, 0.09);
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    overflow-y: auto;
-    background: rgba(5, 7, 14, 0.28);
-  }
-
-  .u-tab-btn {
-    height: 35px;
-    padding: 0 12px;
-    border-radius: 6px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-sub);
-    font-family: var(--ui-font);
-    font-size: 12.5px;
-    font-weight: 500;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    transition: all 0.13s ease;
-  }
-
-  .u-tab-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .u-tab-btn.active {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.13);
-    border-color: rgba(255, 255, 255, 0.26);
-  }
-
-  .u-pane {
-    padding: 16px 20px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    will-change: filter;
-  }
-
-  /* Universal Settings Rows (Sliders, Toggles, Cycle Pills, Keybinds) */
-  .setting-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 9px;
-  }
-
-  @media (max-width: 640px) {
-    .setting-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .setting-item {
-    padding: 10px 13px;
-    border-radius: 7px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(14, 17, 28, 0.58);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 7px;
-  }
-
-  .setting-item.row-inline {
-    flex-direction: row;
     align-items: center;
-    justify-content: space-between;
+    padding: 8px 16px 14px;
   }
 
-  .setting-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 12.5px;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .setting-val {
-    font-size: 11.5px;
-    color: var(--text-sub);
-    font-variant-numeric: tabular-nums;
-  }
-
-  input[type="range"].u-range {
+  .mc-footer {
     width: 100%;
-    accent-color: #ffffff;
-    cursor: pointer;
-    margin: 0;
-  }
-
-  /* Sleek Glass Switch */
-  .u-switch {
-    position: relative;
-    width: 38px;
-    height: 21px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    cursor: pointer;
-    transition: background 0.16s ease, border-color 0.16s ease;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     flex-shrink: 0;
   }
 
-  .u-switch::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.8);
-    transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.16s ease;
+  /* Exact 2-Column Minecraft Options Grid (2 x 235px = 478px) */
+  .mc-grid-2col {
+    width: min(480px, 94vw);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
   }
 
-  .u-switch.on {
-    background: rgba(255, 255, 255, 0.34);
+  .mc-done-btn {
+    width: min(310px, 90vw);
+  }
+
+  /* Multiplayer / Singleplayer Bottom Button Rows (image-10.png!) */
+  .mc-bar-row-3 {
+    width: min(480px, 94vw);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  .mc-bar-row-2 {
+    width: min(480px, 94vw);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .mc-bar-row-4 {
+    width: min(480px, 94vw);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  /* Selectable World / Server / Pack Entry Row */
+  .mc-entry-list {
+    width: min(500px, 94vw);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .mc-entry {
+    padding: 9px 12px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: rgba(12, 14, 22, 0.44);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+
+  .mc-entry:hover {
+    background: rgba(22, 26, 40, 0.62);
+  }
+
+  .mc-entry.selected {
+    background: rgba(26, 31, 48, 0.78);
     border-color: rgba(255, 255, 255, 0.58);
   }
 
-  .u-switch.on::after {
-    transform: translateX(17px);
-    background: #ffffff;
+  .mc-entry-left {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
   }
 
-  .keybind-btn {
-    min-width: 92px;
-    height: 28px;
-    padding: 0 10px;
+  .mc-entry-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    display: grid;
+    place-items: center;
     font-size: 11.5px;
-    font-family: "Courier New", Consolas, monospace;
-    font-weight: 600;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.88);
+    flex-shrink: 0;
   }
 
-  .keybind-btn.listening {
-    background: rgba(255, 255, 255, 0.24);
-    border-color: #fff;
+  .mc-entry-title {
+    font-size: 13px;
+    font-weight: 600;
     color: #fff;
   }
 
-  .u-field-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--text-muted);
+  .mc-entry-sub {
+    font-size: 11.5px;
+    color: var(--text-sub);
     margin-top: 2px;
   }
 
-  .u-input-row {
-    display: flex;
-    gap: 7px;
-  }
-
-  .u-input {
-    flex: 1;
-    min-width: 0;
-    height: 34px;
-    padding: 0 11px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: rgba(0, 0, 0, 0.42);
-    color: #fff;
-    font-family: var(--ui-font);
+  .mc-lan-scan {
+    margin-top: 14px;
+    text-align: center;
     font-size: 12.5px;
-    outline: none;
-    user-select: text;
-    -webkit-user-select: text;
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.5;
   }
 
-  .u-input:focus {
-    border-color: rgba(255, 255, 255, 0.45);
+  .mc-lan-dots {
+    color: var(--text-muted);
+    font-family: "Courier New", Consolas, monospace;
+    letter-spacing: 2px;
   }
 
-  /* Loading / Connecting Overlay */
-  .loading-bar-track {
+  /* Create New World 3-Tab Top Bar (Matches image-11, image-12, image-13!) */
+  .mc-tab-header {
     width: 100%;
-    height: 6px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    overflow: hidden;
-    margin: 10px 0 4px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding-top: 6px;
+    gap: 3px;
+    position: relative;
+    z-index: 3;
+    margin-bottom: -1px;
   }
 
-  .loading-bar-fill {
-    height: 100%;
-    width: 0%;
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 999px;
-    transition: width 0.22s ease;
+  .mc-tab {
+    width: 136px;
+    height: 32px;
+    border-radius: 4px 4px 0 0;
+    border: 1px solid var(--glass-line);
+    background: rgba(8, 10, 18, 0.72);
+    color: var(--text-sub);
+    font-family: var(--ui-font);
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .mc-tab:hover {
+    color: #fff;
+    background: rgba(18, 22, 34, 0.82);
+  }
+
+  .mc-tab.active {
+    color: #fff;
+    background: rgba(4, 6, 12, 0.38);
+    border-bottom-color: transparent;
+  }
+
+  .mc-tab.active span {
+    padding-bottom: 2px;
+    border-bottom: 2px solid #ffffff;
+  }
+
+  .mc-create-col {
+    width: min(320px, 92vw);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 28px;
+  }
+
+  .mc-field-caption {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.76);
+    margin-bottom: -4px;
+  }
+
+  .mc-inline-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: #fff;
   }
 
   .toast {
     position: fixed;
-    top: 18px;
+    top: 16px;
     left: 50%;
     transform: translateX(-50%) translateY(-8px);
     z-index: 80;
-    padding: 7px 14px;
-    border-radius: 7px;
+    padding: 6px 13px;
+    border-radius: 5px;
     background: rgba(10, 12, 20, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.18);
     backdrop-filter: blur(12px);
@@ -950,7 +808,7 @@
     color: rgba(255, 255, 255, 0.94);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.18s ease, transform 0.18s ease;
+    transition: opacity 0.16s ease, transform 0.16s ease;
   }
 
   .toast.show {
@@ -975,63 +833,59 @@
 
 <input type="file" id="custom-bg-input" accept="image/*,video/*" hidden>
 
-<!-- =========================================================================
-     1. HOME MAIN MENU SCREEN
-     ========================================================================= -->
-<main class="home-screen" id="home-screen">
-  <div class="center-stack">
-    <div class="title-block mb-stagger" style="--i: 0;">
-      <div class="mc-logo-wrap">
-        <img
-          class="mc-logo"
-          src="/menupreview/presets/minecraft-logo.png"
-          onerror="this.onerror=null;this.src='presets/minecraft-logo.png'"
-          alt="MINECRAFT"
-        >
-        <div class="splash">made by Buffer</div>
+<!-- Scaled UI Root (GUI Scale in Video Settings scales this entire root live!) -->
+<div class="gui-scale-root" id="gui-scale-root">
+
+  <!-- 1. TitleScreen (Main Menu) -->
+  <main class="home-screen" id="home-screen">
+    <div class="center-stack">
+      <div class="title-block mb-stagger" style="--i: 0;">
+        <div class="mc-logo-wrap">
+          <img
+            class="mc-logo"
+            src="/menupreview/presets/minecraft-logo.png"
+            onerror="this.onerror=null;this.src='presets/minecraft-logo.png'"
+            alt="MINECRAFT"
+          >
+          <div class="splash">made by Buffer</div>
+        </div>
+        <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
       </div>
-      <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
-    </div>
 
-    <!-- Distortion-Free Narrow-FOV Mover: walks in from completely off-screen right -->
-    <div class="skin-stage">
-      <div class="skin-mover" id="skin-mover">
-        <canvas id="skin-canvas" width="440" height="440"></canvas>
-        <div class="skin-hit-box" id="skin-drag-area" title="Drag to spin"></div>
+      <!-- Distortion-Free Walk-In Stage -->
+      <div class="skin-stage">
+        <div class="skin-mover" id="skin-mover">
+          <canvas id="skin-canvas" width="420" height="420"></canvas>
+          <div class="skin-hit-box" id="skin-drag-area" title="Drag to spin"></div>
+        </div>
+      </div>
+
+      <!-- Minecraft Main Menu Buttons in FnH Dark Glass -->
+      <div class="menu-buttons">
+        <button class="mc-btn glow-ui mb-stagger" style="--i: 1;" data-nav="singleplayer"><span>Singleplayer</span></button>
+        <button class="mc-btn glow-ui mb-stagger" style="--i: 2;" data-nav="multiplayer"><span>Multiplayer</span></button>
+        <button class="mc-btn glow-ui mb-stagger" style="--i: 3;" data-nav="mods"><span>Mods</span></button>
+        <div class="menu-row-split mb-stagger" style="--i: 4;">
+          <button class="mc-btn glow-ui" data-nav="options"><span>Options...</span></button>
+          <button class="mc-btn glow-ui" data-nav="quit"><span>Quit Game</span></button>
+        </div>
       </div>
     </div>
+  </main>
 
-    <!-- Universal Dark-Glass Menu Buttons with Staggered Motion-Blur Entrance -->
-    <div class="menu-buttons" id="main-menu-buttons">
-      <button class="btn glow-ui mb-stagger" style="--i: 1;" data-screen="singleplayer"><span>Singleplayer</span></button>
-      <button class="btn glow-ui mb-stagger" style="--i: 2;" data-screen="multiplayer"><span>Multiplayer</span></button>
-      <button class="btn glow-ui mb-stagger" style="--i: 3;" data-screen="mods"><span>Mods</span></button>
-      <div class="menu-row-split mb-stagger" style="--i: 4;">
-        <button class="btn glow-ui" data-screen="options"><span>Options...</span></button>
-        <button class="btn glow-ui" data-screen="quit"><span>Quit Game</span></button>
-      </div>
-    </div>
-  </div>
-</main>
+  <footer class="footer-bar">
+    <div class="footer-meta">Minecraft 1.21.11/Fabric (FnH 1.8)</div>
+    <button class="mc-btn glow-ui fnh-corner-btn mb-stagger" style="--i: 5;" data-nav="fnh" type="button">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      <span>FnH</span>
+    </button>
+  </footer>
 
-<!-- Bottom Bar -->
-<footer class="footer-bar">
-  <div class="footer-meta">Minecraft 1.21.11 · FnH Universal UI</div>
-
-  <button class="btn glow-ui fnh-corner-btn mb-stagger" style="--i: 5;" data-screen="fnh" type="button">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-    <span>FnH</span>
-  </button>
-</footer>
-
-<!-- =========================================================================
-     2. UNIVERSAL SUB-SCREEN CONTAINER (Renders Singleplayer / Multiplayer / Mods / Options / Quit / FnH)
-     ========================================================================= -->
-<div class="subscreen-layer" id="subscreen-layer">
-  <div class="u-window glow-ui glow-panel" id="u-window"></div>
+  <!-- 2. Full-Screen Minecraft Sub-Screens Container -->
+  <section class="mc-screen" id="mc-screen"></section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1043,127 +897,185 @@
   const BUFFERCLICK_UUID = "1b7a28177df149828231b48f5909ca95";
   const DEFAULT_BG = "/menupreview/presets/milkyway-bg.gif";
 
-  // Universal State across Main Menu + All Minecraft / FnH Settings
+  // GUI Scale presets: Auto, 1, 2, 3, 4 — actually scales the entire UI live!
+  const GUI_SCALES = [
+    { label: "Auto", factor: 1.0 },
+    { label: "1",    factor: 0.74 },
+    { label: "2",    factor: 0.88 },
+    { label: "3",    factor: 1.02 },
+    { label: "4",    factor: 1.18 }
+  ];
+
   const state = {
     bgDim: 8,
     bgIsCustom: false,
-    motionBlur: 100, // 0..100%
+    motionBlur: 100,
+    guiScaleIdx: 0,
     showSkin: true,
     slimArms: false,
     username: "BufferClick",
     introStart: performance.now(),
     activeScreen: null,
-    optionsTab: "video",
 
-    // Live 3D Skin Layers (wired directly to Options -> Skin Customization!)
+    fov: 70,
+    onlineRealmsNotifs: true,
+    allowServerListings: true,
+    difficulty: "Normal",
+
     skinLayers: {
-      hat: true,
+      cape: true,
       jacket: true,
       lSleeve: true,
       rSleeve: true,
       lPants: true,
-      rPants: true
+      rPants: true,
+      hat: true,
+      mainHand: "Right"
     },
 
-    // Video Settings
     video: {
+      graphics: "Fancy",
       renderDistance: 16,
       simDistance: 12,
-      maxFps: 240,
-      fov: 90,
-      guiScale: "Auto",
-      graphics: "Fabulous!",
-      brightness: 100,
+      maxFps: 260,
       vsync: false,
-      fullscreen: false,
-      dynamicFov: true,
-      entityShadows: true
+      viewBobbing: true,
+      attackIndicator: "Crosshair",
+      autosaveIndicator: true,
+      brightness: 100,
+      clouds: "Fancy",
+      particles: "All",
+      mipmapLevels: 4,
+      entityShadows: true,
+      distortionEffects: 100,
+      fovEffects: 100,
+      menuBlur: 50
     },
 
-    // Audio Settings
     audio: {
       master: 100,
       music: 35,
-      blocks: 100,
+      record: 100,
+      weather: 80,
+      block: 100,
       hostile: 100,
-      players: 100,
-      weather: 70,
-      ambient: 85,
-      subtitles: true
+      neutral: 100,
+      player: 100,
+      ambient: 90,
+      voice: 100,
+      subtitles: false,
+      directionalAudio: true
     },
 
-    // Controls & Keybinds
     controls: {
-      sensitivity: 100,
-      rawInput: true,
+      sneakMode: "Hold",
+      sprintMode: "Toggle",
       autoJump: false,
-      toggleSprint: true,
-      toggleSneak: false,
+      operatorItemsTab: false,
+      sensitivity: 100,
+      invertMouse: false,
+      rawInput: true,
+      discreteScroll: false,
       binds: [
-        { action: "Walk Forward", key: "W" },
-        { action: "Strafe Left", key: "A" },
-        { action: "Walk Backward", key: "S" },
-        { action: "Strafe Right", key: "D" },
-        { action: "Jump", key: "Space" },
-        { action: "Sprint", key: "Left Ctrl" },
-        { action: "Sneak", key: "Left Shift" },
-        { action: "Inventory", key: "E" },
-        { action: "Swap Offhand", key: "F" },
-        { action: "Open Chat", key: "T" },
-        { action: "FnH Overlay", key: "Right Shift" }
+        { cat: "Movement", action: "Jump", key: "Space" },
+        { cat: "Movement", action: "Sneak", key: "Left Shift" },
+        { cat: "Movement", action: "Sprint", key: "Left Ctrl" },
+        { cat: "Movement", action: "Strafe Left", key: "A" },
+        { cat: "Movement", action: "Strafe Right", key: "D" },
+        { cat: "Movement", action: "Walk Backwards", key: "S" },
+        { cat: "Movement", action: "Walk Forwards", key: "W" },
+        { cat: "Gameplay", action: "Attack/Destroy", key: "Left Button" },
+        { cat: "Gameplay", action: "Use Item/Place Block", key: "Right Button" },
+        { cat: "Inventory", action: "Open/Close Inventory", key: "E" },
+        { cat: "Inventory", action: "Swap Item With Offhand", key: "F" },
+        { cat: "Multiplayer", action: "Open Chat", key: "T" },
+        { cat: "FnH", action: "Open FnH Menu Settings", key: "Right Shift" }
       ]
     },
 
-    // Accessibility & Chat
     chat: {
-      opacity: 100,
-      scale: 100,
+      visibility: "Shown",
+      colors: true,
+      webLinks: true,
+      promptLinks: true,
       textBgOpacity: 50,
-      fovEffects: 100,
-      distortionEffects: 100,
-      highContrast: false
+      chatOpacity: 100,
+      chatTextSize: 100,
+      lineSpacing: 0,
+      chatDelay: 0
     },
 
-    // Resource Packs
+    access: {
+      narrator: "Off",
+      subtitles: false,
+      highContrast: false,
+      autoJump: false,
+      menuBgBlurriness: 50,
+      darkMojangStudiosBg: true,
+      damageTilt: 100,
+      glintSpeed: 50
+    },
+
+    horizon: {
+      pvpHud: false,
+      fullbright: false,
+      dynamicLights: true,
+      chunkPregen: false,
+      splitscreen: false,
+      replayStudio: true
+    },
+
+    language: "English (US)",
+
     packs: [
-      { id: "fnh-glass", name: "FnH Universal Dark Glass", desc: "Built-in universal smoked-glass UI & cursor glow", enabled: true, locked: true },
-      { id: "low-fire", name: "Low Shield & Fire 1.21", desc: "Cleaner PvP/survival first-person view", enabled: true, locked: false },
-      { id: "comp", name: "Complementary Unbound", desc: "Atmospheric sky & water reflections", enabled: false, locked: false },
-      { id: "vanilla", name: "Minecraft Default", desc: "Base 1.21.11 game textures", enabled: true, locked: true }
+      { name: "FnH Dark Glass UI", desc: "Built-in FnH 1.8 menu & widget theme", selected: true, locked: true },
+      { name: "Low Fire 1.21", desc: "Cleaner view when on fire", selected: true, locked: false },
+      { name: "Default", desc: "The default look and feel of Minecraft", selected: true, locked: true }
     ],
 
-    // Singleplayer Worlds
     selectedWorld: 0,
     worlds: [
-      { name: "Buffer's Survival", mode: "Survival Mode", info: "Cheats Off · 1.21.11 · Day 284", last: "Today, 16:14", tag: "SURV" },
-      { name: "UI & Redstone Test", mode: "Creative Mode", info: "Superflat · Cheats On · 1.21.11", last: "Yesterday", tag: "CREA" },
-      { name: "Hardcore Run #4", mode: "Hardcore Mode", info: "Locked Difficulty · 1.21.11 · Day 96", last: "3 days ago", tag: "HARD" }
+      { name: "Buffer's Survival", folder: "Buffers Survival (16/11/2026)", detail: "Survival Mode, No Cheats, Version: 1.21.11", tag: "W1" },
+      { name: "Redstone Testing", folder: "Redstone Testing (14/11/2026)", detail: "Creative Mode, Cheats, Version: 1.21.11", tag: "W2" }
     ],
 
-    // Multiplayer Servers
+    createWorld: {
+      tab: "game",
+      name: "New World",
+      mode: "Survival",
+      difficulty: "Normal",
+      commands: false,
+      worldType: "Default",
+      seed: "",
+      structures: true,
+      bonusChest: false
+    },
+
     selectedServer: 0,
     servers: [
-      { name: "FnH Official SMP", ip: "smp.fnh.is-cool.dev", motd: "Season 2 · Universal Dark Glass Update", players: "18 / 60", ping: 11, tag: "FnH" },
-      { name: "Hypixel Network", ip: "mc.hypixel.net", motd: "SkyBlock, BedWars & Arcade Games [1.8-1.21]", players: "42,610 / 200,000", ping: 26, tag: "HYP" },
-      { name: "Hoplite", ip: "hoplite.gg", motd: "Battle Royale & Duels · 1.21.11", players: "3,480 / 10,000", ping: 29, tag: "HOP" },
-      { name: "Minemen Club", ip: "eu.minemen.club", motd: "Competitive Practice · Low Ping EU", players: "1,940 / 5,000", ping: 17, tag: "MMC" }
+      { name: "FnH Official SMP", ip: "smp.fnh.is-cool.dev", motd: "FnH 1.8 · Menu UI Update Live", players: "18/60", ping: "11ms", tag: "FnH" },
+      { name: "Hypixel", ip: "mc.hypixel.net", motd: "Hypixel Network [1.8-1.21]", players: "42,310/200,000", ping: "25ms", tag: "HYP" }
     ],
 
-    // Mods
-    selectedMod: 0,
     mods: [
-      { name: "FnH Universal UI", ver: "v1.8.0", author: "Buffer", enabled: true, locked: true, desc: "Replaces all main menu, world, server, and settings screens with universal dark smoked-glass, cursor-tracking rim glow, and directional motion blur." },
-      { name: "Sodium", ver: "v0.6.5", author: "CaffeineMC", enabled: true, locked: false, desc: "Modern chunk & terrain rendering engine delivering massive frame rate gains and micro-stutter elimination." },
-      { name: "Iris Shaders", ver: "v1.8.4", author: "IMS & Coderbot", enabled: true, locked: false, desc: "Seamless shader pack pipeline built for Sodium on Minecraft 1.21.11." },
-      { name: "Lithium", ver: "v0.14.3", author: "CaffeineMC", enabled: true, locked: false, desc: "General-purpose server/physics/AI tick optimizations without altering vanilla behavior." },
-      { name: "FerriteCore", ver: "v7.1.1", author: "malte0811", enabled: true, locked: false, desc: "Reduces RAM footprint of blockstates and model baked quads." }
+      { name: "FnH Menu UI", ver: "1.8.0", desc: "Minecraft's UI redesigned in FnH Dark Glass, animated background, 3D walk-in skin & motion blur." },
+      { name: "Fabric API", ver: "0.141.6+1.21.11", desc: "Core API library for the Fabric toolchain." },
+      { name: "Sodium", ver: "0.6.5+mc1.21.11", desc: "Modern rendering engine and client-side optimization mod." },
+      { name: "Mod Menu", ver: "13.0.1", desc: "Adds a mod menu to view the list of mods you have installed." }
     ]
   };
 
-  function syncMotionBlurVar() {
+  function applyGuiScale() {
+    const f = GUI_SCALES[state.guiScaleIdx].factor;
+    document.documentElement.style.setProperty("--gui-zoom", String(f));
+  }
+
+  function applyMotionBlur() {
     document.documentElement.style.setProperty("--mb-mult", (state.motionBlur / 100).toFixed(2));
   }
-  syncMotionBlurVar();
+
+  applyGuiScale();
+  applyMotionBlur();
 
   let toastTimer = null;
   function showToast(msg) {
@@ -1171,24 +1083,29 @@
     el.textContent = msg;
     el.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 1900);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
   }
 
   // =========================================================================
-  // 0. Universal Cursor-Tracking Glow + Scroll Motion Blur
+  // 0. Tight Cursor Rim Glow (Correctly divides by GUI Scale zoom!)
   // =========================================================================
   let cursorClientX = window.innerWidth * 0.5;
   let cursorClientY = window.innerHeight * 0.5;
   let hasMovedCursor = false;
 
   function updateAllGlows(cx, cy) {
+    const zoom = GUI_SCALES[state.guiScaleIdx].factor;
     const els = document.querySelectorAll(".glow-ui");
     for (let i = 0; i < els.length; i++) {
       const el = els[i];
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue;
-      el.style.setProperty("--mx", (cx - r.left).toFixed(1) + "px");
-      el.style.setProperty("--my", (cy - r.top).toFixed(1) + "px");
+      el.style.setProperty("--mx", ((cx - r.left) / zoom).toFixed(1) + "px");
+      el.style.setProperty("--my", ((cy - r.top) / zoom).toFixed(1) + "px");
     }
   }
 
@@ -1199,53 +1116,76 @@
     updateAllGlows(cursorClientX, cursorClientY);
   });
 
-  window.addEventListener("pointerleave", () => {
-    const els = document.querySelectorAll(".glow-ui");
-    for (let i = 0; i < els.length; i++) {
-      els[i].style.setProperty("--mx", "-999px");
-      els[i].style.setProperty("--my", "-999px");
-    }
-  });
-
-  function attachScrollMotionBlur(scrollEl) {
-    if (!scrollEl) return;
-    let lastTop = scrollEl.scrollTop;
-    let clearTimer = null;
-    scrollEl.addEventListener("scroll", () => {
-      const dy = Math.abs(scrollEl.scrollTop - lastTop);
-      lastTop = scrollEl.scrollTop;
-      const mult = state.motionBlur / 100;
-      const blur = Math.min(4.5, dy * 0.14) * mult;
-      if (blur > 0.25) {
-        scrollEl.style.filter = `blur(${blur.toFixed(2)}px)`;
-      }
+  function attachScrollMotionBlur(el) {
+    if (!el) return;
+    let prev = el.scrollTop;
+    let tid = null;
+    el.addEventListener("scroll", () => {
+      const dy = Math.abs(el.scrollTop - prev);
+      prev = el.scrollTop;
+      const b = Math.min(3.5, dy * 0.12) * (state.motionBlur / 100);
+      if (b > 0.2) el.style.filter = `blur(${b.toFixed(2)}px)`;
       updateAllGlows(cursorClientX, cursorClientY);
-      clearTimeout(clearTimer);
-      clearTimer = setTimeout(() => {
-        scrollEl.style.filter = "none";
-      }, 75);
+      clearTimeout(tid);
+      tid = setTimeout(() => { el.style.filter = "none"; }, 70);
     }, { passive: true });
+  }
+
+  // =========================================================================
+  // Helper: Draggable Minecraft Dark-Glass Slider Widget
+  // =========================================================================
+  function mcSliderHtml(id, pct, labelText) {
+    const clamped = Math.max(0, Math.min(100, pct));
+    return `
+      <div class="mc-slider glow-ui" id="${id}">
+        <div class="mc-slider-fill" style="width:${clamped.toFixed(1)}%;"></div>
+        <div class="mc-slider-thumb" style="left:calc(5px + (100% - 10px) * ${(clamped / 100).toFixed(4)});"></div>
+        <span class="mc-slider-label">${esc(labelText)}</span>
+      </div>
+    `;
+  }
+
+  function bindMcSlider(id, min, max, step, getVal, onValChange, formatLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const fill = el.querySelector(".mc-slider-fill");
+    const thumb = el.querySelector(".mc-slider-thumb");
+    const lbl = el.querySelector(".mc-slider-label");
+
+    function updateFromClientX(clientX) {
+      const rect = el.getBoundingClientRect();
+      const raw = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      let v = min + raw * (max - min);
+      if (step) v = Math.round(v / step) * step;
+      v = Math.max(min, Math.min(max, v));
+      onValChange(v);
+      const pct = ((v - min) / (max - min)) * 100;
+      fill.style.width = pct.toFixed(1) + "%";
+      thumb.style.left = `calc(5px + (100% - 10px) * ${(pct / 100).toFixed(4)})`;
+      lbl.textContent = formatLabel(v);
+    }
+
+    let dragging = false;
+    el.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      el.setPointerCapture(e.pointerId);
+      updateFromClientX(e.clientX);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (dragging) updateFromClientX(e.clientX);
+    });
+    el.addEventListener("pointerup", () => { dragging = false; });
+    el.addEventListener("pointercancel", () => { dragging = false; });
   }
 
   // =========================================================================
   // 1. Chiseled "[FnH Emblem] EDITION" Subtitle
   // =========================================================================
   const FNH_EMBLEM_13 = [
-    "111111110110011",
-    "111111110110011",
-    "110000000110011",
-    "110000000110011",
-    "111110000110011",
-    "111110000111111",
-    "110000000111111",
-    "110222220110011",
-    "110222220110011",
-    "110200020110011",
-    "110200020110011",
-    "110200020110011",
-    "110200020110011"
+    "111111110110011","111111110110011","110000000110011","110000000110011",
+    "111110000110011","111110000111111","110000000111111","110222220110011",
+    "110222220110011","110200020110011","110200020110011","110200020110011","110200020110011"
   ];
-
   const EDITION_GLYPHS = {
     E: ["1111111","1111111","1100000","1111110","1111110","1100000","1100000","1111111","1111111"],
     D: ["1111110","1111111","1100011","1100011","1100011","1100011","1100011","1111111","1111110"],
@@ -1258,81 +1198,53 @@
   function renderFnhEditionSubtitle() {
     const canvas = document.getElementById("fnh-edition-canvas");
     const word = "EDITION";
-    let editionWidth = 0;
-    for (let i = 0; i < word.length; i++) {
-      editionWidth += EDITION_GLYPHS[word[i]][0].length + (i + 1 < word.length ? 1 : 0);
-    }
-
+    let edW = 0;
+    for (let i = 0; i < word.length; i++) edW += EDITION_GLYPHS[word[i]][0].length + (i + 1 < word.length ? 1 : 0);
     const grid = [];
     for (let r = 0; r < 13; r++) {
-      let edLine = "";
+      let ed = "";
       if (r >= 2 && r < 11) {
-        const er = r - 2;
-        for (let i = 0; i < word.length; i++) {
-          edLine += EDITION_GLYPHS[word[i]][er] + (i + 1 < word.length ? "0" : "");
-        }
-      } else {
-        edLine = "0".repeat(editionWidth);
-      }
-      grid.push(FNH_EMBLEM_13[r] + "00000" + edLine);
+        for (let i = 0; i < word.length; i++) ed += EDITION_GLYPHS[word[i]][r - 2] + (i + 1 < word.length ? "0" : "");
+      } else ed = "0".repeat(edW);
+      grid.push(FNH_EMBLEM_13[r] + "00000" + ed);
     }
-
-    const h = grid.length, w = grid[0].length, scale = 6, depthRows = 3, pad = 2;
-    const cw = (w + pad * 2) * scale, ch = (h + depthRows + pad * 2) * scale;
-    canvas.width = cw;
-    canvas.height = ch;
-
+    const h = grid.length, w = grid[0].length, scale = 6, depth = 3, pad = 2;
+    canvas.width = (w + pad * 2) * scale;
+    canvas.height = (h + depth + pad * 2) * scale;
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, cw, ch);
     const has = (r, c) => r >= 0 && r < h && c >= 0 && c < w && grid[r][c] !== "0";
 
     ctx.fillStyle = "#090808";
-    for (let r = 0; r < h; r++) {
-      for (let c = 0; c < w; c++) {
-        if (!has(r, c)) continue;
-        for (let d = 0; d <= depthRows; d++) {
-          const px = (c + pad) * scale, py = (r + pad + d) * scale;
-          ctx.fillRect(px - scale, py, scale * 3, scale);
-          ctx.fillRect(px, py - scale, scale, scale * 3);
-        }
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) if (has(r, c)) {
+      for (let d = 0; d <= depth; d++) {
+        const px = (c + pad) * scale, py = (r + pad + d) * scale;
+        ctx.fillRect(px - scale, py, scale * 3, scale);
+        ctx.fillRect(px, py - scale, scale, scale * 3);
       }
     }
-
-    for (let d = depthRows; d >= 1; d--) {
-      ctx.fillStyle = d === depthRows ? "#35302e" : d === 2 ? "#4a4340" : "#5d5552";
-      for (let r = 0; r < h; r++) {
-        for (let c = 0; c < w; c++) {
-          if (has(r, c)) ctx.fillRect((c + pad) * scale, (r + pad + d) * scale, scale, scale);
-        }
+    for (let d = depth; d >= 1; d--) {
+      ctx.fillStyle = d === depth ? "#35302e" : d === 2 ? "#4a4340" : "#5d5552";
+      for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) if (has(r, c)) {
+        ctx.fillRect((c + pad) * scale, (r + pad + d) * scale, scale, scale);
       }
     }
-
-    const stoneShades = [
-      "#e0d9d5","#dad2ce","#d4ccc8","#cec5c1","#c7beba",
-      "#c1b8b4","#bbb1ad","#b4aba7","#aea4a0","#a89d99",
-      "#a29793","#9d928e","#988d89"
-    ];
-    for (let r = 0; r < h; r++) {
-      for (let c = 0; c < w; c++) {
-        const cell = grid[r][c];
-        if (cell === "0") continue;
-        const px = (c + pad) * scale, py = (r + pad) * scale;
-        const topEdge = !has(r - 1, c);
-        if (cell === "2") {
-          ctx.fillStyle = topEdge ? "#d4cdc9" : "#948985";
-        } else {
-          const grain = ((r * 13 + c * 29) % 6 === 0) ? -1 : 0;
-          const idx = Math.max(0, Math.min(stoneShades.length - 1, r + grain));
-          ctx.fillStyle = topEdge ? "#f0eae7" : stoneShades[idx];
-        }
-        ctx.fillRect(px, py, scale, scale);
+    const shades = ["#e0d9d5","#dad2ce","#d4ccc8","#cec5c1","#c7beba","#c1b8b4","#bbb1ad","#b4aba7","#aea4a0","#a89d99","#a29793","#9d928e","#988d89"];
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+      const cell = grid[r][c];
+      if (cell === "0") continue;
+      const top = !has(r - 1, c);
+      if (cell === "2") ctx.fillStyle = top ? "#d4cdc9" : "#948985";
+      else {
+        const grain = ((r * 13 + c * 29) % 6 === 0) ? -1 : 0;
+        ctx.fillStyle = top ? "#f0eae7" : shades[Math.max(0, Math.min(shades.length - 1, r + grain))];
       }
+      ctx.fillRect((c + pad) * scale, (r + pad) * scale, scale, scale);
     }
   }
 
   // =========================================================================
-  // 2. Background Manager (Default Milky Way GIF + Custom File/URL)
+  // 2. Background Manager
   // =========================================================================
   const bgImg = document.getElementById("bg-img");
   const bgVideo = document.getElementById("bg-video");
@@ -1342,18 +1254,14 @@
 
   function applyBgDim() {
     const a = (state.bgDim / 100).toFixed(2);
-    bgDim.style.background =
-      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 45%, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.34) 100%)`;
+    bgDim.style.background = `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 45%, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.34) 100%)`;
   }
 
   function setDefaultBackground() {
     bgVideo.pause();
     bgVideo.style.display = "none";
     bgImg.style.display = "block";
-    bgImg.onerror = () => {
-      bgImg.onerror = null;
-      bgImg.src = "presets/milkyway-bg.gif";
-    };
+    bgImg.onerror = () => { bgImg.onerror = null; bgImg.src = "presets/milkyway-bg.gif"; };
     bgImg.src = DEFAULT_BG;
     state.bgIsCustom = false;
   }
@@ -1379,20 +1287,14 @@
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
     customObjectUrl = URL.createObjectURL(file);
     setCustomBackground(customObjectUrl, file.type.startsWith("video/"), file.name);
-    if (state.activeScreen === "fnh") renderFnHScreen(false);
+    if (state.activeScreen === "fnh") navigateTo("fnh");
   }
 
   fileInput.addEventListener("change", () => {
     if (fileInput.files && fileInput.files[0]) handleCustomFile(fileInput.files[0]);
   });
-
-  window.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    document.body.classList.add("dragging-file");
-  });
-  window.addEventListener("dragleave", (e) => {
-    if (e.relatedTarget === null) document.body.classList.remove("dragging-file");
-  });
+  window.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging-file"); });
+  window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) document.body.classList.remove("dragging-file"); });
   window.addEventListener("drop", (e) => {
     e.preventDefault();
     document.body.classList.remove("dragging-file");
@@ -1401,943 +1303,999 @@
   });
 
   // =========================================================================
-  // 3. Universal Screen Router with Motion-Blur Transitions & Button Stagger
+  // 3. Minecraft Screen Router (Exact Minecraft Screens in FnH Dark Glass!)
   // =========================================================================
   const homeScreen = document.getElementById("home-screen");
-  const subscreenLayer = document.getElementById("subscreen-layer");
-  const uWindow = document.getElementById("u-window");
-  let activeKeybindListener = null;
+  const mcScreen = document.getElementById("mc-screen");
+  let activeKeyListener = null;
+  let lanDotsTimer = null;
+
+  function clearScreenHooks() {
+    if (activeKeyListener) {
+      window.removeEventListener("keydown", activeKeyListener);
+      activeKeyListener = null;
+    }
+    if (lanDotsTimer) {
+      clearInterval(lanDotsTimer);
+      lanDotsTimer = null;
+    }
+  }
 
   function retriggerHomeStagger() {
-    const items = homeScreen.querySelectorAll(".mb-stagger");
-    items.forEach((el) => {
+    document.querySelectorAll("#home-screen .mb-stagger, .fnh-corner-btn").forEach((el) => {
       el.style.animation = "none";
       void el.offsetWidth;
       el.style.animation = "";
     });
-    const cornerBtn = document.querySelector(".fnh-corner-btn");
-    if (cornerBtn) {
-      cornerBtn.style.animation = "none";
-      void cornerBtn.offsetWidth;
-      cornerBtn.style.animation = "";
-    }
   }
 
-  function openScreen(screenName) {
-    if (activeKeybindListener) {
-      window.removeEventListener("keydown", activeKeybindListener);
-      activeKeybindListener = null;
+  function navigateTo(screenId, parentScreen) {
+    clearScreenHooks();
+    if (!screenId || screenId === "home") {
+      if (!state.activeScreen) return;
+      state.activeScreen = null;
+      document.body.classList.remove("in-subscreen");
+      mcScreen.classList.remove("entering");
+      mcScreen.classList.add("leaving");
+      homeScreen.classList.remove("hidden", "leaving");
+      retriggerHomeStagger();
+      setTimeout(() => {
+        if (!state.activeScreen) mcScreen.classList.remove("active", "leaving");
+        updateAllGlows(cursorClientX, cursorClientY);
+      }, 185);
+      return;
     }
-    state.activeScreen = screenName;
+
+    const wasOnHome = !state.activeScreen;
+    state.activeScreen = screenId;
     document.body.classList.add("in-subscreen");
 
-    homeScreen.classList.remove("entering");
-    homeScreen.classList.add("leaving");
-    setTimeout(() => {
-      if (state.activeScreen) homeScreen.classList.add("hidden");
-    }, 210);
+    if (wasOnHome) {
+      homeScreen.classList.add("leaving");
+      setTimeout(() => { if (state.activeScreen) homeScreen.classList.add("hidden"); }, 195);
+    }
 
-    subscreenLayer.classList.add("active");
-    uWindow.classList.remove("leaving", "entering");
-    void uWindow.offsetWidth;
-    uWindow.classList.add("entering");
+    mcScreen.classList.add("active");
+    mcScreen.classList.remove("leaving", "entering");
+    void mcScreen.offsetWidth;
+    mcScreen.classList.add("entering");
 
-    if (screenName === "singleplayer") renderSingleplayerScreen();
-    else if (screenName === "multiplayer") renderMultiplayerScreen();
-    else if (screenName === "mods") renderModsScreen();
-    else if (screenName === "options") renderOptionsScreen();
-    else if (screenName === "quit") renderQuitScreen();
-    else if (screenName === "fnh") renderFnHScreen(true);
+    const back = parentScreen || "options";
+    switch (screenId) {
+      case "options": renderOptionsRoot(); break;
+      case "video": renderVideoSettings(back); break;
+      case "audio": renderMusicAndSounds(back); break;
+      case "controls": renderControlsRoot(back); break;
+      case "keybinds": renderKeyBinds("controls"); break;
+      case "mouse": renderMouseSettings("controls"); break;
+      case "skin": renderSkinCustomization(back); break;
+      case "language": renderLanguageScreen(back); break;
+      case "chat": renderChatSettings(back); break;
+      case "packs": renderResourcePacks(back); break;
+      case "access": renderAccessibilitySettings(back); break;
+      case "online": renderOnlineOptions(back); break;
+      case "horizon": renderHorizonSettings(back); break;
+      case "credits": renderCreditsScreen(back); break;
+      case "mods": renderModsScreen(wasOnHome ? "home" : back); break;
+      case "singleplayer": renderSelectWorld(); break;
+      case "createworld": renderCreateNewWorld(); break;
+      case "multiplayer": renderPlayMultiplayer(); break;
+      case "fnh": renderFnHSettings(wasOnHome ? "home" : back); break;
+      case "quit": renderQuitConfirm(); break;
+    }
 
+    attachScrollMotionBlur(mcScreen.querySelector(".mc-list-band"));
     requestAnimationFrame(() => updateAllGlows(cursorClientX, cursorClientY));
   }
 
-  function closeScreenToHome(replayWalkIn) {
-    if (activeKeybindListener) {
-      window.removeEventListener("keydown", activeKeybindListener);
-      activeKeybindListener = null;
-    }
-    if (!state.activeScreen) return;
-    state.activeScreen = null;
-    document.body.classList.remove("in-subscreen");
-
-    uWindow.classList.remove("entering");
-    uWindow.classList.add("leaving");
-
-    homeScreen.classList.remove("hidden", "leaving");
-    retriggerHomeStagger();
-    if (replayWalkIn) {
-      dragYawOffset = 0;
-      state.introStart = performance.now();
-    }
-
-    setTimeout(() => {
-      if (!state.activeScreen) {
-        subscreenLayer.classList.remove("active");
-        uWindow.classList.remove("leaving");
-      }
-      updateAllGlows(cursorClientX, cursorClientY);
-    }, 200);
-  }
-
-  document.querySelectorAll("[data-screen]").forEach((btn) => {
-    btn.addEventListener("click", () => openScreen(btn.getAttribute("data-screen")));
-  });
-
-  subscreenLayer.addEventListener("click", (e) => {
-    if (e.target === subscreenLayer) closeScreenToHome(false);
+  document.querySelectorAll("[data-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => navigateTo(btn.getAttribute("data-nav"), "home"));
   });
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && state.activeScreen && !activeKeybindListener) {
-      closeScreenToHome(false);
+    if (e.key === "Escape" && state.activeScreen && !activeKeyListener) {
+      const doneBtn = mcScreen.querySelector("[data-esc-back]");
+      if (doneBtn) doneBtn.click();
+      else navigateTo("home");
     }
   });
 
-  function escHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  function formatFov(v) {
+    if (v === 70) return "FOV: Normal";
+    if (v === 110) return "FOV: Quake Pro";
+    return "FOV: " + v;
   }
 
   // -------------------------------------------------------------------------
-  // Screen A: SINGLEPLAYER (Worlds, Search, Play Loading, Create New World)
+  // OPTIONS ROOT (Matches image-9.png 1:1!)
   // -------------------------------------------------------------------------
-  function renderSingleplayerScreen(filterText) {
-    uWindow.classList.remove("compact");
-    const q = (filterText || "").toLowerCase();
-    const visible = state.worlds
-      .map((w, idx) => ({ w, idx }))
-      .filter(({ w }) => w.name.toLowerCase().includes(q) || w.mode.toLowerCase().includes(q));
-
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group">
-          <h2>Select World</h2>
-          <span class="u-pill">${state.worlds.length} Worlds</span>
+  function renderOptionsRoot() {
+    const fovPct = ((state.fov - 30) / (110 - 30)) * 100;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Options</h2></div>
+      <div class="mc-open-body">
+        <div class="mc-grid-2col" style="margin-top: 6px;">
+          ${mcSliderHtml("opt-fov-slider", fovPct, formatFov(state.fov))}
+          <button class="mc-btn glow-ui" data-go="online"><span>Online...</span></button>
         </div>
-        <input class="u-search" id="sp-search" type="text" placeholder="Search worlds…" value="${escHtml(filterText || "")}" spellcheck="false">
+
+        <div class="mc-grid-2col" style="margin-top: 28px;">
+          <button class="mc-btn glow-ui" data-go="skin"><span>Skin Customization...</span></button>
+          <button class="mc-btn glow-ui" data-go="audio"><span>Music &amp; Sounds...</span></button>
+          <button class="mc-btn glow-ui" data-go="video"><span>Video Settings...</span></button>
+          <button class="mc-btn glow-ui" data-go="controls"><span>Controls...</span></button>
+          <button class="mc-btn glow-ui" data-go="language"><span>Language...</span></button>
+          <button class="mc-btn glow-ui" data-go="chat"><span>Chat Settings...</span></button>
+          <button class="mc-btn glow-ui" data-go="packs"><span>Resource Packs...</span></button>
+          <button class="mc-btn glow-ui" data-go="access"><span>Accessibility Settings...</span></button>
+          <button class="mc-btn glow-ui" data-go="horizon"><span>Horizon Settings...</span></button>
+          <button class="mc-btn glow-ui" data-go="mods"><span>Mods...</span></button>
+          <button class="mc-btn glow-ui" data-go="credits"><span>Credits &amp; Attribution...</span></button>
+          <button class="mc-btn glow-ui" data-go="fnh"><span>FnH Menu...</span></button>
+        </div>
       </div>
-      <div class="u-body" id="sp-list">
-        ${visible.map(({ w, idx }, i) => `
-          <div class="u-card glow-ui mb-stagger ${idx === state.selectedWorld ? "selected" : ""}" style="--i:${i};" data-widx="${idx}">
-            <div class="u-card-left">
-              <div class="u-icon-box">${escHtml(w.tag)}</div>
-              <div class="u-card-info">
-                <div class="u-card-title">${escHtml(w.name)}</div>
-                <div class="u-card-meta">${escHtml(w.mode)} · ${escHtml(w.info)}</div>
-              </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="opt-done"><span>Done</span></button>
+      </div>
+    `;
+
+    bindMcSlider("opt-fov-slider", 30, 110, 1, () => state.fov, (v) => { state.fov = v; }, formatFov);
+    mcScreen.querySelectorAll("[data-go]").forEach((b) => {
+      b.addEventListener("click", () => navigateTo(b.getAttribute("data-go"), "options"));
+    });
+    document.getElementById("opt-done").addEventListener("click", () => navigateTo("home"));
+  }
+
+  // -------------------------------------------------------------------------
+  // VIDEO SETTINGS (With Real Working GUI Scale!)
+  // -------------------------------------------------------------------------
+  function renderVideoSettings(back) {
+    const v = state.video;
+    const gsLabel = GUI_SCALES[state.guiScaleIdx].label;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Video Settings</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="vs-gfx"><span>Graphics: ${v.graphics}</span></button>
+          ${mcSliderHtml("vs-rd", ((v.renderDistance - 2) / 30) * 100, "Render Distance: " + v.renderDistance + " chunks")}
+          ${mcSliderHtml("vs-sd", ((v.simDistance - 5) / 27) * 100, "Simulation Distance: " + v.simDistance + " chunks")}
+          <button class="mc-btn glow-ui" id="vs-guiscale"><span>GUI Scale: ${gsLabel}</span></button>
+          ${mcSliderHtml("vs-fps", ((v.maxFps - 10) / 250) * 100, v.maxFps >= 260 ? "Max Framerate: Unlimited" : "Max Framerate: " + v.maxFps + " fps")}
+          ${mcSliderHtml("vs-mb", (state.motionBlur / 150) * 100, "Motion Blur: " + state.motionBlur + "%")}
+          ${mcSliderHtml("vs-br", v.brightness, v.brightness === 100 ? "Brightness: Bright" : v.brightness === 0 ? "Brightness: Moody" : "Brightness: +" + v.brightness + "%")}
+          <button class="mc-btn glow-ui" id="vs-vsync"><span>VSync: ${v.vsync ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="vs-bob"><span>View Bobbing: ${v.viewBobbing ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="vs-clouds"><span>Clouds: ${v.clouds}</span></button>
+          <button class="mc-btn glow-ui" id="vs-part"><span>Particles: ${v.particles}</span></button>
+          <button class="mc-btn glow-ui" id="vs-shadows"><span>Entity Shadows: ${v.entityShadows ? "ON" : "OFF"}</span></button>
+          ${mcSliderHtml("vs-fovfx", v.fovEffects, "FOV Effects: " + v.fovEffects + "%")}
+          ${mcSliderHtml("vs-dist", v.distortionEffects, "Distortion Effects: " + v.distortionEffects + "%")}
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="vs-done"><span>Done</span></button>
+      </div>
+    `;
+
+    const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length];
+    document.getElementById("vs-gfx").addEventListener("click", (e) => {
+      v.graphics = cycle(["Fast", "Fancy", "Fabulous!"], v.graphics);
+      e.currentTarget.querySelector("span").textContent = "Graphics: " + v.graphics;
+    });
+    document.getElementById("vs-guiscale").addEventListener("click", (e) => {
+      state.guiScaleIdx = (state.guiScaleIdx + 1) % GUI_SCALES.length;
+      applyGuiScale();
+      e.currentTarget.querySelector("span").textContent = "GUI Scale: " + GUI_SCALES[state.guiScaleIdx].label;
+      requestAnimationFrame(() => updateAllGlows(cursorClientX, cursorClientY));
+    });
+    document.getElementById("vs-vsync").addEventListener("click", (e) => {
+      v.vsync = !v.vsync;
+      e.currentTarget.querySelector("span").textContent = "VSync: " + (v.vsync ? "ON" : "OFF");
+    });
+    document.getElementById("vs-bob").addEventListener("click", (e) => {
+      v.viewBobbing = !v.viewBobbing;
+      e.currentTarget.querySelector("span").textContent = "View Bobbing: " + (v.viewBobbing ? "ON" : "OFF");
+    });
+    document.getElementById("vs-clouds").addEventListener("click", (e) => {
+      v.clouds = cycle(["Fancy", "Fast", "OFF"], v.clouds);
+      e.currentTarget.querySelector("span").textContent = "Clouds: " + v.clouds;
+    });
+    document.getElementById("vs-part").addEventListener("click", (e) => {
+      v.particles = cycle(["All", "Decreased", "Minimal"], v.particles);
+      e.currentTarget.querySelector("span").textContent = "Particles: " + v.particles;
+    });
+    document.getElementById("vs-shadows").addEventListener("click", (e) => {
+      v.entityShadows = !v.entityShadows;
+      e.currentTarget.querySelector("span").textContent = "Entity Shadows: " + (v.entityShadows ? "ON" : "OFF");
+    });
+
+    bindMcSlider("vs-rd", 2, 32, 1, () => v.renderDistance, (val) => { v.renderDistance = val; }, (val) => "Render Distance: " + val + " chunks");
+    bindMcSlider("vs-sd", 5, 32, 1, () => v.simDistance, (val) => { v.simDistance = val; }, (val) => "Simulation Distance: " + val + " chunks");
+    bindMcSlider("vs-fps", 10, 260, 10, () => v.maxFps, (val) => { v.maxFps = val; }, (val) => val >= 260 ? "Max Framerate: Unlimited" : "Max Framerate: " + val + " fps");
+    bindMcSlider("vs-mb", 0, 150, 5, () => state.motionBlur, (val) => { state.motionBlur = val; applyMotionBlur(); }, (val) => "Motion Blur: " + val + "%");
+    bindMcSlider("vs-br", 0, 100, 1, () => v.brightness, (val) => { v.brightness = val; }, (val) => val === 100 ? "Brightness: Bright" : val === 0 ? "Brightness: Moody" : "Brightness: +" + val + "%");
+    bindMcSlider("vs-fovfx", 0, 100, 1, () => v.fovEffects, (val) => { v.fovEffects = val; }, (val) => "FOV Effects: " + val + "%");
+    bindMcSlider("vs-dist", 0, 100, 1, () => v.distortionEffects, (val) => { v.distortionEffects = val; }, (val) => "Distortion Effects: " + val + "%");
+    document.getElementById("vs-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  // -------------------------------------------------------------------------
+  // MUSIC & SOUNDS
+  // -------------------------------------------------------------------------
+  function renderMusicAndSounds(back) {
+    const a = state.audio;
+    const rows = [
+      ["music", "Music"], ["record", "Jukebox/Note Blocks"],
+      ["weather", "Weather"], ["block", "Blocks"],
+      ["hostile", "Hostile Creatures"], ["neutral", "Friendly Creatures"],
+      ["player", "Players"], ["ambient", "Ambient/Environment"],
+      ["voice", "Voice/Speech"]
+    ];
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Music &amp; Sounds</h2></div>
+      <div class="mc-list-band">
+        <div style="width:min(480px,94vw);margin-bottom:6px;">
+          ${mcSliderHtml("au-master", a.master, "Master Volume: " + (a.master === 0 ? "OFF" : a.master + "%"))}
+        </div>
+        <div class="mc-grid-2col">
+          ${rows.map(([k, lbl]) => mcSliderHtml("au-" + k, a[k], lbl + ": " + (a[k] === 0 ? "OFF" : a[k] + "%"))).join("")}
+          <button class="mc-btn glow-ui" id="au-sub"><span>Show Subtitles: ${a.subtitles ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="au-dir"><span>Directional Audio: ${a.directionalAudio ? "ON" : "OFF"}</span></button>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="au-done"><span>Done</span></button>
+      </div>
+    `;
+    bindMcSlider("au-master", 0, 100, 1, () => a.master, (v) => { a.master = v; }, (v) => "Master Volume: " + (v === 0 ? "OFF" : v + "%"));
+    rows.forEach(([k, lbl]) => {
+      bindMcSlider("au-" + k, 0, 100, 1, () => a[k], (v) => { a[k] = v; }, (v) => lbl + ": " + (v === 0 ? "OFF" : v + "%"));
+    });
+    document.getElementById("au-sub").addEventListener("click", (e) => {
+      a.subtitles = !a.subtitles;
+      e.currentTarget.querySelector("span").textContent = "Show Subtitles: " + (a.subtitles ? "ON" : "OFF");
+    });
+    document.getElementById("au-dir").addEventListener("click", (e) => {
+      a.directionalAudio = !a.directionalAudio;
+      e.currentTarget.querySelector("span").textContent = "Directional Audio: " + (a.directionalAudio ? "ON" : "OFF");
+    });
+    document.getElementById("au-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  // -------------------------------------------------------------------------
+  // CONTROLS, MOUSE SETTINGS & KEY BINDS
+  // -------------------------------------------------------------------------
+  function renderControlsRoot(back) {
+    const c = state.controls;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Controls</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="ct-mouse"><span>Mouse Settings...</span></button>
+          <button class="mc-btn glow-ui" id="ct-keys"><span>Key Binds...</span></button>
+          <button class="mc-btn glow-ui" id="ct-sneak"><span>Sneak: ${c.sneakMode}</span></button>
+          <button class="mc-btn glow-ui" id="ct-sprint"><span>Sprint: ${c.sprintMode}</span></button>
+          <button class="mc-btn glow-ui" id="ct-aj"><span>Auto-Jump: ${c.autoJump ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ct-op"><span>Operator Items Tab: ${c.operatorItemsTab ? "ON" : "OFF"}</span></button>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="ct-done"><span>Done</span></button>
+      </div>
+    `;
+    document.getElementById("ct-mouse").addEventListener("click", () => navigateTo("mouse", "controls"));
+    document.getElementById("ct-keys").addEventListener("click", () => navigateTo("keybinds", "controls"));
+    document.getElementById("ct-sneak").addEventListener("click", (e) => {
+      c.sneakMode = c.sneakMode === "Hold" ? "Toggle" : "Hold";
+      e.currentTarget.querySelector("span").textContent = "Sneak: " + c.sneakMode;
+    });
+    document.getElementById("ct-sprint").addEventListener("click", (e) => {
+      c.sprintMode = c.sprintMode === "Hold" ? "Toggle" : "Hold";
+      e.currentTarget.querySelector("span").textContent = "Sprint: " + c.sprintMode;
+    });
+    document.getElementById("ct-aj").addEventListener("click", (e) => {
+      c.autoJump = !c.autoJump;
+      e.currentTarget.querySelector("span").textContent = "Auto-Jump: " + (c.autoJump ? "ON" : "OFF");
+    });
+    document.getElementById("ct-op").addEventListener("click", (e) => {
+      c.operatorItemsTab = !c.operatorItemsTab;
+      e.currentTarget.querySelector("span").textContent = "Operator Items Tab: " + (c.operatorItemsTab ? "ON" : "OFF");
+    });
+    document.getElementById("ct-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderMouseSettings(back) {
+    const c = state.controls;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Mouse Settings</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          ${mcSliderHtml("ms-sens", (c.sensitivity / 200) * 100, "Sensitivity: " + (c.sensitivity === 200 ? "HYPERSPEED!!!" : c.sensitivity + "%"))}
+          <button class="mc-btn glow-ui" id="ms-inv"><span>Invert Mouse: ${c.invertMouse ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ms-raw"><span>Raw Input: ${c.rawInput ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ms-scr"><span>Discrete Scrolling: ${c.discreteScroll ? "ON" : "OFF"}</span></button>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="ms-done"><span>Done</span></button>
+      </div>
+    `;
+    bindMcSlider("ms-sens", 0, 200, 1, () => c.sensitivity, (v) => { c.sensitivity = v; }, (v) => "Sensitivity: " + (v === 200 ? "HYPERSPEED!!!" : v + "%"));
+    document.getElementById("ms-inv").addEventListener("click", (e) => { c.invertMouse = !c.invertMouse; e.currentTarget.querySelector("span").textContent = "Invert Mouse: " + (c.invertMouse ? "ON" : "OFF"); });
+    document.getElementById("ms-raw").addEventListener("click", (e) => { c.rawInput = !c.rawInput; e.currentTarget.querySelector("span").textContent = "Raw Input: " + (c.rawInput ? "ON" : "OFF"); });
+    document.getElementById("ms-scr").addEventListener("click", (e) => { c.discreteScroll = !c.discreteScroll; e.currentTarget.querySelector("span").textContent = "Discrete Scrolling: " + (c.discreteScroll ? "ON" : "OFF"); });
+    document.getElementById("ms-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderKeyBinds(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Key Binds</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
+          ${state.controls.binds.map((b, idx) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 0;">
+              <span style="font-size:13px;color:#fff;">${esc(b.action)}</span>
+              <button class="mc-btn glow-ui" style="width:130px;height:30px;" data-kb="${idx}"><span>${esc(b.key)}</span></button>
             </div>
-            <div class="u-card-right">${escHtml(w.last)}</div>
-          </div>
-        `).join("")}
-      </div>
-      <div class="u-footer">
-        <div class="u-footer-group">
-          <button class="btn btn-sm btn-primary glow-ui" id="sp-play-btn" ${state.worlds.length ? "" : "disabled"}><span>Play Selected World</span></button>
-          <button class="btn btn-sm glow-ui" id="sp-create-btn"><span>Create New World</span></button>
-        </div>
-        <div class="u-footer-group">
-          <button class="btn btn-sm btn-danger glow-ui" id="sp-delete-btn" ${state.worlds.length ? "" : "disabled"}><span>Delete</span></button>
-          <button class="btn btn-sm glow-ui" id="sp-back-btn"><span>Back</span></button>
-        </div>
-      </div>
-    `;
-
-    const searchEl = document.getElementById("sp-search");
-    searchEl.addEventListener("input", () => {
-      const pos = searchEl.selectionStart;
-      renderSingleplayerScreen(searchEl.value);
-      const next = document.getElementById("sp-search");
-      next.focus();
-      next.setSelectionRange(pos, pos);
-    });
-
-    attachScrollMotionBlur(document.getElementById("sp-list"));
-
-    uWindow.querySelectorAll("[data-widx]").forEach((card) => {
-      card.addEventListener("click", () => {
-        state.selectedWorld = Number(card.getAttribute("data-widx"));
-        uWindow.querySelectorAll("[data-widx]").forEach((c) => c.classList.remove("selected"));
-        card.classList.add("selected");
-      });
-      card.addEventListener("dblclick", () => launchLoadingSimulation("Loading World", state.worlds[state.selectedWorld].name, "Reading world data · Building terrain…"));
-    });
-
-    document.getElementById("sp-play-btn").addEventListener("click", () => {
-      const w = state.worlds[state.selectedWorld];
-      if (w) launchLoadingSimulation("Loading World", w.name, "Preparing spawn area · 100%");
-    });
-    document.getElementById("sp-create-btn").addEventListener("click", renderCreateWorldSubscreen);
-    document.getElementById("sp-delete-btn").addEventListener("click", () => {
-      if (!state.worlds.length) return;
-      const removed = state.worlds.splice(state.selectedWorld, 1)[0];
-      state.selectedWorld = Math.max(0, Math.min(state.selectedWorld, state.worlds.length - 1));
-      showToast("Deleted world: " + removed.name);
-      renderSingleplayerScreen(searchEl.value);
-    });
-    document.getElementById("sp-back-btn").addEventListener("click", () => closeScreenToHome(false));
-    updateAllGlows(cursorClientX, cursorClientY);
-  }
-
-  function renderCreateWorldSubscreen() {
-    uWindow.classList.add("compact");
-    let mode = "Survival";
-    let diff = "Normal";
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group"><h2>Create New World</h2></div>
-      </div>
-      <div class="u-body mb-tab-anim">
-        <span class="u-field-label">World Name</span>
-        <input class="u-input" id="cw-name" value="New World" spellcheck="false">
-        <div class="setting-grid" style="margin-top:4px;">
-          <button class="btn btn-sm glow-ui" id="cw-mode-btn"><span>Game Mode: Survival</span></button>
-          <button class="btn btn-sm glow-ui" id="cw-diff-btn"><span>Difficulty: Normal</span></button>
-        </div>
-        <span class="u-field-label">World Seed (Optional)</span>
-        <input class="u-input" id="cw-seed" placeholder="Leave blank for random seed" spellcheck="false">
-      </div>
-      <div class="u-footer">
-        <button class="btn btn-sm glow-ui" id="cw-cancel"><span>Cancel</span></button>
-        <button class="btn btn-sm btn-primary glow-ui" id="cw-go"><span>Create New World</span></button>
-      </div>
-    `;
-    const modes = ["Survival", "Creative", "Hardcore"];
-    const diffs = ["Normal", "Hard", "Peaceful", "Easy"];
-    document.getElementById("cw-mode-btn").addEventListener("click", (e) => {
-      mode = modes[(modes.indexOf(mode) + 1) % modes.length];
-      e.currentTarget.querySelector("span").textContent = "Game Mode: " + mode;
-    });
-    document.getElementById("cw-diff-btn").addEventListener("click", (e) => {
-      diff = diffs[(diffs.indexOf(diff) + 1) % diffs.length];
-      e.currentTarget.querySelector("span").textContent = "Difficulty: " + diff;
-    });
-    document.getElementById("cw-cancel").addEventListener("click", () => renderSingleplayerScreen());
-    document.getElementById("cw-go").addEventListener("click", () => {
-      const name = document.getElementById("cw-name").value.trim() || "New World";
-      state.worlds.unshift({
-        name,
-        mode: mode + " Mode",
-        info: diff + " · 1.21.11 · Day 1",
-        last: "Just now",
-        tag: mode.slice(0, 4).toUpperCase()
-      });
-      state.selectedWorld = 0;
-      launchLoadingSimulation("Creating World", name, "Generating chunks · Building terrain…");
-    });
-    updateAllGlows(cursorClientX, cursorClientY);
-  }
-
-  // -------------------------------------------------------------------------
-  // Screen B: MULTIPLAYER (Servers, Direct Connect, Add Server, Refresh)
-  // -------------------------------------------------------------------------
-  function renderMultiplayerScreen() {
-    uWindow.classList.remove("compact");
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group">
-          <h2>Play Multiplayer</h2>
-          <span class="u-pill">${state.servers.length} Servers</span>
-        </div>
-        <button class="btn btn-sm glow-ui" id="mp-refresh-btn"><span>Refresh</span></button>
-      </div>
-      <div class="u-body" id="mp-list">
-        ${state.servers.map((s, idx) => `
-          <div class="u-card glow-ui mb-stagger ${idx === state.selectedServer ? "selected" : ""}" style="--i:${idx};" data-sidx="${idx}">
-            <div class="u-card-left">
-              <div class="u-icon-box">${escHtml(s.tag)}</div>
-              <div class="u-card-info">
-                <div class="u-card-title">${escHtml(s.name)}</div>
-                <div class="u-card-meta">${escHtml(s.motd)}</div>
-              </div>
-            </div>
-            <div class="u-card-right">
-              <div>${escHtml(s.players)}</div>
-              <div class="ping-badge"><span class="ping-dot"></span>${s.ping} ms</div>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-      <div class="u-footer">
-        <div class="u-footer-group">
-          <button class="btn btn-sm btn-primary glow-ui" id="mp-join-btn"><span>Join Server</span></button>
-          <button class="btn btn-sm glow-ui" id="mp-direct-btn"><span>Direct Connection</span></button>
-          <button class="btn btn-sm glow-ui" id="mp-add-btn"><span>Add Server</span></button>
-        </div>
-        <div class="u-footer-group">
-          <button class="btn btn-sm glow-ui" id="mp-back-btn"><span>Back</span></button>
-        </div>
-      </div>
-    `;
-
-    attachScrollMotionBlur(document.getElementById("mp-list"));
-
-    uWindow.querySelectorAll("[data-sidx]").forEach((card) => {
-      card.addEventListener("click", () => {
-        state.selectedServer = Number(card.getAttribute("data-sidx"));
-        uWindow.querySelectorAll("[data-sidx]").forEach((c) => c.classList.remove("selected"));
-        card.classList.add("selected");
-      });
-      card.addEventListener("dblclick", () => {
-        const s = state.servers[state.selectedServer];
-        launchLoadingSimulation("Connecting to Server", s.name, "Encrypting · Logging in to " + s.ip + "…");
-      });
-    });
-
-    document.getElementById("mp-refresh-btn").addEventListener("click", () => {
-      state.servers.forEach((s) => {
-        s.ping = Math.max(8, s.ping + Math.round((Math.random() - 0.5) * 6));
-      });
-      renderMultiplayerScreen();
-      showToast("Pinging servers…");
-    });
-
-    document.getElementById("mp-join-btn").addEventListener("click", () => {
-      const s = state.servers[state.selectedServer];
-      if (s) launchLoadingSimulation("Connecting to Server", s.name, "Encrypting · Logging in to " + s.ip + "…");
-    });
-
-    document.getElementById("mp-direct-btn").addEventListener("click", () => {
-      uWindow.classList.add("compact");
-      uWindow.innerHTML = `
-        <div class="u-header"><div class="u-title-group"><h2>Direct Connection</h2></div></div>
-        <div class="u-body mb-tab-anim">
-          <span class="u-field-label">Server Address</span>
-          <input class="u-input" id="dc-ip" value="smp.fnh.is-cool.dev" spellcheck="false">
-        </div>
-        <div class="u-footer">
-          <button class="btn btn-sm glow-ui" id="dc-cancel"><span>Cancel</span></button>
-          <button class="btn btn-sm btn-primary glow-ui" id="dc-join"><span>Join Server</span></button>
-        </div>
-      `;
-      document.getElementById("dc-cancel").addEventListener("click", renderMultiplayerScreen);
-      document.getElementById("dc-join").addEventListener("click", () => {
-        const ip = document.getElementById("dc-ip").value.trim() || "localhost";
-        launchLoadingSimulation("Direct Connection", ip, "Connecting to " + ip + ":25565…");
-      });
-      updateAllGlows(cursorClientX, cursorClientY);
-    });
-
-    document.getElementById("mp-add-btn").addEventListener("click", () => {
-      uWindow.classList.add("compact");
-      uWindow.innerHTML = `
-        <div class="u-header"><div class="u-title-group"><h2>Edit Server Info</h2></div></div>
-        <div class="u-body mb-tab-anim">
-          <span class="u-field-label">Server Name</span>
-          <input class="u-input" id="as-name" value="Minecraft Server" spellcheck="false">
-          <span class="u-field-label">Server Address</span>
-          <input class="u-input" id="as-ip" placeholder="play.example.net" spellcheck="false">
-        </div>
-        <div class="u-footer">
-          <button class="btn btn-sm glow-ui" id="as-cancel"><span>Cancel</span></button>
-          <button class="btn btn-sm btn-primary glow-ui" id="as-done"><span>Done</span></button>
-        </div>
-      `;
-      document.getElementById("as-cancel").addEventListener("click", renderMultiplayerScreen);
-      document.getElementById("as-done").addEventListener("click", () => {
-        const name = document.getElementById("as-name").value.trim() || "Minecraft Server";
-        const ip = document.getElementById("as-ip").value.trim() || "play.example.net";
-        state.servers.unshift({ name, ip, motd: ip + " · 1.21.11", players: "0 / 20", ping: 19, tag: name.slice(0, 3).toUpperCase() });
-        state.selectedServer = 0;
-        renderMultiplayerScreen();
-      });
-      updateAllGlows(cursorClientX, cursorClientY);
-    });
-
-    document.getElementById("mp-back-btn").addEventListener("click", () => closeScreenToHome(false));
-    updateAllGlows(cursorClientX, cursorClientY);
-  }
-
-  function launchLoadingSimulation(heading, targetName, detailText) {
-    uWindow.classList.add("compact");
-    uWindow.innerHTML = `
-      <div class="u-header"><div class="u-title-group"><h2>${escHtml(heading)}</h2></div></div>
-      <div class="u-body mb-tab-anim" style="padding: 22px 20px;">
-        <div style="font-size:14px;font-weight:600;color:#fff;">${escHtml(targetName)}</div>
-        <div style="font-size:12.5px;color:var(--text-sub);">${escHtml(detailText)}</div>
-        <div class="loading-bar-track"><div class="loading-bar-fill" id="sim-bar"></div></div>
-      </div>
-      <div class="u-footer" style="justify-content:flex-end;">
-        <button class="btn btn-sm glow-ui" id="sim-cancel"><span>Cancel</span></button>
-      </div>
-    `;
-    updateAllGlows(cursorClientX, cursorClientY);
-    const bar = document.getElementById("sim-bar");
-    requestAnimationFrame(() => { if (bar) bar.style.width = "100%"; });
-    const doneTimer = setTimeout(() => {
-      showToast("Preview ready: " + targetName);
-      closeScreenToHome(false);
-    }, 950);
-    document.getElementById("sim-cancel").addEventListener("click", () => {
-      clearTimeout(doneTimer);
-      closeScreenToHome(false);
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Screen C: MODS (Horizon / Fabric Universal Mod Manager)
-  // -------------------------------------------------------------------------
-  function renderModsScreen() {
-    uWindow.classList.remove("compact");
-    const m = state.mods[state.selectedMod] || state.mods[0];
-
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group">
-          <h2>Mods</h2>
-          <span class="u-pill">${state.mods.length} Loaded</span>
-        </div>
-        <span class="u-pill">Horizon 1.21.11</span>
-      </div>
-      <div class="u-split">
-        <div class="u-sidebar" id="mods-sidebar">
-          ${state.mods.map((mod, i) => `
-            <button class="u-tab-btn glow-ui ${i === state.selectedMod ? "active" : ""}" data-midx="${i}">
-              <span>${escHtml(mod.name)}</span>
-              <span style="font-size:11px;opacity:0.6;">${escHtml(mod.ver)}</span>
-            </button>
           `).join("")}
         </div>
-        <div class="u-pane mb-tab-anim" id="mods-detail">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <div>
-              <div style="font-size:17px;font-weight:600;color:#fff;">${escHtml(m.name)} <span style="font-size:12px;color:var(--text-sub);font-weight:400;">${escHtml(m.ver)}</span></div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">by ${escHtml(m.author)}</div>
-            </div>
-            <div class="setting-item row-inline" style="padding:7px 12px;gap:10px;">
-              <span style="font-size:12px;">${m.locked ? "Core Required" : "Enabled"}</span>
-              <div class="u-switch ${m.enabled ? "on" : ""}" id="mod-toggle-sw" style="${m.locked ? "opacity:0.5;pointer-events:none;" : ""}"></div>
-            </div>
-          </div>
-          <div style="font-size:13px;line-height:1.55;color:var(--text-sub);margin-top:4px;">${escHtml(m.desc)}</div>
-          ${m.name === "FnH Universal UI" ? `
-            <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
-              <span class="u-field-label">Quick FnH UI Controls</span>
-              <div class="setting-item glow-ui">
-                <div class="setting-top"><span>Motion Blur Strength</span><span class="setting-val" id="mod-mb-val">${state.motionBlur}%</span></div>
-                <input type="range" class="u-range" id="mod-mb-range" min="0" max="150" value="${state.motionBlur}">
-              </div>
-              <button class="btn btn-sm glow-ui" id="mod-open-fnh" style="align-self:flex-start;"><span>Open Full FnH Customization…</span></button>
-            </div>
-          ` : ""}
-        </div>
       </div>
-      <div class="u-footer">
-        <button class="btn btn-sm glow-ui" id="mods-folder-btn"><span>Open Mods Folder</span></button>
-        <button class="btn btn-sm btn-primary glow-ui" id="mods-done-btn"><span>Done</span></button>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="kb-done"><span>Done</span></button>
       </div>
     `;
-
-    uWindow.querySelectorAll("[data-midx]").forEach((btn) => {
+    mcScreen.querySelectorAll("[data-kb]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        state.selectedMod = Number(btn.getAttribute("data-midx"));
-        renderModsScreen();
+        if (activeKeyListener) window.removeEventListener("keydown", activeKeyListener);
+        const idx = Number(btn.getAttribute("data-kb"));
+        btn.querySelector("span").textContent = "> " + state.controls.binds[idx].key + " <";
+        activeKeyListener = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const k = ev.key === " " ? "Space" : ev.key === "Escape" ? "Not Bound" : ev.key.length === 1 ? ev.key.toUpperCase() : ev.key;
+          state.controls.binds[idx].key = k;
+          btn.querySelector("span").textContent = k;
+          window.removeEventListener("keydown", activeKeyListener);
+          activeKeyListener = null;
+        };
+        window.addEventListener("keydown", activeKeyListener);
       });
     });
-
-    const sw = document.getElementById("mod-toggle-sw");
-    if (sw && !m.locked) {
-      sw.addEventListener("click", () => {
-        m.enabled = !m.enabled;
-        sw.classList.toggle("on", m.enabled);
-        showToast(m.name + (m.enabled ? " enabled" : " disabled"));
-      });
-    }
-
-    const modMb = document.getElementById("mod-mb-range");
-    if (modMb) {
-      modMb.addEventListener("input", () => {
-        state.motionBlur = Number(modMb.value);
-        document.getElementById("mod-mb-val").textContent = state.motionBlur + "%";
-        syncMotionBlurVar();
-      });
-    }
-    const modOpenFnh = document.getElementById("mod-open-fnh");
-    if (modOpenFnh) modOpenFnh.addEventListener("click", () => openScreen("fnh"));
-
-    document.getElementById("mods-folder-btn").addEventListener("click", () => showToast("Opened .minecraft/mods"));
-    document.getElementById("mods-done-btn").addEventListener("click", () => closeScreenToHome(false));
-    updateAllGlows(cursorClientX, cursorClientY);
+    document.getElementById("kb-done").addEventListener("click", () => navigateTo(back));
   }
 
   // -------------------------------------------------------------------------
-  // Screen D: OPTIONS... (Universal Dark-Glass Settings for ALL Categories!)
+  // SKIN CUSTOMIZATION (Live toggles BufferClick's 3D skin layers!)
   // -------------------------------------------------------------------------
-  const OPTION_TABS = [
-    { id: "video", label: "Video Settings" },
-    { id: "audio", label: "Music & Sounds" },
-    { id: "controls", label: "Controls & Keybinds" },
-    { id: "skin", label: "Skin Customization" },
-    { id: "packs", label: "Resource Packs" },
-    { id: "chat", label: "Chat & Accessibility" }
-  ];
-
-  function renderOptionsScreen() {
-    uWindow.classList.remove("compact");
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group">
-          <h2>Options</h2>
-          <span class="u-pill">Universal FnH Settings</span>
-        </div>
-        <button class="btn btn-sm glow-ui" id="opt-fnh-shortcut"><span>FnH Menu Theme…</span></button>
-      </div>
-      <div class="u-split">
-        <div class="u-sidebar">
-          ${OPTION_TABS.map((t) => `
-            <button class="u-tab-btn glow-ui ${state.optionsTab === t.id ? "active" : ""}" data-otab="${t.id}">
-              <span>${escHtml(t.label)}</span>
-            </button>
+  function renderSkinCustomization(back) {
+    const sl = state.skinLayers;
+    const toggles = [
+      ["cape", "Cape"], ["jacket", "Jacket"],
+      ["lSleeve", "Left Sleeve"], ["rSleeve", "Right Sleeve"],
+      ["lPants", "Left Pants Leg"], ["rPants", "Right Pants Leg"],
+      ["hat", "Hat"]
+    ];
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Skin Customization</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          ${toggles.map(([k, lbl]) => `
+            <button class="mc-btn glow-ui" data-sk="${k}"><span>${lbl}: ${sl[k] ? "ON" : "OFF"}</span></button>
           `).join("")}
+          <button class="mc-btn glow-ui" id="sk-hand"><span>Main Hand: ${sl.mainHand}</span></button>
         </div>
-        <div class="u-pane mb-tab-anim" id="opt-pane"></div>
       </div>
-      <div class="u-footer">
-        <span style="font-size:12px;color:var(--text-muted);">Changes apply live across FnH</span>
-        <button class="btn btn-sm btn-primary glow-ui" id="opt-done-btn"><span>Done</span></button>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="sk-done"><span>Done</span></button>
       </div>
     `;
-
-    document.getElementById("opt-fnh-shortcut").addEventListener("click", () => openScreen("fnh"));
-    document.getElementById("opt-done-btn").addEventListener("click", () => closeScreenToHome(false));
-
-    uWindow.querySelectorAll("[data-otab]").forEach((btn) => {
+    mcScreen.querySelectorAll("[data-sk]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (activeKeybindListener) {
-          window.removeEventListener("keydown", activeKeybindListener);
-          activeKeybindListener = null;
-        }
-        state.optionsTab = btn.getAttribute("data-otab");
-        uWindow.querySelectorAll("[data-otab]").forEach((b) => b.classList.toggle("active", b === btn));
-        renderOptionsPane();
+        const k = btn.getAttribute("data-sk");
+        sl[k] = !sl[k];
+        const lbl = toggles.find((x) => x[0] === k)[1];
+        btn.querySelector("span").textContent = lbl + ": " + (sl[k] ? "ON" : "OFF");
       });
     });
-
-    renderOptionsPane();
+    document.getElementById("sk-hand").addEventListener("click", (e) => {
+      sl.mainHand = sl.mainHand === "Right" ? "Left" : "Right";
+      e.currentTarget.querySelector("span").textContent = "Main Hand: " + sl.mainHand;
+    });
+    document.getElementById("sk-done").addEventListener("click", () => navigateTo(back));
   }
 
-  function renderOptionsPane() {
-    const pane = document.getElementById("opt-pane");
-    if (!pane) return;
-    pane.classList.remove("mb-tab-anim");
-    void pane.offsetWidth;
-    pane.classList.add("mb-tab-anim");
-    attachScrollMotionBlur(pane);
-
-    const tab = state.optionsTab;
-
-    if (tab === "video") {
-      const v = state.video;
-      pane.innerHTML = `
-        <div class="setting-grid">
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>FOV</span><span class="setting-val" id="v-fov">${v.fov === 70 ? "Normal" : v.fov === 110 ? "Quake Pro" : v.fov}</span></div>
-            <input type="range" class="u-range" data-vslider="fov" min="30" max="110" value="${v.fov}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Motion Blur</span><span class="setting-val" id="v-mb">${state.motionBlur}%</span></div>
-            <input type="range" class="u-range" id="v-mb-slider" min="0" max="150" value="${state.motionBlur}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Render Distance</span><span class="setting-val" id="v-rd">${v.renderDistance} chunks</span></div>
-            <input type="range" class="u-range" data-vslider="renderDistance" min="2" max="32" value="${v.renderDistance}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Simulation Distance</span><span class="setting-val" id="v-sd">${v.simDistance} chunks</span></div>
-            <input type="range" class="u-range" data-vslider="simDistance" min="5" max="32" value="${v.simDistance}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Max Framerate</span><span class="setting-val" id="v-fps">${v.maxFps >= 260 ? "Unlimited" : v.maxFps + " fps"}</span></div>
-            <input type="range" class="u-range" data-vslider="maxFps" min="30" max="260" step="10" value="${v.maxFps}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Brightness</span><span class="setting-val" id="v-br">${v.brightness === 100 ? "Bright" : v.brightness + "%"}</span></div>
-            <input type="range" class="u-range" data-vslider="brightness" min="0" max="100" value="${v.brightness}">
-          </div>
-          <button class="btn btn-sm glow-ui" id="v-gfx-btn"><span>Graphics: ${v.graphics}</span></button>
-          <button class="btn btn-sm glow-ui" id="v-gui-btn"><span>GUI Scale: ${v.guiScale}</span></button>
-          <div class="setting-item row-inline glow-ui">
-            <span style="font-size:12.5px;">VSync</span>
-            <div class="u-switch ${v.vsync ? "on" : ""}" data-vtoggle="vsync"></div>
-          </div>
-          <div class="setting-item row-inline glow-ui">
-            <span style="font-size:12.5px;">Entity Shadows</span>
-            <div class="u-switch ${v.entityShadows ? "on" : ""}" data-vtoggle="entityShadows"></div>
-          </div>
-        </div>
-      `;
-
-      document.getElementById("v-mb-slider").addEventListener("input", (e) => {
-        state.motionBlur = Number(e.target.value);
-        document.getElementById("v-mb").textContent = state.motionBlur + "%";
-        syncMotionBlurVar();
-      });
-
-      pane.querySelectorAll("[data-vslider]").forEach((sl) => {
-        sl.addEventListener("input", () => {
-          const k = sl.getAttribute("data-vslider");
-          v[k] = Number(sl.value);
-          if (k === "fov") document.getElementById("v-fov").textContent = v.fov === 70 ? "Normal" : v.fov === 110 ? "Quake Pro" : v.fov;
-          if (k === "renderDistance") document.getElementById("v-rd").textContent = v.renderDistance + " chunks";
-          if (k === "simDistance") document.getElementById("v-sd").textContent = v.simDistance + " chunks";
-          if (k === "maxFps") document.getElementById("v-fps").textContent = v.maxFps >= 260 ? "Unlimited" : v.maxFps + " fps";
-          if (k === "brightness") document.getElementById("v-br").textContent = v.brightness === 100 ? "Bright" : v.brightness + "%";
-        });
-      });
-
-      const gfxModes = ["Fast", "Fancy", "Fabulous!"];
-      document.getElementById("v-gfx-btn").addEventListener("click", (e) => {
-        v.graphics = gfxModes[(gfxModes.indexOf(v.graphics) + 1) % gfxModes.length];
-        e.currentTarget.querySelector("span").textContent = "Graphics: " + v.graphics;
-      });
-      const guiModes = ["Auto", "1x", "2x", "3x", "4x"];
-      document.getElementById("v-gui-btn").addEventListener("click", (e) => {
-        v.guiScale = guiModes[(guiModes.indexOf(v.guiScale) + 1) % guiModes.length];
-        e.currentTarget.querySelector("span").textContent = "GUI Scale: " + v.guiScale;
-      });
-
-      pane.querySelectorAll("[data-vtoggle]").forEach((sw) => {
-        sw.addEventListener("click", () => {
-          const k = sw.getAttribute("data-vtoggle");
-          v[k] = !v[k];
-          sw.classList.toggle("on", v[k]);
-        });
-      });
-    } else if (tab === "audio") {
-      const a = state.audio;
-      const sliders = [
-        ["master", "Master Volume"],
-        ["music", "Music"],
-        ["blocks", "Blocks"],
-        ["hostile", "Hostile Creatures"],
-        ["players", "Players"],
-        ["weather", "Weather"],
-        ["ambient", "Ambient / Environment"]
-      ];
-      pane.innerHTML = `
-        <div class="setting-grid">
-          ${sliders.map(([k, label]) => `
-            <div class="setting-item glow-ui" ${k === "master" ? 'style="grid-column: 1 / -1;"' : ""}>
-              <div class="setting-top"><span>${label}</span><span class="setting-val" id="au-${k}">${a[k] === 0 ? "OFF" : a[k] + "%"}</span></div>
-              <input type="range" class="u-range" data-aslider="${k}" min="0" max="100" value="${a[k]}">
-            </div>
-          `).join("")}
-          <div class="setting-item row-inline glow-ui" style="grid-column: 1 / -1;">
-            <span style="font-size:12.5px;">Show Subtitles</span>
-            <div class="u-switch ${a.subtitles ? "on" : ""}" id="au-subs"></div>
-          </div>
-        </div>
-      `;
-      pane.querySelectorAll("[data-aslider]").forEach((sl) => {
-        sl.addEventListener("input", () => {
-          const k = sl.getAttribute("data-aslider");
-          a[k] = Number(sl.value);
-          document.getElementById("au-" + k).textContent = a[k] === 0 ? "OFF" : a[k] + "%";
-        });
-      });
-      document.getElementById("au-subs").addEventListener("click", (e) => {
-        a.subtitles = !a.subtitles;
-        e.currentTarget.classList.toggle("on", a.subtitles);
-      });
-    } else if (tab === "controls") {
-      const c = state.controls;
-      pane.innerHTML = `
-        <div class="setting-grid">
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Mouse Sensitivity</span><span class="setting-val" id="c-sens">${c.sensitivity === 200 ? "HYPERSPEED!!!" : c.sensitivity + "%"}</span></div>
-            <input type="range" class="u-range" id="c-sens-sl" min="1" max="200" value="${c.sensitivity}">
-          </div>
-          <div class="setting-item row-inline glow-ui">
-            <span style="font-size:12.5px;">Raw Mouse Input</span>
-            <div class="u-switch ${c.rawInput ? "on" : ""}" data-ctoggle="rawInput"></div>
-          </div>
-          <div class="setting-item row-inline glow-ui">
-            <span style="font-size:12.5px;">Sprint: Toggle</span>
-            <div class="u-switch ${c.toggleSprint ? "on" : ""}" data-ctoggle="toggleSprint"></div>
-          </div>
-          <div class="setting-item row-inline glow-ui">
-            <span style="font-size:12.5px;">Auto-Jump</span>
-            <div class="u-switch ${c.autoJump ? "on" : ""}" data-ctoggle="autoJump"></div>
-          </div>
-        </div>
-        <span class="u-field-label" style="margin-top:6px;">Keybinds (Click any key to rebind)</span>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          ${c.binds.map((b, idx) => `
-            <div class="setting-item row-inline glow-ui" style="padding:8px 13px;">
-              <span style="font-size:12.5px;">${escHtml(b.action)}</span>
-              <button class="btn keybind-btn glow-ui" data-bidx="${idx}"><span>${escHtml(b.key)}</span></button>
+  // -------------------------------------------------------------------------
+  // LANGUAGE, CHAT, RESOURCE PACKS, ACCESSIBILITY, ONLINE, HORIZON, CREDITS, MODS
+  // -------------------------------------------------------------------------
+  function renderLanguageScreen(back) {
+    const langs = ["English (US)", "English (UK)", "Svenska (Sverige)", "Deutsch (Deutschland)", "Français (France)", "Español (España)", "日本語 (日本)"];
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Language</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
+          ${langs.map((l) => `
+            <div class="mc-entry glow-ui ${state.language === l ? "selected" : ""}" data-lang="${esc(l)}" style="justify-content:center;">
+              <span style="font-size:13px;color:#fff;">${esc(l)}</span>
             </div>
           `).join("")}
         </div>
-      `;
-      document.getElementById("c-sens-sl").addEventListener("input", (e) => {
-        c.sensitivity = Number(e.target.value);
-        document.getElementById("c-sens").textContent = c.sensitivity === 200 ? "HYPERSPEED!!!" : c.sensitivity + "%";
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="lg-done"><span>Done</span></button>
+      </div>
+    `;
+    mcScreen.querySelectorAll("[data-lang]").forEach((el) => {
+      el.addEventListener("click", () => {
+        state.language = el.getAttribute("data-lang");
+        mcScreen.querySelectorAll("[data-lang]").forEach((c) => c.classList.remove("selected"));
+        el.classList.add("selected");
       });
-      pane.querySelectorAll("[data-ctoggle]").forEach((sw) => {
-        sw.addEventListener("click", () => {
-          const k = sw.getAttribute("data-ctoggle");
-          c[k] = !c[k];
-          sw.classList.toggle("on", c[k]);
-        });
-      });
-      pane.querySelectorAll("[data-bidx]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          if (activeKeybindListener) window.removeEventListener("keydown", activeKeybindListener);
-          pane.querySelectorAll("[data-bidx]").forEach((b) => b.classList.remove("listening"));
-          btn.classList.add("listening");
-          const idx = Number(btn.getAttribute("data-bidx"));
-          btn.querySelector("span").textContent = "> Press key <";
-          activeKeybindListener = (ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            const keyName = ev.key === " " ? "Space" : ev.key === "Escape" ? "None" : ev.key.length === 1 ? ev.key.toUpperCase() : ev.key;
-            c.binds[idx].key = keyName;
-            btn.classList.remove("listening");
-            btn.querySelector("span").textContent = keyName;
-            window.removeEventListener("keydown", activeKeybindListener);
-            activeKeybindListener = null;
-          };
-          window.addEventListener("keydown", activeKeybindListener);
-        });
-      });
-    } else if (tab === "skin") {
-      const sl = state.skinLayers;
-      const items = [
-        ["hat", "Hat Layer"],
-        ["jacket", "Jacket"],
-        ["lSleeve", "Left Sleeve"],
-        ["rSleeve", "Right Sleeve"],
-        ["lPants", "Left Pants Leg"],
-        ["rPants", "Right Pants Leg"]
-      ];
-      pane.innerHTML = `
-        <div style="font-size:12.5px;color:var(--text-sub);">Toggles the actual 3D outer layers on <strong>${escHtml(state.username)}</strong> on the Main Menu in real time.</div>
-        <div class="setting-grid">
-          ${items.map(([k, label]) => `
-            <div class="setting-item row-inline glow-ui">
-              <span style="font-size:12.5px;">${label}</span>
-              <div class="u-switch ${sl[k] ? "on" : ""}" data-slayer="${k}"></div>
-            </div>
-          `).join("")}
+    });
+    document.getElementById("lg-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderChatSettings(back) {
+    const ch = state.chat;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Chat Settings</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="ch-vis"><span>Chat: ${ch.visibility}</span></button>
+          <button class="mc-btn glow-ui" id="ch-col"><span>Colors: ${ch.colors ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ch-lnk"><span>Web Links: ${ch.webLinks ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ch-prm"><span>Prompt on Links: ${ch.promptLinks ? "ON" : "OFF"}</span></button>
+          ${mcSliderHtml("ch-bg", ch.textBgOpacity, "Text Background Opacity: " + ch.textBgOpacity + "%")}
+          ${mcSliderHtml("ch-op", ch.chatOpacity, "Chat Text Opacity: " + ch.chatOpacity + "%")}
+          ${mcSliderHtml("ch-sz", ch.chatTextSize, "Chat Text Size: " + ch.chatTextSize + "%")}
+          ${mcSliderHtml("ch-sp", ch.lineSpacing, "Line Spacing: " + ch.lineSpacing + "%")}
         </div>
-      `;
-      pane.querySelectorAll("[data-slayer]").forEach((sw) => {
-        sw.addEventListener("click", () => {
-          const k = sw.getAttribute("data-slayer");
-          sl[k] = !sl[k];
-          sw.classList.toggle("on", sl[k]);
-        });
-      });
-    } else if (tab === "packs") {
-      pane.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:8px;">
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="ch-done"><span>Done</span></button>
+      </div>
+    `;
+    const vis = ["Shown", "Commands Only", "Hidden"];
+    document.getElementById("ch-vis").addEventListener("click", (e) => { ch.visibility = vis[(vis.indexOf(ch.visibility) + 1) % vis.length]; e.currentTarget.querySelector("span").textContent = "Chat: " + ch.visibility; });
+    document.getElementById("ch-col").addEventListener("click", (e) => { ch.colors = !ch.colors; e.currentTarget.querySelector("span").textContent = "Colors: " + (ch.colors ? "ON" : "OFF"); });
+    document.getElementById("ch-lnk").addEventListener("click", (e) => { ch.webLinks = !ch.webLinks; e.currentTarget.querySelector("span").textContent = "Web Links: " + (ch.webLinks ? "ON" : "OFF"); });
+    document.getElementById("ch-prm").addEventListener("click", (e) => { ch.promptLinks = !ch.promptLinks; e.currentTarget.querySelector("span").textContent = "Prompt on Links: " + (ch.promptLinks ? "ON" : "OFF"); });
+    bindMcSlider("ch-bg", 0, 100, 1, () => ch.textBgOpacity, (v) => { ch.textBgOpacity = v; }, (v) => "Text Background Opacity: " + v + "%");
+    bindMcSlider("ch-op", 10, 100, 1, () => ch.chatOpacity, (v) => { ch.chatOpacity = v; }, (v) => "Chat Text Opacity: " + v + "%");
+    bindMcSlider("ch-sz", 0, 100, 1, () => ch.chatTextSize, (v) => { ch.chatTextSize = v; }, (v) => "Chat Text Size: " + v + "%");
+    bindMcSlider("ch-sp", 0, 100, 1, () => ch.lineSpacing, (v) => { ch.lineSpacing = v; }, (v) => "Line Spacing: " + v + "%");
+    document.getElementById("ch-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderResourcePacks(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Select Resource Packs</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
           ${state.packs.map((p, idx) => `
-            <div class="u-card glow-ui" data-pidx="${idx}">
-              <div class="u-card-left">
-                <div class="u-icon-box">PACK</div>
-                <div class="u-card-info">
-                  <div class="u-card-title">${escHtml(p.name)}</div>
-                  <div class="u-card-meta">${escHtml(p.desc)}</div>
+            <div class="mc-entry glow-ui ${p.selected ? "selected" : ""}" data-pk="${idx}">
+              <div class="mc-entry-left">
+                <div class="mc-entry-icon">PACK</div>
+                <div>
+                  <div class="mc-entry-title">${esc(p.name)}</div>
+                  <div class="mc-entry-sub">${esc(p.desc)}</div>
                 </div>
               </div>
-              <div class="u-switch ${p.enabled ? "on" : ""}" style="${p.locked ? "opacity:0.5;pointer-events:none;" : ""}"></div>
+              <span style="font-size:11.5px;color:var(--text-sub);">${p.selected ? "Selected" : "Available"}</span>
             </div>
           `).join("")}
         </div>
-      `;
-      pane.querySelectorAll("[data-pidx]").forEach((card) => {
-        card.addEventListener("click", () => {
-          const p = state.packs[Number(card.getAttribute("data-pidx"))];
-          if (p.locked) return;
-          p.enabled = !p.enabled;
-          card.querySelector(".u-switch").classList.toggle("on", p.enabled);
-          showToast(p.name + (p.enabled ? " applied" : " removed"));
-        });
+      </div>
+      <div class="mc-footer">
+        <div class="mc-bar-row-2">
+          <button class="mc-btn glow-ui" id="pk-folder"><span>Open Pack Folder</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="pk-done"><span>Done</span></button>
+        </div>
+      </div>
+    `;
+    mcScreen.querySelectorAll("[data-pk]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const p = state.packs[Number(row.getAttribute("data-pk"))];
+        if (p.locked) return;
+        p.selected = !p.selected;
+        renderResourcePacks(back);
       });
-    } else if (tab === "chat") {
-      const ch = state.chat;
-      pane.innerHTML = `
-        <div class="setting-grid">
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Chat Opacity</span><span class="setting-val" id="ch-op">${ch.opacity}%</span></div>
-            <input type="range" class="u-range" data-cslider="opacity" min="10" max="100" value="${ch.opacity}">
+    });
+    document.getElementById("pk-folder").addEventListener("click", () => showToast("Opened resourcepacks folder"));
+    document.getElementById("pk-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderAccessibilitySettings(back) {
+    const ac = state.access;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Accessibility Settings</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="ac-nar"><span>Narrator: ${ac.narrator}</span></button>
+          <button class="mc-btn glow-ui" id="ac-sub"><span>Show Subtitles: ${ac.subtitles ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ac-hc"><span>High Contrast: ${ac.highContrast ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="ac-aj"><span>Auto-Jump: ${ac.autoJump ? "ON" : "OFF"}</span></button>
+          ${mcSliderHtml("ac-blur", (ac.menuBgBlurriness / 100) * 100, "Menu Background Blur: " + ac.menuBgBlurriness + "%")}
+          ${mcSliderHtml("ac-tilt", ac.damageTilt, "Damage Tilt: " + ac.damageTilt + "%")}
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="ac-done"><span>Done</span></button>
+      </div>
+    `;
+    const nars = ["Off", "All", "Chat", "System"];
+    document.getElementById("ac-nar").addEventListener("click", (e) => { ac.narrator = nars[(nars.indexOf(ac.narrator) + 1) % nars.length]; e.currentTarget.querySelector("span").textContent = "Narrator: " + ac.narrator; });
+    document.getElementById("ac-sub").addEventListener("click", (e) => { ac.subtitles = !ac.subtitles; e.currentTarget.querySelector("span").textContent = "Show Subtitles: " + (ac.subtitles ? "ON" : "OFF"); });
+    document.getElementById("ac-hc").addEventListener("click", (e) => {
+      ac.highContrast = !ac.highContrast;
+      e.currentTarget.querySelector("span").textContent = "High Contrast: " + (ac.highContrast ? "ON" : "OFF");
+      document.documentElement.style.setProperty("--glass-border", ac.highContrast ? "rgba(255,255,255,0.42)" : "rgba(255,255,255,0.14)");
+    });
+    document.getElementById("ac-aj").addEventListener("click", (e) => { ac.autoJump = !ac.autoJump; e.currentTarget.querySelector("span").textContent = "Auto-Jump: " + (ac.autoJump ? "ON" : "OFF"); });
+    bindMcSlider("ac-blur", 0, 100, 10, () => ac.menuBgBlurriness, (v) => { ac.menuBgBlurriness = v; }, (v) => "Menu Background Blur: " + v + "%");
+    bindMcSlider("ac-tilt", 0, 100, 1, () => ac.damageTilt, (v) => { ac.damageTilt = v; }, (v) => "Damage Tilt: " + v + "%");
+    document.getElementById("ac-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderOnlineOptions(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Online Options</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="on-realms"><span>Realms Notifications: ${state.onlineRealmsNotifs ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="on-list"><span>Allow Server Listings: ${state.allowServerListings ? "ON" : "OFF"}</span></button>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="on-done"><span>Done</span></button>
+      </div>
+    `;
+    document.getElementById("on-realms").addEventListener("click", (e) => { state.onlineRealmsNotifs = !state.onlineRealmsNotifs; e.currentTarget.querySelector("span").textContent = "Realms Notifications: " + (state.onlineRealmsNotifs ? "ON" : "OFF"); });
+    document.getElementById("on-list").addEventListener("click", (e) => { state.allowServerListings = !state.allowServerListings; e.currentTarget.querySelector("span").textContent = "Allow Server Listings: " + (state.allowServerListings ? "ON" : "OFF"); });
+    document.getElementById("on-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderHorizonSettings(back) {
+    const hz = state.horizon;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Horizon Settings</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="hz-pvp"><span>PvP &amp; HUD: ${hz.pvpHud ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="hz-dyn"><span>Dynamic Lights: ${hz.dynamicLights ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="hz-fb"><span>Fullbright: ${hz.fullbright ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="hz-pre"><span>Chunk Pregeneration: ${hz.chunkPregen ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="hz-spl"><span>Splitscreen: ${hz.splitscreen ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="hz-rep"><span>Replay Studio: ${hz.replayStudio ? "ON" : "OFF"}</span></button>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="hz-done"><span>Done</span></button>
+      </div>
+    `;
+    const wire = (id, key, lbl) => {
+      document.getElementById(id).addEventListener("click", (e) => {
+        hz[key] = !hz[key];
+        e.currentTarget.querySelector("span").textContent = lbl + ": " + (hz[key] ? "ON" : "OFF");
+      });
+    };
+    wire("hz-pvp", "pvpHud", "PvP & HUD");
+    wire("hz-dyn", "dynamicLights", "Dynamic Lights");
+    wire("hz-fb", "fullbright", "Fullbright");
+    wire("hz-pre", "chunkPregen", "Chunk Pregeneration");
+    wire("hz-spl", "splitscreen", "Splitscreen");
+    wire("hz-rep", "replayStudio", "Replay Studio");
+    document.getElementById("hz-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderCreditsScreen(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Credits &amp; Attribution</h2></div>
+      <div class="mc-list-band">
+        <div style="max-width:440px;text-align:center;line-height:1.65;color:var(--text-sub);font-size:13px;margin-top:20px;">
+          <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:6px;">FnH Edition v1.8 — Made by Buffer</div>
+          <div>Minecraft 1.21.11 UI redesigned in FnH Dark Glass.</div>
+          <div style="margin-top:8px;">Minecraft is copyright Mojang Studios. Not an official Minecraft product.</div>
+        </div>
+      </div>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="cr-done"><span>Done</span></button>
+      </div>
+    `;
+    document.getElementById("cr-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  function renderModsScreen(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Mods (${state.mods.length} Loaded)</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
+          ${state.mods.map((m, idx) => `
+            <div class="mc-entry glow-ui ${idx === 0 ? "selected" : ""}">
+              <div class="mc-entry-left">
+                <div class="mc-entry-icon">${idx === 0 ? "FnH" : "MOD"}</div>
+                <div>
+                  <div class="mc-entry-title">${esc(m.name)} <span style="font-weight:400;font-size:11.5px;color:var(--text-muted);">v${esc(m.ver)}</span></div>
+                  <div class="mc-entry-sub">${esc(m.desc)}</div>
+                </div>
+              </div>
+              ${idx === 0 ? `<button class="mc-btn glow-ui" id="mod-cfg-fnh" style="height:28px;"><span>Configure...</span></button>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="mc-footer">
+        <div class="mc-bar-row-2">
+          <button class="mc-btn glow-ui" id="md-folder"><span>Open Mods Folder</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="md-done"><span>Done</span></button>
+        </div>
+      </div>
+    `;
+    const cfg = document.getElementById("mod-cfg-fnh");
+    if (cfg) cfg.addEventListener("click", () => navigateTo("fnh", "mods"));
+    document.getElementById("md-folder").addEventListener("click", () => showToast("Opened .minecraft/mods"));
+    document.getElementById("md-done").addEventListener("click", () => navigateTo(back));
+  }
+
+  // -------------------------------------------------------------------------
+  // SELECT WORLD & CREATE NEW WORLD (Matches image-11, image-12, image-13!)
+  // -------------------------------------------------------------------------
+  function renderSelectWorld(qText) {
+    const q = (qText || "").toLowerCase();
+    const filtered = state.worlds.map((w, i) => ({ w, i })).filter(({ w }) => w.name.toLowerCase().includes(q));
+    const hasSel = state.worlds.length > 0;
+
+    mcScreen.innerHTML = `
+      <div class="mc-header">
+        <h2 class="mc-screen-title">Select World</h2>
+        <input class="mc-input glow-ui" id="sw-search" style="width:min(310px,88vw);" placeholder="Search worlds..." value="${esc(qText || "")}" spellcheck="false">
+      </div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
+          ${filtered.map(({ w, i }) => `
+            <div class="mc-entry glow-ui ${i === state.selectedWorld ? "selected" : ""}" data-wi="${i}">
+              <div class="mc-entry-left">
+                <div class="mc-entry-icon">${esc(w.tag)}</div>
+                <div>
+                  <div class="mc-entry-title">${esc(w.name)}</div>
+                  <div class="mc-entry-sub">${esc(w.folder)}</div>
+                  <div class="mc-entry-sub">${esc(w.detail)}</div>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="mc-footer">
+        <div class="mc-bar-row-2">
+          <button class="mc-btn glow-ui" id="sw-play" ${hasSel ? "" : "disabled"}><span>Play Selected World</span></button>
+          <button class="mc-btn glow-ui" id="sw-create"><span>Create New World</span></button>
+        </div>
+        <div class="mc-bar-row-4">
+          <button class="mc-btn glow-ui" id="sw-edit" ${hasSel ? "" : "disabled"}><span>Edit</span></button>
+          <button class="mc-btn glow-ui" id="sw-del" ${hasSel ? "" : "disabled"}><span>Delete</span></button>
+          <button class="mc-btn glow-ui" id="sw-rec" ${hasSel ? "" : "disabled"}><span>Re-Create</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="sw-back"><span>Back</span></button>
+        </div>
+      </div>
+    `;
+
+    const sEl = document.getElementById("sw-search");
+    sEl.addEventListener("input", () => {
+      const p = sEl.selectionStart;
+      renderSelectWorld(sEl.value);
+      const n = document.getElementById("sw-search");
+      n.focus();
+      n.setSelectionRange(p, p);
+    });
+    mcScreen.querySelectorAll("[data-wi]").forEach((el) => {
+      el.addEventListener("click", () => {
+        state.selectedWorld = Number(el.getAttribute("data-wi"));
+        mcScreen.querySelectorAll("[data-wi]").forEach((c) => c.classList.remove("selected"));
+        el.classList.add("selected");
+      });
+      el.addEventListener("dblclick", () => { showToast("Loading " + state.worlds[state.selectedWorld].name + "…"); navigateTo("home"); });
+    });
+    document.getElementById("sw-play").addEventListener("click", () => {
+      if (state.worlds[state.selectedWorld]) { showToast("Loading " + state.worlds[state.selectedWorld].name + "…"); navigateTo("home"); }
+    });
+    document.getElementById("sw-create").addEventListener("click", () => navigateTo("createworld", "singleplayer"));
+    document.getElementById("sw-edit").addEventListener("click", () => showToast("Editing " + state.worlds[state.selectedWorld].name));
+    document.getElementById("sw-rec").addEventListener("click", () => navigateTo("createworld", "singleplayer"));
+    document.getElementById("sw-del").addEventListener("click", () => {
+      if (!state.worlds.length) return;
+      state.worlds.splice(state.selectedWorld, 1);
+      state.selectedWorld = Math.max(0, state.selectedWorld - 1);
+      renderSelectWorld(sEl.value);
+    });
+    document.getElementById("sw-back").addEventListener("click", () => navigateTo("home"));
+  }
+
+  function renderCreateNewWorld() {
+    const cw = state.createWorld;
+    let bodyHtml = "";
+    if (cw.tab === "game") {
+      bodyHtml = `
+        <div class="mc-create-col">
+          <span class="mc-field-caption">World Name</span>
+          <input class="mc-input glow-ui" id="cw-name" value="${esc(cw.name)}" spellcheck="false">
+          <button class="mc-btn glow-ui" id="cw-mode"><span>Game Mode: ${cw.mode}</span></button>
+          <button class="mc-btn glow-ui" id="cw-diff"><span>Difficulty: ${cw.difficulty}</span></button>
+          <button class="mc-btn glow-ui" id="cw-cmd"><span>Allow Commands: ${cw.commands ? "ON" : "OFF"}</span></button>
+        </div>
+      `;
+    } else if (cw.tab === "world") {
+      bodyHtml = `
+        <div class="mc-grid-2col" style="width:min(420px,92vw);margin-top:28px;">
+          <button class="mc-btn glow-ui" id="cw-wtype"><span>World Type: ${cw.worldType}</span></button>
+          <button class="mc-btn glow-ui" id="cw-cust" ${cw.worldType === "Superflat" ? "" : "disabled"}><span>Customize</span></button>
+        </div>
+        <div class="mc-create-col" style="width:min(420px,92vw);margin-top:12px;">
+          <span class="mc-field-caption">Seed for the world generator</span>
+          <input class="mc-input glow-ui" id="cw-seed" placeholder="Leave blank for a random seed" value="${esc(cw.seed)}" spellcheck="false">
+          <div class="mc-inline-toggle-row" style="margin-top:4px;">
+            <span>Generate Structures</span>
+            <button class="mc-btn glow-ui" id="cw-struct" style="width:68px;"><span>${cw.structures ? "ON" : "OFF"}</span></button>
           </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Chat Scale</span><span class="setting-val" id="ch-sc">${ch.scale}%</span></div>
-            <input type="range" class="u-range" data-cslider="scale" min="20" max="100" value="${ch.scale}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Text Background Opacity</span><span class="setting-val" id="ch-bg">${ch.textBgOpacity}%</span></div>
-            <input type="range" class="u-range" data-cslider="textBgOpacity" min="0" max="100" value="${ch.textBgOpacity}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>FOV Effects</span><span class="setting-val" id="ch-fov">${ch.fovEffects}%</span></div>
-            <input type="range" class="u-range" data-cslider="fovEffects" min="0" max="100" value="${ch.fovEffects}">
-          </div>
-          <div class="setting-item row-inline glow-ui" style="grid-column:1/-1;">
-            <span style="font-size:12.5px;">High Contrast Glass Borders</span>
-            <div class="u-switch ${ch.highContrast ? "on" : ""}" id="ch-hc"></div>
+          <div class="mc-inline-toggle-row">
+            <span>Bonus Chest</span>
+            <button class="mc-btn glow-ui" id="cw-chest" style="width:68px;"><span>${cw.bonusChest ? "ON" : "OFF"}</span></button>
           </div>
         </div>
       `;
-      pane.querySelectorAll("[data-cslider]").forEach((sl) => {
-        sl.addEventListener("input", () => {
-          const k = sl.getAttribute("data-cslider");
-          ch[k] = Number(sl.value);
-          if (k === "opacity") document.getElementById("ch-op").textContent = ch.opacity + "%";
-          if (k === "scale") document.getElementById("ch-sc").textContent = ch.scale + "%";
-          if (k === "textBgOpacity") document.getElementById("ch-bg").textContent = ch.textBgOpacity + "%";
-          if (k === "fovEffects") document.getElementById("ch-fov").textContent = ch.fovEffects + "%";
-        });
+    } else {
+      bodyHtml = `
+        <div class="mc-create-col">
+          <button class="mc-btn glow-ui" id="cw-rules"><span>Game Rules</span></button>
+          <button class="mc-btn glow-ui" id="cw-exp"><span>Experiments</span></button>
+          <button class="mc-btn glow-ui" id="cw-dp"><span>Data Packs</span></button>
+        </div>
+      `;
+    }
+
+    mcScreen.innerHTML = `
+      <div class="mc-tab-header">
+        <button class="mc-tab glow-ui ${cw.tab === "game" ? "active" : ""}" data-cwtab="game"><span>Game</span></button>
+        <button class="mc-tab glow-ui ${cw.tab === "world" ? "active" : ""}" data-cwtab="world"><span>World</span></button>
+        <button class="mc-tab glow-ui ${cw.tab === "more" ? "active" : ""}" data-cwtab="more"><span>More</span></button>
+      </div>
+      <div class="mc-list-band">${bodyHtml}</div>
+      <div class="mc-footer">
+        <div class="mc-bar-row-2" style="width:min(420px,92vw);">
+          <button class="mc-btn glow-ui" id="cw-go"><span>Create New World</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="cw-cancel"><span>Cancel</span></button>
+        </div>
+      </div>
+    `;
+
+    mcScreen.querySelectorAll("[data-cwtab]").forEach((t) => {
+      t.addEventListener("click", () => {
+        cw.tab = t.getAttribute("data-cwtab");
+        renderCreateNewWorld();
+        updateAllGlows(cursorClientX, cursorClientY);
       });
-      document.getElementById("ch-hc").addEventListener("click", (e) => {
-        ch.highContrast = !ch.highContrast;
-        e.currentTarget.classList.toggle("on", ch.highContrast);
-        document.documentElement.style.setProperty("--glass-border", ch.highContrast ? "rgba(255,255,255,0.34)" : "rgba(255,255,255,0.13)");
+    });
+
+    if (cw.tab === "game") {
+      const modes = ["Survival", "Hardcore", "Creative"];
+      const diffs = ["Normal", "Hard", "Peaceful", "Easy"];
+      document.getElementById("cw-name").addEventListener("input", (e) => { cw.name = e.target.value; });
+      document.getElementById("cw-mode").addEventListener("click", (e) => { cw.mode = modes[(modes.indexOf(cw.mode) + 1) % modes.length]; e.currentTarget.querySelector("span").textContent = "Game Mode: " + cw.mode; });
+      document.getElementById("cw-diff").addEventListener("click", (e) => { cw.difficulty = diffs[(diffs.indexOf(cw.difficulty) + 1) % diffs.length]; e.currentTarget.querySelector("span").textContent = "Difficulty: " + cw.difficulty; });
+      document.getElementById("cw-cmd").addEventListener("click", (e) => { cw.commands = !cw.commands; e.currentTarget.querySelector("span").textContent = "Allow Commands: " + (cw.commands ? "ON" : "OFF"); });
+    } else if (cw.tab === "world") {
+      const types = ["Default", "Superflat", "Large Biomes", "Amplified"];
+      document.getElementById("cw-wtype").addEventListener("click", () => { cw.worldType = types[(types.indexOf(cw.worldType) + 1) % types.length]; renderCreateNewWorld(); });
+      document.getElementById("cw-seed").addEventListener("input", (e) => { cw.seed = e.target.value; });
+      document.getElementById("cw-struct").addEventListener("click", (e) => { cw.structures = !cw.structures; e.currentTarget.querySelector("span").textContent = cw.structures ? "ON" : "OFF"; });
+      document.getElementById("cw-chest").addEventListener("click", (e) => { cw.bonusChest = !cw.bonusChest; e.currentTarget.querySelector("span").textContent = cw.bonusChest ? "ON" : "OFF"; });
+    } else {
+      ["cw-rules", "cw-exp", "cw-dp"].forEach((id) => {
+        document.getElementById(id).addEventListener("click", (e) => showToast(e.currentTarget.textContent));
       });
     }
 
-    updateAllGlows(cursorClientX, cursorClientY);
+    document.getElementById("cw-go").addEventListener("click", () => {
+      const n = cw.name.trim() || "New World";
+      state.worlds.unshift({ name: n, folder: n + " (Today)", detail: cw.mode + " Mode, Version: 1.21.11", tag: "NEW" });
+      state.selectedWorld = 0;
+      showToast("Creating " + n + "…");
+      navigateTo("home");
+    });
+    document.getElementById("cw-cancel").addEventListener("click", () => navigateTo("singleplayer"));
   }
 
   // -------------------------------------------------------------------------
-  // Screen E: QUIT GAME (Universal Dark-Glass Quit Confirmation)
+  // PLAY MULTIPLAYER (Matches image-10.png 1:1!)
   // -------------------------------------------------------------------------
-  function renderQuitScreen() {
-    uWindow.classList.add("compact");
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group"><h2>Quit Game</h2></div>
+  function renderPlayMultiplayer() {
+    const hasSrv = state.servers.length > 0;
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">Play Multiplayer</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-entry-list">
+          ${state.servers.map((s, i) => `
+            <div class="mc-entry glow-ui ${i === state.selectedServer ? "selected" : ""}" data-si="${i}">
+              <div class="mc-entry-left">
+                <div class="mc-entry-icon">${esc(s.tag)}</div>
+                <div>
+                  <div class="mc-entry-title">${esc(s.name)}</div>
+                  <div class="mc-entry-sub">${esc(s.motd)}</div>
+                </div>
+              </div>
+              <div style="text-align:right;font-size:11.5px;color:var(--text-sub);">
+                <div>${esc(s.players)}</div>
+                <div style="color:#86efac;">${esc(s.ping)}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <div class="mc-lan-scan">
+          <div>Scanning for games on your local network</div>
+          <div class="mc-lan-dots" id="mp-dots">O o o</div>
+        </div>
       </div>
-      <div class="u-body mb-tab-anim" style="padding:20px;">
-        <div style="font-size:13.5px;color:var(--text-sub);line-height:1.5;">Are you sure you want to close Minecraft 1.21.11 (FnH Edition)?</div>
-      </div>
-      <div class="u-footer">
-        <button class="btn btn-sm glow-ui" id="q-cancel"><span>Cancel</span></button>
-        <button class="btn btn-sm btn-danger glow-ui" id="q-confirm"><span>Quit to Desktop</span></button>
+      <div class="mc-footer">
+        <div class="mc-bar-row-3">
+          <button class="mc-btn glow-ui" id="mp-join" ${hasSrv ? "" : "disabled"}><span>Join Server</span></button>
+          <button class="mc-btn glow-ui" id="mp-direct"><span>Direct Connection</span></button>
+          <button class="mc-btn glow-ui" id="mp-add"><span>Add Server</span></button>
+        </div>
+        <div class="mc-bar-row-4">
+          <button class="mc-btn glow-ui" id="mp-edit" ${hasSrv ? "" : "disabled"}><span>Edit</span></button>
+          <button class="mc-btn glow-ui" id="mp-del" ${hasSrv ? "" : "disabled"}><span>Delete</span></button>
+          <button class="mc-btn glow-ui" id="mp-ref"><span>Refresh</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="mp-back"><span>Back</span></button>
+        </div>
       </div>
     `;
-    document.getElementById("q-cancel").addEventListener("click", () => closeScreenToHome(false));
-    document.getElementById("q-confirm").addEventListener("click", () => {
-      uWindow.innerHTML = `
-        <div class="u-body mb-tab-anim" style="padding:28px 20px;align-items:center;text-align:center;">
-          <div style="font-size:15px;font-weight:600;color:#fff;">Game Closed</div>
-          <div style="font-size:12.5px;color:var(--text-sub);margin-bottom:8px;">Click below to relaunch the main menu with the full walk-in intro.</div>
-          <button class="btn btn-sm btn-primary glow-ui" id="q-relaunch"><span>Relaunch FnH Menu</span></button>
+
+    const frames = ["O o o", "o O o", "o o O", "o O o"];
+    let fi = 0;
+    lanDotsTimer = setInterval(() => {
+      const el = document.getElementById("mp-dots");
+      if (el) el.textContent = frames[(++fi) % frames.length];
+    }, 300);
+
+    mcScreen.querySelectorAll("[data-si]").forEach((el) => {
+      el.addEventListener("click", () => {
+        state.selectedServer = Number(el.getAttribute("data-si"));
+        mcScreen.querySelectorAll("[data-si]").forEach((c) => c.classList.remove("selected"));
+        el.classList.add("selected");
+      });
+      el.addEventListener("dblclick", () => { showToast("Connecting to " + state.servers[state.selectedServer].ip + "…"); navigateTo("home"); });
+    });
+
+    document.getElementById("mp-join").addEventListener("click", () => {
+      if (state.servers[state.selectedServer]) { showToast("Connecting to " + state.servers[state.selectedServer].ip + "…"); navigateTo("home"); }
+    });
+    document.getElementById("mp-direct").addEventListener("click", () => {
+      clearScreenHooks();
+      mcScreen.innerHTML = `
+        <div class="mc-header"><h2 class="mc-screen-title">Direct Connection</h2></div>
+        <div class="mc-open-body">
+          <div class="mc-create-col">
+            <span class="mc-field-caption">Server Address</span>
+            <input class="mc-input glow-ui" id="dc-ip" value="smp.fnh.is-cool.dev" spellcheck="false">
+          </div>
+        </div>
+        <div class="mc-footer">
+          <button class="mc-btn mc-done-btn glow-ui" id="dc-go"><span>Join Server</span></button>
+          <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="dc-back"><span>Cancel</span></button>
         </div>
       `;
-      document.getElementById("q-relaunch").addEventListener("click", () => closeScreenToHome(true));
+      document.getElementById("dc-go").addEventListener("click", () => { showToast("Connecting to " + document.getElementById("dc-ip").value + "…"); navigateTo("home"); });
+      document.getElementById("dc-back").addEventListener("click", () => navigateTo("multiplayer"));
       updateAllGlows(cursorClientX, cursorClientY);
     });
-    updateAllGlows(cursorClientX, cursorClientY);
+    document.getElementById("mp-add").addEventListener("click", () => {
+      clearScreenHooks();
+      mcScreen.innerHTML = `
+        <div class="mc-header"><h2 class="mc-screen-title">Edit Server Info</h2></div>
+        <div class="mc-open-body">
+          <div class="mc-create-col">
+            <span class="mc-field-caption">Server Name</span>
+            <input class="mc-input glow-ui" id="as-name" value="Minecraft Server" spellcheck="false">
+            <span class="mc-field-caption">Server Address</span>
+            <input class="mc-input glow-ui" id="as-ip" placeholder="play.example.net" spellcheck="false">
+          </div>
+        </div>
+        <div class="mc-footer">
+          <button class="mc-btn mc-done-btn glow-ui" id="as-save"><span>Done</span></button>
+          <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="as-back"><span>Cancel</span></button>
+        </div>
+      `;
+      document.getElementById("as-save").addEventListener("click", () => {
+        const n = document.getElementById("as-name").value.trim() || "Minecraft Server";
+        const ip = document.getElementById("as-ip").value.trim() || "play.example.net";
+        state.servers.push({ name: n, ip, motd: ip, players: "0/20", ping: "18ms", tag: n.slice(0, 3).toUpperCase() });
+        navigateTo("multiplayer");
+      });
+      document.getElementById("as-back").addEventListener("click", () => navigateTo("multiplayer"));
+      updateAllGlows(cursorClientX, cursorClientY);
+    });
+    document.getElementById("mp-edit").addEventListener("click", () => showToast("Editing " + state.servers[state.selectedServer].name));
+    document.getElementById("mp-del").addEventListener("click", () => {
+      if (!state.servers.length) return;
+      state.servers.splice(state.selectedServer, 1);
+      state.selectedServer = Math.max(0, state.selectedServer - 1);
+      navigateTo("multiplayer");
+    });
+    document.getElementById("mp-ref").addEventListener("click", () => navigateTo("multiplayer"));
+    document.getElementById("mp-back").addEventListener("click", () => navigateTo("home"));
   }
 
   // -------------------------------------------------------------------------
-  // Screen F: FnH (Bottom-Right Button -> Menu Background, Motion Blur & Skin)
+  // FnH SETTINGS SCREEN (Same clean Minecraft Option Screen style!)
   // -------------------------------------------------------------------------
-  function renderFnHScreen() {
-    uWindow.classList.add("compact");
-    uWindow.innerHTML = `
-      <div class="u-header">
-        <div class="u-title-group">
-          <img src="/assets/icon.svg" onerror="this.onerror=null;this.src='/site/assets/icon.svg'" alt="" style="width:20px;height:20px;border-radius:4px;">
-          <h2>FnH</h2>
+  function renderFnHSettings(back) {
+    mcScreen.innerHTML = `
+      <div class="mc-header"><h2 class="mc-screen-title">FnH</h2></div>
+      <div class="mc-list-band">
+        <div class="mc-grid-2col">
+          <button class="mc-btn glow-ui" id="fn-def-bg"><span>Background: ${state.bgIsCustom ? "Reset to Default" : "Default Milky Way"}</span></button>
+          <button class="mc-btn glow-ui" id="fn-pick-bg"><span>Choose Custom Background...</span></button>
+          ${mcSliderHtml("fn-dim", (state.bgDim / 65) * 100, "Background Dim: " + state.bgDim + "%")}
+          ${mcSliderHtml("fn-mb", (state.motionBlur / 150) * 100, "Motion Blur: " + state.motionBlur + "%")}
+          <button class="mc-btn glow-ui" id="fn-skin-vis"><span>3D Player Skin: ${state.showSkin ? "ON" : "OFF"}</span></button>
+          <button class="mc-btn glow-ui" id="fn-replay"><span>Replay Walk-In Intro</span></button>
         </div>
-        <button class="btn btn-sm glow-ui" id="fnh-all-opts"><span>All Options…</span></button>
-      </div>
-      <div class="u-body mb-tab-anim">
-        <span class="u-field-label">Menu Background</span>
-        <div class="setting-grid">
-          <button class="btn btn-sm glow-ui ${!state.bgIsCustom ? "btn-primary" : ""}" id="fnh-default-bg"><span>Default</span></button>
-          <button class="btn btn-sm glow-ui ${state.bgIsCustom ? "btn-primary" : ""}" id="fnh-pick-bg"><span>Choose Custom File…</span></button>
-        </div>
-        <div class="u-input-row">
-          <input class="u-input" id="fnh-bg-url" placeholder="Or paste GIF / image URL…" spellcheck="false">
-          <button class="btn btn-sm glow-ui" id="fnh-apply-url"><span>Apply</span></button>
-        </div>
-
-        <div class="setting-grid" style="margin-top:4px;">
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Background Dimming</span><span class="setting-val" id="fnh-dim-val">${state.bgDim}%</span></div>
-            <input type="range" class="u-range" id="fnh-dim-sl" min="0" max="65" value="${state.bgDim}">
-          </div>
-          <div class="setting-item glow-ui">
-            <div class="setting-top"><span>Motion Blur</span><span class="setting-val" id="fnh-mb-val">${state.motionBlur}%</span></div>
-            <input type="range" class="u-range" id="fnh-mb-sl" min="0" max="150" value="${state.motionBlur}">
-          </div>
-        </div>
-
-        <span class="u-field-label" style="margin-top:4px;">3D Player Skin</span>
-        <div class="setting-item row-inline glow-ui">
-          <span style="font-size:12.5px;">Show 3D Player on Menu</span>
-          <div class="u-switch ${state.showSkin ? "on" : ""}" id="fnh-skin-sw"></div>
-        </div>
-        <div class="u-input-row">
-          <input class="u-input" id="fnh-skin-user" value="${escHtml(state.username)}" spellcheck="false">
-          <button class="btn btn-sm glow-ui" id="fnh-skin-load"><span>Load Skin</span></button>
-          <button class="btn btn-sm glow-ui" id="fnh-replay-walk"><span>Replay Walk-In</span></button>
+        <div style="width:min(480px,94vw);display:flex;gap:8px;margin-top:12px;">
+          <input class="mc-input glow-ui" id="fn-user" style="flex:1;" value="${esc(state.username)}" placeholder="Preview Minecraft username..." spellcheck="false">
+          <button class="mc-btn glow-ui" id="fn-load-user" style="width:120px;"><span>Load Skin</span></button>
         </div>
       </div>
-      <div class="u-footer" style="justify-content:flex-end;">
-        <button class="btn btn-sm btn-primary glow-ui" id="fnh-done"><span>Done</span></button>
+      <div class="mc-footer">
+        <button class="mc-btn mc-done-btn glow-ui" data-esc-back="1" id="fn-done"><span>Done</span></button>
       </div>
     `;
 
-    document.getElementById("fnh-all-opts").addEventListener("click", () => openScreen("options"));
-    document.getElementById("fnh-default-bg").addEventListener("click", () => {
+    document.getElementById("fn-def-bg").addEventListener("click", () => {
       setDefaultBackground();
-      renderFnHScreen();
+      renderFnHSettings(back);
       showToast("Restored default background");
     });
-    document.getElementById("fnh-pick-bg").addEventListener("click", () => fileInput.click());
-    document.getElementById("fnh-apply-url").addEventListener("click", () => {
-      const u = document.getElementById("fnh-bg-url").value.trim();
-      if (!u) return;
-      setCustomBackground(u, /\.(mp4|webm|ogg)(\?|$)/i.test(u), "Custom URL");
-      renderFnHScreen();
-    });
-
-    document.getElementById("fnh-dim-sl").addEventListener("input", (e) => {
-      state.bgDim = Number(e.target.value);
-      document.getElementById("fnh-dim-val").textContent = state.bgDim + "%";
-      applyBgDim();
-    });
-
-    document.getElementById("fnh-mb-sl").addEventListener("input", (e) => {
-      state.motionBlur = Number(e.target.value);
-      document.getElementById("fnh-mb-val").textContent = state.motionBlur + "%";
-      syncMotionBlurVar();
-    });
-
-    document.getElementById("fnh-skin-sw").addEventListener("click", (e) => {
+    document.getElementById("fn-pick-bg").addEventListener("click", () => fileInput.click());
+    bindMcSlider("fn-dim", 0, 65, 1, () => state.bgDim, (v) => { state.bgDim = v; applyBgDim(); }, (v) => "Background Dim: " + v + "%");
+    bindMcSlider("fn-mb", 0, 150, 5, () => state.motionBlur, (v) => { state.motionBlur = v; applyMotionBlur(); }, (v) => "Motion Blur: " + v + "%");
+    document.getElementById("fn-skin-vis").addEventListener("click", (e) => {
       state.showSkin = !state.showSkin;
-      e.currentTarget.classList.toggle("on", state.showSkin);
       document.body.classList.toggle("hide-skin", !state.showSkin);
+      e.currentTarget.querySelector("span").textContent = "3D Player Skin: " + (state.showSkin ? "ON" : "OFF");
     });
+    document.getElementById("fn-replay").addEventListener("click", () => {
+      dragYawOffset = 0;
+      state.introStart = performance.now();
+      navigateTo("home");
+    });
+    document.getElementById("fn-load-user").addEventListener("click", () => {
+      const u = document.getElementById("fn-user").value;
+      loadPlayerSkin(u);
+      showToast("Loaded skin: " + (u.trim() || "BufferClick"));
+    });
+    document.getElementById("fn-done").addEventListener("click", () => navigateTo(back));
+  }
 
-    const userInp = document.getElementById("fnh-skin-user");
-    document.getElementById("fnh-skin-load").addEventListener("click", () => {
-      loadPlayerSkin(userInp.value);
-      showToast("Loading skin: " + (userInp.value.trim() || "BufferClick"));
+  function renderQuitConfirm() {
+    mcScreen.innerHTML = `
+      <div class="mc-open-body" style="justify-content:center;gap:18px;">
+        <div style="font-size:14.5px;color:#fff;text-align:center;">Are you sure you want to quit Minecraft?</div>
+        <div class="mc-bar-row-2" style="width:min(320px,90vw);">
+          <button class="mc-btn glow-ui" id="qt-yes"><span>Quit Game</span></button>
+          <button class="mc-btn glow-ui" data-esc-back="1" id="qt-no"><span>Cancel</span></button>
+        </div>
+      </div>
+    `;
+    document.getElementById("qt-no").addEventListener("click", () => navigateTo("home"));
+    document.getElementById("qt-yes").addEventListener("click", () => {
+      dragYawOffset = 0;
+      state.introStart = performance.now();
+      navigateTo("home");
+      showToast("Relaunched FnH 1.8 Main Menu");
     });
-    userInp.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        loadPlayerSkin(userInp.value);
-        showToast("Loading skin: " + (userInp.value.trim() || "BufferClick"));
-      }
-    });
-
-    document.getElementById("fnh-replay-walk").addEventListener("click", () => closeScreenToHome(true));
-    document.getElementById("fnh-done").addEventListener("click", () => closeScreenToHome(false));
-    updateAllGlows(cursorClientX, cursorClientY);
   }
 
   // =========================================================================
-  // 4. WebGL 3D Player Renderer:
-  //    - Zero wide-angle distortion: narrow-FOV square-ish canvas moved via CSS translate3d
-  //    - Starts 100% outside right screen edge, walks in with velocity motion blur
-  //    - Zero UI clipping & zero self-layer clipping (layered inflation + polygonOffset)
-  //    - Exact eye-to-cursor 3D aiming
+  // 4. WebGL 3D Player Renderer (Distortion-free walk-in + exact eye tracking)
   // =========================================================================
   const skinMover = document.getElementById("skin-mover");
   const skinCanvas = document.getElementById("skin-canvas");
@@ -2350,29 +2308,14 @@
 
   function drawFallbackSkin() {
     tctx.clearRect(0, 0, 64, 64);
-    tctx.fillStyle = "#e8be96";
-    tctx.fillRect(0, 0, 32, 16);
-    tctx.fillStyle = "#1b1c22";
-    tctx.fillRect(8, 0, 8, 8);
-    tctx.fillRect(8, 8, 8, 2);
-    tctx.fillRect(0, 8, 8, 4);
-    tctx.fillRect(16, 8, 16, 5);
-    tctx.fillStyle = "#ffffff";
-    tctx.fillRect(9, 12, 2, 1);
-    tctx.fillRect(13, 12, 2, 1);
-    tctx.fillStyle = "#14161f";
-    tctx.fillRect(10, 12, 1, 1);
-    tctx.fillRect(13, 12, 1, 1);
-    tctx.fillStyle = "#17181d";
-    tctx.fillRect(16, 16, 24, 16);
-    tctx.fillStyle = "#d8dde6";
-    tctx.fillRect(22, 20, 4, 4);
-    tctx.fillStyle = "#1d1f26";
-    tctx.fillRect(40, 16, 16, 16);
-    tctx.fillRect(32, 48, 16, 16);
-    tctx.fillStyle = "#111216";
-    tctx.fillRect(0, 16, 16, 16);
-    tctx.fillRect(16, 48, 16, 16);
+    tctx.fillStyle = "#e8be96"; tctx.fillRect(0, 0, 32, 16);
+    tctx.fillStyle = "#1b1c22"; tctx.fillRect(8, 0, 8, 8); tctx.fillRect(8, 8, 8, 2); tctx.fillRect(0, 8, 8, 4); tctx.fillRect(16, 8, 16, 5);
+    tctx.fillStyle = "#ffffff"; tctx.fillRect(9, 12, 2, 1); tctx.fillRect(13, 12, 2, 1);
+    tctx.fillStyle = "#14161f"; tctx.fillRect(10, 12, 1, 1); tctx.fillRect(13, 12, 1, 1);
+    tctx.fillStyle = "#17181d"; tctx.fillRect(16, 16, 24, 16);
+    tctx.fillStyle = "#d8dde6"; tctx.fillRect(22, 20, 4, 4);
+    tctx.fillStyle = "#1d1f26"; tctx.fillRect(40, 16, 16, 16); tctx.fillRect(32, 48, 16, 16);
+    tctx.fillStyle = "#111216"; tctx.fillRect(0, 16, 16, 16); tctx.fillRect(16, 48, 16, 16);
   }
 
   function ingestSkinImage(img) {
@@ -2382,8 +2325,7 @@
       tctx.drawImage(img, 0, 16, 16, 16, 16, 48, 16, 16);
       tctx.drawImage(img, 40, 16, 16, 16, 32, 48, 16, 16);
     }
-    const px = tctx.getImageData(54, 20, 1, 1).data;
-    state.slimArms = (px[3] === 0);
+    state.slimArms = (tctx.getImageData(54, 20, 1, 1).data[3] === 0);
     uploadGlSkinTexture();
     rebuildArmMeshes();
   }
@@ -2392,14 +2334,12 @@
     const clean = (username || "BufferClick").trim() || "BufferClick";
     state.username = clean;
     const isBuffer = clean.toLowerCase() === "bufferclick";
-    const candidates = [];
-
+    const urls = [];
     if (isBuffer) {
-      candidates.push(
+      urls.push(
         "https://mc-heads.net/skin/" + BUFFERCLICK_UUID,
         "https://crafthead.net/skin/" + BUFFERCLICK_UUID,
-        "https://minotar.net/skin/" + BUFFERCLICK_UUID,
-        "https://mineskin.eu/skin/BufferClick"
+        "https://minotar.net/skin/" + BUFFERCLICK_UUID
       );
     } else {
       try {
@@ -2407,32 +2347,21 @@
         if (r.ok) {
           const j = await r.json();
           const rawId = j && j.data && j.data.player && j.data.player.raw_id;
-          if (rawId) {
-            candidates.push(
-              "https://mc-heads.net/skin/" + rawId,
-              "https://crafthead.net/skin/" + rawId,
-              "https://minotar.net/skin/" + rawId
-            );
-          }
+          if (rawId) urls.push("https://mc-heads.net/skin/" + rawId, "https://crafthead.net/skin/" + rawId);
         }
       } catch (_) {}
-      candidates.push(
-        "https://mc-heads.net/skin/" + encodeURIComponent(clean),
-        "https://minotar.net/skin/" + encodeURIComponent(clean),
-        "https://mineskin.eu/skin/" + encodeURIComponent(clean)
-      );
+      urls.push("https://mc-heads.net/skin/" + encodeURIComponent(clean), "https://minotar.net/skin/" + encodeURIComponent(clean));
     }
-
-    for (const url of candidates) {
-      const loaded = await new Promise((resolve) => {
-        const im = new Image();
-        im.crossOrigin = "anonymous";
-        im.onload = () => resolve(im);
-        im.onerror = () => resolve(null);
-        im.src = url;
+    for (const url of urls) {
+      const im = await new Promise((res) => {
+        const i = new Image();
+        i.crossOrigin = "anonymous";
+        i.onload = () => res(i);
+        i.onerror = () => res(null);
+        i.src = url;
       });
-      if (loaded && loaded.width >= 64) {
-        ingestSkinImage(loaded);
+      if (im && im.width >= 64) {
+        ingestSkinImage(im);
         return;
       }
     }
@@ -2443,58 +2372,39 @@
 
   function initWebGL() {
     if (!gl) return;
-    const vsSrc = `
-      attribute vec3 aPos;
-      attribute vec2 aUv;
-      attribute vec3 aNorm;
-      uniform mat4 uMvp;
-      uniform mat4 uModel;
-      varying vec2 vUv;
-      varying vec3 vNorm;
+    const vs = `
+      attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aNorm;
+      uniform mat4 uMvp; uniform mat4 uModel;
+      varying vec2 vUv; varying vec3 vNorm;
       void main() {
         vUv = aUv;
         vNorm = mat3(uModel[0].xyz, uModel[1].xyz, uModel[2].xyz) * aNorm;
         gl_Position = uMvp * vec4(aPos, 1.0);
       }
     `;
-    const fsSrc = `
+    const fs = `
       precision mediump float;
-      varying vec2 vUv;
-      varying vec3 vNorm;
-      uniform sampler2D uTex;
-      uniform float uAlphaMode;
+      varying vec2 vUv; varying vec3 vNorm;
+      uniform sampler2D uTex; uniform float uAlphaMode;
       void main() {
         vec4 c = texture2D(uTex, vUv);
-        if (uAlphaMode < 0.5) {
-          if (c.a < 0.1) discard;
-          c.a = 1.0;
-        } else {
-          if (c.a < 0.04) discard;
-        }
+        if (uAlphaMode < 0.5) { if (c.a < 0.1) discard; c.a = 1.0; }
+        else { if (c.a < 0.04) discard; }
         vec3 n = normalize(vNorm);
-        vec3 lightA = normalize(vec3(0.32, 0.76, 0.78));
-        vec3 lightB = normalize(vec3(-0.48, 0.24, -0.45));
-        float diff = max(dot(n, lightA), 0.0) * 0.40 + max(dot(n, lightB), 0.0) * 0.16;
-        float shade = 0.63 + diff;
-        gl_FragColor = vec4(c.rgb * shade, c.a);
+        float diff = max(dot(n, normalize(vec3(0.32, 0.76, 0.78))), 0.0) * 0.40
+                   + max(dot(n, normalize(vec3(-0.48, 0.24, -0.45))), 0.0) * 0.16;
+        gl_FragColor = vec4(c.rgb * (0.63 + diff), c.a);
       }
     `;
-    function compile(type, src) {
-      const s = gl.createShader(type);
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      return s;
-    }
+    const comp = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); return sh; };
     glProg = gl.createProgram();
-    gl.attachShader(glProg, compile(gl.VERTEX_SHADER, vsSrc));
-    gl.attachShader(glProg, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.attachShader(glProg, comp(gl.VERTEX_SHADER, vs));
+    gl.attachShader(glProg, comp(gl.FRAGMENT_SHADER, fs));
     gl.linkProgram(glProg);
     gl.useProgram(glProg);
-
     uMvpLoc = gl.getUniformLocation(glProg, "uMvp");
     uModelLoc = gl.getUniformLocation(glProg, "uModel");
     uAlphaModeLoc = gl.getUniformLocation(glProg, "uAlphaMode");
-
     skinTex = gl.createTexture();
     uploadGlSkinTexture();
     buildAllMeshes();
@@ -2516,42 +2426,25 @@
     const y0 = oy - h / 2 - inflate, y1 = oy + h / 2 + inflate;
     const z0 = oz - d / 2 - inflate, z1 = oz + d / 2 + inflate;
     const S = 64, eps = 0.02 / S;
-    const uvRect = (px0, py0, pw, ph) => [
-      px0 / S + eps, py0 / S + eps,
-      (px0 + pw) / S - eps, (py0 + ph) / S - eps
-    ];
-    const uvFront  = uvRect(u0 + d,         v0 + d, w, h);
-    const uvBack   = uvRect(u0 + d + w + d, v0 + d, w, h);
-    const uvRight  = uvRect(u0,             v0 + d, d, h);
-    const uvLeft   = uvRect(u0 + d + w,     v0 + d, d, h);
-    const uvTop    = uvRect(u0 + d,         v0,     w, d);
-    const uvBottom = uvRect(u0 + d + w,     v0,     w, d);
-
+    const uv = (px, py, pw, ph) => [px / S + eps, py / S + eps, (px + pw) / S - eps, (py + ph) / S - eps];
     const data = [];
-    function quad(p0, p1, p2, p3, uv, norm) {
-      const [uA, vA, uB, vB] = uv;
-      const verts = [
-        [p0, uA, vA], [p3, uA, vB], [p2, uB, vB],
-        [p0, uA, vA], [p2, uB, vB], [p1, uB, vA]
-      ];
-      for (const [p, u, v] of verts) {
-        data.push(p[0], p[1], p[2], u, v, norm[0], norm[1], norm[2]);
+    function q(p0, p1, p2, p3, r, n) {
+      for (const [p, u, v] of [[p0,r[0],r[1]],[p3,r[0],r[3]],[p2,r[2],r[3]],[p0,r[0],r[1]],[p2,r[2],r[3]],[p1,r[2],r[1]]]) {
+        data.push(p[0], p[1], p[2], u, v, n[0], n[1], n[2]);
       }
     }
-    quad([x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1], uvFront,  [0, 0, 1]);
-    quad([x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0], uvBack,   [0, 0, -1]);
-    quad([x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0], uvRight,  [-1, 0, 0]);
-    quad([x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1], uvLeft,   [1, 0, 0]);
-    quad([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], uvTop,    [0, 1, 0]);
-    quad([x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0], uvBottom, [0, -1, 0]);
-
+    q([x0,y1,z1],[x1,y1,z1],[x1,y0,z1],[x0,y0,z1], uv(u0+d,v0+d,w,h), [0,0,1]);
+    q([x1,y1,z0],[x0,y1,z0],[x0,y0,z0],[x1,y0,z0], uv(u0+d+w+d,v0+d,w,h), [0,0,-1]);
+    q([x0,y1,z0],[x0,y1,z1],[x0,y0,z1],[x0,y0,z0], uv(u0,v0+d,d,h), [-1,0,0]);
+    q([x1,y1,z1],[x1,y1,z0],[x1,y0,z0],[x1,y0,z1], uv(u0+d+w,v0+d,d,h), [1,0,0]);
+    q([x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1], uv(u0+d,v0,w,d), [0,1,0]);
+    q([x0,y0,z1],[x1,y0,z1],[x1,y0,z0],[x0,y0,z0], uv(u0+d+w,v0,w,d), [0,-1,0]);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
     return { buf, count: 36 };
   }
 
-  // Carefully tiered inflation (jacket 0.30 > sleeve 0.22 > pants 0.16) prevents all limb/waist z-fighting & clipping
   function rebuildArmMeshes() {
     if (!gl) return;
     const aw = state.slimArms ? 3 : 4;
@@ -2575,67 +2468,40 @@
 
   function matMul(a, b) {
     const o = new Array(16);
-    for (let c = 0; c < 4; c++) {
-      for (let r = 0; r < 4; r++) {
-        o[c * 4 + r] =
-          a[r] * b[c * 4] +
-          a[4 + r] * b[c * 4 + 1] +
-          a[8 + r] * b[c * 4 + 2] +
-          a[12 + r] * b[c * 4 + 3];
-      }
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
     }
     return o;
   }
-  function matPersp(fovRad, aspect, near, far) {
-    const f = 1 / Math.tan(fovRad / 2), nf = 1 / (near - far);
-    return [f / aspect,0,0,0, 0,f,0,0, 0,0,(far + near) * nf,-1, 0,0,(2 * far * near) * nf,0];
+  function matPersp(fov, asp, n, f) {
+    const t = 1 / Math.tan(fov / 2), nf = 1 / (n - f);
+    return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)*nf,-1, 0,0,(2*f*n)*nf,0];
   }
   const matTranslate = (x, y, z) => [1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1];
   const matRotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return [1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]; };
   const matRotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; };
   const matRotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; };
 
-  let dragYawOffset = 0.0;
-  let spinVelocity = 0.0;
-  let dragging = false, lastX = 0;
+  let dragYawOffset = 0.0, spinVelocity = 0.0, dragging = false, lastX = 0;
   let smoothAimYaw = 0.0, smoothAimPitch = 0.0;
-  let prevFrameMs = performance.now();
-  let prevOffsetPx = null;
+  let prevFrameMs = performance.now(), prevOffsetPx = null;
 
   const dragArea = document.getElementById("skin-drag-area");
-  dragArea.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    lastX = e.clientX;
-    dragArea.setPointerCapture(e.pointerId);
-  });
+  dragArea.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; dragArea.setPointerCapture(e.pointerId); });
   dragArea.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    const delta = (e.clientX - lastX) * 0.015;
-    dragYawOffset += delta;
-    spinVelocity = Math.abs(delta);
+    const d = (e.clientX - lastX) * 0.015;
+    dragYawOffset += d;
+    spinVelocity = Math.abs(d);
     lastX = e.clientX;
   });
   dragArea.addEventListener("pointerup", () => { dragging = false; });
   dragArea.addEventListener("pointercancel", () => { dragging = false; });
 
-  function syncSkinCanvasResolution() {
-    const rect = skinCanvas.getBoundingClientRect();
-    if (rect.width < 10 || rect.height < 10) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.round(rect.width * dpr);
-    const h = Math.round(rect.height * dpr);
-    if (skinCanvas.width !== w || skinCanvas.height !== h) {
-      skinCanvas.width = w;
-      skinCanvas.height = h;
-    }
-  }
-  window.addEventListener("resize", syncSkinCanvasResolution);
-
   function smoothstep(a, b, x) {
     const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
     return t * t * (3 - 2 * t);
   }
-
   function walkEase(x) {
     const t = Math.max(0, Math.min(1, x));
     if (t < 0.72) return (t / 0.72) * 0.82;
@@ -2649,19 +2515,17 @@
     gl.uniformMatrix4fv(uModelLoc, false, modelMat);
     gl.uniform1f(uAlphaModeLoc, isOuter ? 1.0 : 0.0);
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buf);
-    const stride = 32;
     const p = gl.getAttribLocation(glProg, "aPos");
     const u = gl.getAttribLocation(glProg, "aUv");
     const n = gl.getAttribLocation(glProg, "aNorm");
-    gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 3, gl.FLOAT, false, stride, 0);
-    gl.enableVertexAttribArray(u); gl.vertexAttribPointer(u, 2, gl.FLOAT, false, stride, 12);
-    gl.enableVertexAttribArray(n); gl.vertexAttribPointer(n, 3, gl.FLOAT, false, stride, 20);
+    gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(u); gl.vertexAttribPointer(u, 2, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(n); gl.vertexAttribPointer(n, 3, gl.FLOAT, false, 32, 20);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
   }
 
   function renderSkin(nowMs) {
     if (!gl || !state.showSkin) return;
-    syncSkinCanvasResolution();
     gl.viewport(0, 0, skinCanvas.width, skinCanvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -2671,85 +2535,60 @@
     prevFrameMs = nowMs;
     const t = nowMs * 0.001;
 
-    // 1. Distortion-Free Off-Screen Walk-In via CSS translate3d on #skin-mover
-    const startOffsetPx = window.innerWidth * 0.5 + 135;
-    const introDuration = Math.max(2.05, Math.min(2.9, startOffsetPx / 410));
-    const introElapsed = Math.max(0, (nowMs - state.introStart) * 0.001);
-    const introP = Math.min(1, introElapsed / introDuration);
+    const zoom = GUI_SCALES[state.guiScaleIdx].factor;
+    const unscaledHalfW = (window.innerWidth / zoom) * 0.5 + 130;
+    const introDur = Math.max(2.0, Math.min(2.8, unscaledHalfW / 410));
+    const elapsed = Math.max(0, (nowMs - state.introStart) * 0.001);
+    const introP = Math.min(1, elapsed / introDur);
 
-    const curOffsetPx = (1 - walkEase(introP)) * startOffsetPx;
+    const curOffsetPx = (1 - walkEase(introP)) * unscaledHalfW;
     skinMover.style.transform = `translate3d(${curOffsetPx.toFixed(2)}px, 0, 0)`;
 
-    // Real velocity-based motion blur on the moving character (resolves cleanly to drop-shadow only at rest)
-    const speedPxPerSec = prevOffsetPx === null ? 0 : Math.abs(curOffsetPx - prevOffsetPx) / dt;
+    const speed = prevOffsetPx === null ? 0 : Math.abs(curOffsetPx - prevOffsetPx) / dt;
     prevOffsetPx = curOffsetPx;
     spinVelocity *= Math.exp(-dt * 12);
-    const mbScale = state.motionBlur / 100;
-    const velBlur = Math.min(3.2, (speedPxPerSec * 0.0032 + spinVelocity * 7.5) * mbScale);
-    if (velBlur > 0.18) {
-      skinMover.style.filter = `blur(${velBlur.toFixed(2)}px) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62))`;
-    } else {
-      skinMover.style.filter = "drop-shadow(0 10px 18px rgba(0, 0, 0, 0.62))";
-    }
+    const vBlur = Math.min(2.8, (speed * 0.0028 + spinVelocity * 7.0) * (state.motionBlur / 100));
+    skinMover.style.filter = vBlur > 0.18
+      ? `blur(${vBlur.toFixed(2)}px) drop-shadow(0 10px 18px rgba(0,0,0,0.62))`
+      : "drop-shadow(0 10px 18px rgba(0,0,0,0.62))";
 
     const turnBlend = smoothstep(0.74, 1.0, introP);
     const strideEnv = 1 - smoothstep(0.76, 1.0, introP);
-
-    const walkCycle = introElapsed * 9.5;
+    const walkCycle = elapsed * 9.5;
     const legSwing = Math.sin(walkCycle) * 0.60 * strideEnv;
-    const armWalkSwing = Math.sin(walkCycle) * 0.56 * strideEnv;
-    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.45 * strideEnv;
-    const idleBreathe = Math.sin(t * 2.0) * 0.16 * turnBlend;
-    const posY = stepBounce + idleBreathe;
+    const armWalk = Math.sin(walkCycle) * 0.56 * strideEnv;
+    const posY = Math.abs(Math.sin(walkCycle)) * 0.45 * strideEnv + Math.sin(t * 2.0) * 0.16 * turnBlend;
 
-    // 2. Pinpoint Screen-Space Eye-to-Cursor Aiming
     const rect = skinCanvas.getBoundingClientRect();
-    const eyeScreenX = rect.left + rect.width * 0.5;
-    const eyeScreenY = rect.top + rect.height * 0.24;
+    const eyeX = rect.left + rect.width * 0.5;
+    const eyeY = rect.top + rect.height * 0.24;
 
-    let targetYaw = 0.0;
-    let targetPitch = 0.0;
+    let tYaw = 0, tPitch = 0;
     if (hasMovedCursor && !dragging && !state.activeScreen) {
-      const dx = cursorClientX - eyeScreenX;
-      const dy = cursorClientY - eyeScreenY;
-      targetYaw = Math.max(-1.05, Math.min(1.05, Math.atan2(dx, 330)));
-      targetPitch = Math.max(-0.76, Math.min(0.80, Math.atan2(dy, 330)));
+      tYaw = Math.max(-1.05, Math.min(1.05, Math.atan2(cursorClientX - eyeX, 330 * zoom)));
+      tPitch = Math.max(-0.76, Math.min(0.80, Math.atan2(cursorClientY - eyeY, 330 * zoom)));
     }
-
     const damp = 1 - Math.exp(-dt * 15);
-    smoothAimYaw += (targetYaw - smoothAimYaw) * damp;
-    smoothAimPitch += (targetPitch - smoothAimPitch) * damp;
+    smoothAimYaw += (tYaw - smoothAimYaw) * damp;
+    smoothAimPitch += (tPitch - smoothAimPitch) * damp;
 
-    const standingBodyYaw = dragYawOffset + smoothAimYaw * 0.20;
-    const walkYaw = -1.48; // Walking straight left onto screen
-    const curBodyYaw = walkYaw * (1 - turnBlend) + standingBodyYaw * turnBlend;
-
-    const standingHeadLocalYaw = Math.max(-0.92, Math.min(0.92, (dragYawOffset + smoothAimYaw) - standingBodyYaw));
-    const headLocalYaw = standingHeadLocalYaw * turnBlend;
+    const standBodyYaw = dragYawOffset + smoothAimYaw * 0.20;
+    const curBodyYaw = -1.48 * (1 - turnBlend) + standBodyYaw * turnBlend;
+    const headLocalYaw = Math.max(-0.92, Math.min(0.92, (dragYawOffset + smoothAimYaw) - standBodyYaw)) * turnBlend;
     const headPitch = smoothAimPitch * turnBlend;
 
-    // Narrow 26-deg lens inside 1:1 canvas = zero edge stretch + generous top/bottom buffer
-    const fovRad = 26 * Math.PI / 180;
-    const camDist = 84.0;
-    const aspect = skinCanvas.width / skinCanvas.height;
-    const proj = matPersp(fovRad, aspect, 2.0, 260.0);
-    const view = matTranslate(0, 1.9, -camDist);
-    const vp = matMul(proj, view);
-
+    const vp = matMul(matPersp(26 * Math.PI / 180, 1.0, 2.0, 260.0), matTranslate(0, 1.9, -84.0));
     const root = matMul(matTranslate(0, posY, 0), matRotY(curBodyYaw));
     const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(headLocalYaw), matRotX(headPitch))));
 
     const armX = state.slimArms ? 5.65 : 6.18;
-    const legX = 2.08;
     const idleSwing = Math.sin(t * 1.5) * 0.04 * turnBlend;
     const flap = 0.038 + Math.cos(t * 1.3) * 0.016;
+    const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(armWalk + idleSwing))));
+    const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-armWalk - idleSwing))));
+    const rLegMat = matMul(root, matMul(matTranslate(-2.08, -6, 0), matRotX(-legSwing)));
+    const lLegMat = matMul(root, matMul(matTranslate( 2.08, -6, 0), matRotX( legSwing)));
 
-    const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(armWalkSwing + idleSwing))));
-    const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-armWalkSwing - idleSwing))));
-    const rLegMat = matMul(root, matMul(matTranslate(-legX, -6, 0), matRotX(-legSwing)));
-    const lLegMat = matMul(root, matMul(matTranslate( legX, -6, 0), matRotX( legSwing)));
-
-    // Inner opaque pass
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
@@ -2762,13 +2601,11 @@
     drawMesh(parts.rLeg, vp, rLegMat, false);
     drawMesh(parts.lLeg, vp, lLegMat, false);
 
-    // Outer skin layer pass with polygonOffset to eliminate z-fighting & self-clipping
     const sl = state.skinLayers;
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(-1.0, -1.0);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
     for (const face of [gl.FRONT, gl.BACK]) {
       gl.cullFace(face);
       gl.depthMask(face === gl.BACK);
@@ -2783,12 +2620,10 @@
     gl.disable(gl.POLYGON_OFFSET_FILL);
   }
 
-  // Boot
   renderFnhEditionSubtitle();
   applyBgDim();
   setDefaultBackground();
   drawFallbackSkin();
-  syncSkinCanvasResolution();
   initWebGL();
   loadPlayerSkin("BufferClick");
 
