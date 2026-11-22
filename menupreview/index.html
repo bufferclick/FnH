@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FnH — Main Menu Preview</title>
-<meta name="description" content="Live preview of the Minecraft FnH Edition main menu.">
+<meta name="description" content="Fullscreen live preview of the Minecraft FnH Edition main menu.">
 <link rel="icon" href="/site/assets/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/site/assets/icon.png" sizes="256x256" type="image/png">
 <style>
   :root {
     --ui-font: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-    --glass-bg: rgba(10, 11, 16, 0.66);
-    --glass-bg-hover: rgba(24, 27, 38, 0.84);
-    --glass-border: rgba(255, 255, 255, 0.15);
-    --glass-border-hover: rgba(255, 255, 255, 0.44);
-    --text-main: rgba(247, 248, 250, 0.96);
-    --text-muted: rgba(255, 255, 255, 0.46);
+    --glass-bg: rgba(10, 12, 20, 0.64);
+    --glass-bg-hover: rgba(22, 26, 40, 0.84);
+    --glass-border: rgba(255, 255, 255, 0.16);
+    --glass-border-hover: rgba(255, 255, 255, 0.46);
+    --text-main: rgba(248, 249, 252, 0.96);
+    --text-muted: rgba(255, 255, 255, 0.5);
   }
 
   * {
@@ -30,7 +30,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #04050a;
+    background: #050712;
     color: var(--text-main);
     font-family: var(--ui-font);
     -webkit-font-smoothing: antialiased;
@@ -44,7 +44,7 @@
     height: 100vh;
     z-index: 0;
     overflow: hidden;
-    background: #04050a;
+    background: #050712;
   }
 
   #bg-img,
@@ -68,8 +68,8 @@
     z-index: 1;
     pointer-events: none;
     background:
-      linear-gradient(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.14)),
-      radial-gradient(circle at 50% 48%, rgba(0, 0, 0, 0.04) 0%, rgba(0, 0, 0, 0.42) 100%);
+      linear-gradient(rgba(0, 0, 0, 0.10), rgba(0, 0, 0, 0.10)),
+      radial-gradient(circle at 50% 46%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.36) 100%);
   }
 
   body.dragging-file::after {
@@ -77,9 +77,9 @@
     position: fixed;
     inset: 16px;
     z-index: 60;
-    border: 1.5px dashed rgba(255, 255, 255, 0.65);
+    border: 1.5px dashed rgba(255, 255, 255, 0.68);
     border-radius: 12px;
-    background: rgba(8, 9, 14, 0.78);
+    background: rgba(8, 10, 18, 0.8);
     backdrop-filter: blur(10px);
     display: grid;
     place-items: center;
@@ -89,7 +89,34 @@
     pointer-events: none;
   }
 
-  /* Centered Vertical Main Menu Stack */
+  /* Subtle 1-Click Fullscreen Prompt (only shown until browser enters Fullscreen) */
+  .fs-hint {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 35;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(10, 12, 20, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.88);
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  }
+
+  .fs-hint.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(-8px);
+  }
+
+  /* Main Centered Vertical Screen */
   .screen {
     position: relative;
     z-index: 2;
@@ -99,7 +126,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px 16px 46px;
+    padding: 18px 16px 44px;
   }
 
   .center-stack {
@@ -107,20 +134,24 @@
     flex-direction: column;
     align-items: center;
     width: 100%;
-    max-width: 440px;
   }
 
-  /* 1. Actual Minecraft Logo + [FnH Emblem] EDITION underneath */
+  /* 1. Official Minecraft Logo + White Splash + Bigger [FnH Emblem] EDITION */
   .title-block {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 7px;
-    margin-bottom: clamp(4px, 0.9vh, 10px);
+    gap: 9px;
+    margin-bottom: clamp(2px, 0.6vh, 8px);
+  }
+
+  .mc-logo-wrap {
+    position: relative;
+    display: inline-block;
   }
 
   .mc-logo {
-    width: clamp(290px, 34vw, 410px);
+    width: clamp(310px, 36vw, 440px);
     max-width: 90vw;
     height: auto;
     display: block;
@@ -128,32 +159,54 @@
     pointer-events: none;
   }
 
+  /* Crisp White Splash "made by Buffer" */
+  .splash {
+    position: absolute;
+    right: -12px;
+    bottom: -6px;
+    transform: rotate(-17deg);
+    color: #ffffff;
+    font-family: "Courier New", Consolas, monospace;
+    font-weight: 700;
+    font-size: clamp(13px, 1.35vw, 16px);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-shadow:
+      2px 2px 0 rgba(10, 12, 20, 0.94),
+      0 0 12px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    animation: splashPulse 0.68s ease-in-out infinite alternate;
+  }
+
+  @keyframes splashPulse {
+    from { transform: rotate(-17deg) scale(1.0); }
+    to   { transform: rotate(-17deg) scale(1.065); }
+  }
+
+  /* Bigger Chiseled [FnH Emblem] EDITION Subtitle */
   #fnh-edition-canvas {
     display: block;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    height: clamp(20px, 2.6vh, 25px);
+    height: clamp(36px, 4.8vh, 50px);
     width: auto;
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.82));
+    max-width: 86vw;
+    filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.82));
   }
 
-  /* 2. BufferClick 3D Skin (Under Logo, Above Singleplayer) */
-  .skin-wrap {
+  /* 2. Wide Walk-In Stage for BufferClick 3D Skin (Under Title, Above Singleplayer) */
+  .skin-stage {
     position: relative;
-    width: clamp(150px, 21vh, 198px);
-    height: clamp(168px, 25.5vh, 236px);
-    margin: 2px 0 clamp(8px, 1.3vh, 14px);
+    width: min(100vw, 920px);
+    height: clamp(168px, 25vh, 236px);
+    margin: 2px 0 clamp(6px, 1.2vh, 12px);
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: grab;
+    pointer-events: none;
   }
 
-  .skin-wrap:active {
-    cursor: grabbing;
-  }
-
-  body.hide-skin .skin-wrap {
+  body.hide-skin .skin-stage {
     display: none;
   }
 
@@ -161,12 +214,28 @@
     width: 100%;
     height: 100%;
     display: block;
-    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.68));
+    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.65));
   }
 
-  /* 3. Clean Smoked-Glass Menu Buttons */
+  /* Centered interactive drag hit-box once BufferClick stands in the middle */
+  .skin-hit-box {
+    position: absolute;
+    width: 150px;
+    height: 100%;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    cursor: grab;
+  }
+
+  .skin-hit-box:active {
+    cursor: grabbing;
+  }
+
+  /* 3. Single Dark-Glass Button Style */
   .menu-buttons {
-    width: clamp(252px, 26vw, 288px);
+    width: clamp(252px, 26vw, 290px);
     display: flex;
     flex-direction: column;
     gap: 7px;
@@ -199,8 +268,8 @@
     cursor: pointer;
     transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
     box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      0 4px 16px rgba(0, 0, 0, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
   }
 
   .btn:hover {
@@ -208,30 +277,15 @@
     border-color: var(--glass-border-hover);
     color: #ffffff;
     box-shadow:
-      0 6px 22px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 rgba(255, 255, 255, 0.11);
+      0 6px 22px rgba(0, 0, 0, 0.52),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
   .btn:active {
     transform: translateY(1px);
   }
 
-  body.btn-classic .btn {
-    border-radius: 0;
-    background: linear-gradient(180deg, rgba(112, 112, 112, 0.92) 0%, rgba(82, 82, 82, 0.94) 100%);
-    border: 2px solid #050505;
-    box-shadow: inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.28), inset -1.5px -2px 0 rgba(25, 25, 25, 0.75);
-    font-family: "Courier New", Consolas, monospace;
-    font-weight: 700;
-    text-shadow: 1.5px 1.5px 0 #1f1f1f;
-  }
-
-  body.btn-classic .btn:hover {
-    border-color: #ffffff;
-    background: linear-gradient(180deg, rgba(135, 135, 142, 0.95) 0%, rgba(98, 98, 106, 0.95) 100%);
-  }
-
-  /* Bottom Bar with Bottom-Right FnH Settings Button */
+  /* Bottom Bar: Version Left + "FnH" Button Bottom-Right */
   .footer-bar {
     position: fixed;
     left: 0;
@@ -250,26 +304,23 @@
     font-size: 11.5px;
     color: var(--text-muted);
     letter-spacing: 0.01em;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.88);
   }
 
-  .fnh-settings-btn {
+  .fnh-corner-btn {
     pointer-events: auto;
     height: 34px;
-    padding: 0 13px;
-    font-size: 12.5px;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 600;
   }
 
-  .fnh-settings-btn svg {
-    opacity: 0.86;
-  }
-
-  /* FnH Settings Modal */
+  /* FnH Settings Dialog */
   .settings-backdrop {
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: rgba(4, 5, 10, 0.62);
+    background: rgba(4, 6, 14, 0.62);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     display: none;
@@ -282,9 +333,9 @@
   }
 
   .settings-dialog {
-    width: min(400px, 94vw);
+    width: min(390px, 94vw);
     border-radius: 11px;
-    background: rgba(12, 13, 19, 0.94);
+    background: rgba(11, 13, 22, 0.94);
     border: 1px solid rgba(255, 255, 255, 0.16);
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.78);
     padding: 18px;
@@ -359,7 +410,7 @@
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.85);
+    color: rgba(255, 255, 255, 0.86);
     font-family: var(--ui-font);
     font-size: 12px;
     font-weight: 500;
@@ -369,7 +420,7 @@
 
   .s-btn:hover {
     color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.11);
     border-color: rgba(255, 255, 255, 0.28);
   }
 
@@ -438,7 +489,7 @@
     z-index: 55;
     padding: 7px 14px;
     border-radius: 7px;
-    background: rgba(10, 11, 16, 0.88);
+    background: rgba(10, 12, 20, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.16);
     backdrop-filter: blur(12px);
     font-size: 12px;
@@ -456,35 +507,41 @@
 </head>
 <body>
 
-<!-- Full-Window Stretched Background (Default Galaxy GIF or Custom Player Background) -->
+<!-- Full-Window Stretched Background -->
 <div class="bg-layer">
   <img id="bg-img" src="/menupreview/presets/default-bg.gif" onerror="this.onerror=null;this.src='presets/default-bg.gif'" alt="">
   <video id="bg-video" autoplay loop muted playsinline></video>
 </div>
 <div class="bg-dim" id="bg-dim"></div>
 
+<div class="fs-hint" id="fs-hint">Click anywhere for Fullscreen</div>
+
 <input type="file" id="custom-bg-input" accept="image/*,video/*" hidden>
 
 <!-- Main Menu Vertical Stack -->
 <main class="screen">
   <div class="center-stack">
-    <!-- 1. Official Minecraft Logo + [FnH Emblem] EDITION underneath -->
+    <!-- 1. Official MINECRAFT Logo + White "made by Buffer" Splash + Larger [FnH Emblem] EDITION -->
     <div class="title-block">
-      <img
-        class="mc-logo"
-        src="/menupreview/presets/minecraft-logo.png"
-        onerror="this.onerror=null;this.src='presets/minecraft-logo.png'"
-        alt="MINECRAFT"
-      >
+      <div class="mc-logo-wrap">
+        <img
+          class="mc-logo"
+          src="/menupreview/presets/minecraft-logo.png"
+          onerror="this.onerror=null;this.src='presets/minecraft-logo.png'"
+          alt="MINECRAFT"
+        >
+        <div class="splash">made by Buffer</div>
+      </div>
       <canvas id="fnh-edition-canvas" aria-label="FnH EDITION"></canvas>
     </div>
 
-    <!-- 2. BufferClick 3D Skin (Under Title, Above Singleplayer) -->
-    <div class="skin-wrap" id="skin-drag-area" title="Drag to rotate">
-      <canvas id="skin-canvas" width="440" height="520"></canvas>
+    <!-- 2. BufferClick 3D Skin: Walks in from the right, then stands in the middle -->
+    <div class="skin-stage">
+      <canvas id="skin-canvas" width="960" height="460"></canvas>
+      <div class="skin-hit-box" id="skin-drag-area" title="Drag to rotate"></div>
     </div>
 
-    <!-- 3. Menu Buttons -->
+    <!-- 3. Dark-Glass Menu Buttons -->
     <div class="menu-buttons">
       <button class="btn" data-action="Singleplayer">Singleplayer</button>
       <button class="btn" data-action="Multiplayer">Multiplayer</button>
@@ -497,26 +554,26 @@
   </div>
 </main>
 
-<!-- Bottom Bar: Version Info Left + FnH Settings Button Right -->
+<!-- Bottom Bar: Version Info Left + "FnH" Button Bottom-Right -->
 <footer class="footer-bar">
   <div class="footer-meta">Minecraft 1.21.11 · FnH</div>
 
-  <button class="btn fnh-settings-btn" id="open-settings-btn" type="button">
+  <button class="btn fnh-corner-btn" id="open-settings-btn" type="button">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"/>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
-    <span>FnH Settings</span>
+    <span>FnH</span>
   </button>
 </footer>
 
-<!-- FnH Settings Modal -->
+<!-- FnH Modal -->
 <div class="settings-backdrop" id="settings-backdrop">
   <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="fnh-settings-heading">
     <div class="settings-top">
       <div class="settings-title-wrap">
         <img src="/site/assets/icon.svg" onerror="this.onerror=null;this.src='/assets/icon.svg'" alt="">
-        <h3 id="fnh-settings-heading">FnH Settings</h3>
+        <h3 id="fnh-settings-heading">FnH</h3>
       </div>
       <button class="close-icon-btn" id="close-settings-btn" type="button" title="Close (Esc)">&#x2715;</button>
     </div>
@@ -524,7 +581,7 @@
     <div class="field-group">
       <span class="field-label">Menu Background</span>
       <div class="bg-actions-row">
-        <button class="s-btn active" id="default-bg-btn" type="button">Default Galaxy</button>
+        <button class="s-btn active" id="default-bg-btn" type="button">Default</button>
         <button class="s-btn" id="pick-custom-bg-btn" type="button">Choose Custom File…</button>
       </div>
       <div class="input-row">
@@ -536,20 +593,20 @@
     <div class="field-group">
       <span class="field-label">Background Dimming</span>
       <div class="range-row">
-        <input type="range" id="dim-slider" min="0" max="65" value="14">
-        <span id="dim-val">14%</span>
+        <input type="range" id="dim-slider" min="0" max="65" value="10">
+        <span id="dim-val">10%</span>
       </div>
     </div>
 
     <div class="field-group">
-      <span class="field-label">Main Menu Appearance</span>
+      <span class="field-label">Main Menu</span>
       <label class="toggle-row">
         <span>Show 3D Player Skin</span>
         <input type="checkbox" id="chk-show-skin" checked>
       </label>
       <div class="bg-actions-row" style="grid-template-columns: 1fr 1fr; margin-top: 2px;">
-        <button class="s-btn active" id="style-glass-btn" type="button">Dark Glass Buttons</button>
-        <button class="s-btn" id="style-classic-btn" type="button">Classic Stone Buttons</button>
+        <button class="s-btn" id="replay-intro-btn" type="button">Replay Walk-In</button>
+        <button class="s-btn" id="toggle-fs-btn" type="button">Toggle Fullscreen</button>
       </div>
     </div>
 
@@ -573,12 +630,14 @@
 
   const BUFFERCLICK_UUID = "1b7a28177df149828231b48f5909ca95";
   const DEFAULT_BG = "/menupreview/presets/default-bg.gif";
+  const INTRO_DURATION = 1.95; // seconds for BufferClick to walk in from the right and settle in the middle
 
   const state = {
-    bgDim: 14,
+    bgDim: 10,
     showSkin: true,
     slimArms: false,
-    username: "BufferClick"
+    username: "BufferClick",
+    introStart: performance.now()
   };
 
   let toastTimer = null;
@@ -591,19 +650,66 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Render "[FnH Emblem] EDITION" Subtitle in Chiseled Warm Stone
-  //    (Matched to the stone palette of the official MINECRAFT logo above it)
+  // 0. Auto Fullscreen Support (attempts immediately, else engages on first click)
   // ---------------------------------------------------------------------------
-  const FNH_EMBLEM = [
-    "111110101",
-    "100000101",
-    "100000101",
-    "111000101",
-    "100000111",
-    "102220101",
-    "102020101",
-    "102020101",
-    "102020101"
+  const fsHint = document.getElementById("fs-hint");
+  let firstGestureFullscreenDone = false;
+
+  function syncFsHint() {
+    if (document.fullscreenElement) {
+      fsHint.classList.add("hidden");
+      firstGestureFullscreenDone = true;
+    }
+  }
+
+  async function enterFullscreen(replayWalkIn) {
+    if (document.fullscreenElement) {
+      syncFsHint();
+      return;
+    }
+    try {
+      await document.documentElement.requestFullscreen();
+      syncFsHint();
+      if (replayWalkIn) {
+        state.introStart = performance.now();
+      }
+    } catch (_) {
+      // Browser requires a user click first; fsHint stays visible for 1-click entry
+    }
+  }
+
+  document.addEventListener("fullscreenchange", syncFsHint);
+  enterFullscreen(false);
+
+  window.addEventListener("pointerdown", function onFirstClick(e) {
+    if (!firstGestureFullscreenDone) {
+      firstGestureFullscreenDone = true;
+      fsHint.classList.add("hidden");
+      const clickedSettings = e.target && e.target.closest && e.target.closest("#open-settings-btn");
+      enterFullscreen(!clickedSettings);
+    }
+  }, { once: true });
+
+  fsHint.addEventListener("click", () => enterFullscreen(true));
+
+  // ---------------------------------------------------------------------------
+  // 1. Render Larger Bold "[FnH Emblem] EDITION" in Chiseled Warm Stone
+  //    (15x13 2px-stroke FnH Emblem crest + 9-row EDITION centered beside it)
+  // ---------------------------------------------------------------------------
+  const FNH_EMBLEM_13 = [
+    "111111110110011",
+    "111111110110011",
+    "110000000110011",
+    "110000000110011",
+    "111110000110011",
+    "111110000111111",
+    "110000000111111",
+    "110222220110011",
+    "110222220110011",
+    "110200020110011",
+    "110200020110011",
+    "110200020110011",
+    "110200020110011"
   ];
 
   const EDITION_GLYPHS = {
@@ -678,20 +784,30 @@
   function renderFnhEditionSubtitle() {
     const canvas = document.getElementById("fnh-edition-canvas");
     const word = "EDITION";
-    const rows = 9;
+    const totalRows = 13; // Emblem is 13 rows tall; 9-row EDITION sits centered on rows 2..10
+    let editionWidth = 0;
+    for (let i = 0; i < word.length; i++) {
+      editionWidth += EDITION_GLYPHS[word[i]][0].length + (i + 1 < word.length ? 1 : 0);
+    }
+
     const grid = [];
-    for (let r = 0; r < rows; r++) {
-      let line = FNH_EMBLEM[r] + "0000";
-      for (let i = 0; i < word.length; i++) {
-        line += EDITION_GLYPHS[word[i]][r] + (i + 1 < word.length ? "0" : "");
+    for (let r = 0; r < totalRows; r++) {
+      let edLine = "";
+      if (r >= 2 && r < 11) {
+        const er = r - 2;
+        for (let i = 0; i < word.length; i++) {
+          edLine += EDITION_GLYPHS[word[i]][er] + (i + 1 < word.length ? "0" : "");
+        }
+      } else {
+        edLine = "0".repeat(editionWidth);
       }
-      grid.push(line);
+      grid.push(FNH_EMBLEM_13[r] + "00000" + edLine);
     }
 
     const h = grid.length;
     const w = grid[0].length;
-    const scale = 4;
-    const depthRows = 2;
+    const scale = 6;
+    const depthRows = 3;
     const pad = 2;
     const cw = (w + pad * 2) * scale;
     const ch = (h + depthRows + pad * 2) * scale;
@@ -718,9 +834,9 @@
       }
     }
 
-    // Pass 2: 3D bottom stone extrusion (matching MINECRAFT's warm dark underside)
+    // Pass 2: 3D bottom stone extrusion matching MINECRAFT's warm dark underside
     for (let d = depthRows; d >= 1; d--) {
-      ctx.fillStyle = d === depthRows ? "#3a3533" : "#59514e";
+      ctx.fillStyle = d === depthRows ? "#35302e" : d === 2 ? "#4a4340" : "#5d5552";
       for (let r = 0; r < h; r++) {
         for (let c = 0; c < w; c++) {
           if (!has(r, c)) continue;
@@ -729,10 +845,11 @@
       }
     }
 
-    // Pass 3: Chiseled warm stone face matching official MINECRAFT logo (#cfc7c3 -> #a69c98)
+    // Pass 3: Chiseled warm stone face matching official MINECRAFT logo
     const stoneShades = [
-      "#dcd5d1", "#d5cdc9", "#cec6c2", "#c6beba",
-      "#bfb6b2", "#b8afab", "#b1a7a3", "#aa9f9b", "#a39894"
+      "#e0d9d5", "#dad2ce", "#d4ccc8", "#cec5c1", "#c7beba",
+      "#c1b8b4", "#bbb1ad", "#b4aba7", "#aea4a0", "#a89d99",
+      "#a29793", "#9d928e", "#988d89"
     ];
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
@@ -742,12 +859,11 @@
         const py = (r + pad) * scale;
         const topEdge = !has(r - 1, c);
         if (cell === "2") {
-          // Tucked lowercase 'n' inside the FnH emblem — slightly deeper chiseled tone for clarity
-          ctx.fillStyle = topEdge ? "#d2cbc7" : "#928884";
+          ctx.fillStyle = topEdge ? "#d4cdc9" : "#948985";
         } else {
           const grain = ((r * 13 + c * 29) % 6 === 0) ? -1 : 0;
           const idx = Math.max(0, Math.min(stoneShades.length - 1, r + grain));
-          ctx.fillStyle = topEdge ? "#ede7e4" : stoneShades[idx];
+          ctx.fillStyle = topEdge ? "#f0eae7" : stoneShades[idx];
         }
         ctx.fillRect(px, py, scale, scale);
       }
@@ -755,7 +871,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Background Manager (Default Galaxy GIF + Custom File/URL, Always Stretched)
+  // 2. Background Manager (Default Milky Way GIF + Custom File/URL, Always Stretched)
   // ---------------------------------------------------------------------------
   const bgImg = document.getElementById("bg-img");
   const bgVideo = document.getElementById("bg-video");
@@ -767,7 +883,7 @@
   function applyBgDim() {
     const a = (state.bgDim / 100).toFixed(2);
     bgDim.style.background =
-      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 48%, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.42) 100%)`;
+      `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a})), radial-gradient(circle at 50% 46%, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.36) 100%)`;
   }
 
   function setDefaultBackground() {
@@ -832,7 +948,7 @@
   });
 
   // ---------------------------------------------------------------------------
-  // 3. WebGL 3D Player Renderer (BufferClick)
+  // 3. WebGL 3D Player Renderer + Walk-In Intro from Right -> Center
   // ---------------------------------------------------------------------------
   const skinCanvas = document.getElementById("skin-canvas");
   const gl = skinCanvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: false });
@@ -1088,7 +1204,7 @@
   const matRotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; };
   const matRotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; };
 
-  let bodyYaw = -0.22;
+  let standingYaw = -0.22;
   let dragging = false, lastX = 0;
   let lookX = 0, lookY = 0;
 
@@ -1100,7 +1216,7 @@
   });
   dragArea.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    bodyYaw += (e.clientX - lastX) * 0.015;
+    standingYaw += (e.clientX - lastX) * 0.015;
     lastX = e.clientX;
   });
   dragArea.addEventListener("pointerup", () => { dragging = false; });
@@ -1113,6 +1229,29 @@
     lookX = Math.max(-1, Math.min(1, (e.clientX - cx) / 420));
     lookY = Math.max(-1, Math.min(1, (e.clientY - cy) / 340));
   });
+
+  function syncSkinCanvasResolution() {
+    const rect = skinCanvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(rect.width * dpr);
+    const h = Math.round(rect.height * dpr);
+    if (skinCanvas.width !== w || skinCanvas.height !== h) {
+      skinCanvas.width = w;
+      skinCanvas.height = h;
+    }
+  }
+  window.addEventListener("resize", syncSkinCanvasResolution);
+
+  function smoothstep(a, b, x) {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function easeOutCubic(x) {
+    const t = Math.max(0, Math.min(1, x));
+    return 1 - Math.pow(1 - t, 3);
+  }
 
   function drawMesh(mesh, vp, modelMat, isOuter) {
     if (!mesh) return;
@@ -1130,28 +1269,59 @@
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
   }
 
-  function renderSkin(t) {
+  function renderSkin(nowMs) {
     if (!gl || !state.showSkin) return;
+    syncSkinCanvasResolution();
     gl.viewport(0, 0, skinCanvas.width, skinCanvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
-    const proj = matPersp(33 * Math.PI / 180, skinCanvas.width / skinCanvas.height, 2.0, 200.0);
+    const t = nowMs * 0.001;
+    const introElapsed = Math.max(0, (nowMs - state.introStart) * 0.001);
+    const introP = Math.min(1, introElapsed / INTRO_DURATION);
+    const walkingIn = introP < 1.0;
+
+    // Walk-in choreography: starts on the right (+46 units), walks left to x=0, then turns forward
+    const walkProgress = easeOutCubic(introP);
+    const posX = (1 - walkProgress) * 46.0;
+
+    // Turn from facing-left (-1.34 rad) to standing front angle (standingYaw) during final 32% of intro
+    const turnBlend = smoothstep(0.66, 1.0, introP);
+    const walkYaw = -1.34;
+    const idleSway = Math.sin(t * 0.65) * 0.03 * turnBlend;
+    const curYaw = walkYaw * (1 - turnBlend) + standingYaw * turnBlend + idleSway;
+
+    // Stride amplitude fades out smoothly as BufferClick comes to a stop in the center
+    const strideEnv = 1 - smoothstep(0.70, 1.0, introP);
+    const walkCycle = introElapsed * 9.2;
+    const legSwing = Math.sin(walkCycle) * 0.74 * strideEnv;
+    const armWalkSwing = Math.sin(walkCycle) * 0.64 * strideEnv;
+    const stepBounce = Math.abs(Math.sin(walkCycle)) * 0.55 * strideEnv;
+
+    const idleBreathe = Math.sin(t * 2.0) * 0.22 * turnBlend;
+    const posY = stepBounce + idleBreathe;
+
+    const aspect = skinCanvas.width / skinCanvas.height;
+    const proj = matPersp(33 * Math.PI / 180, aspect, 2.0, 240.0);
     const view = matMul(matTranslate(0, -1.8, -57.5), matRotX(0.06));
     const vp = matMul(proj, view);
 
-    const breathe = Math.sin(t * 2.0) * 0.22;
-    const root = matMul(matTranslate(0, breathe, 0), matRotY(bodyYaw + Math.sin(t * 0.65) * 0.03));
-    const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(lookX * 0.42), matRotX(lookY * 0.26))));
+    const root = matMul(matTranslate(posX, posY, 0), matRotY(curYaw));
+
+    // Head looks slightly forward while walking in, then tracks mouse cursor smoothly once standing
+    const hYaw = (walkingIn ? 0.14 * (1 - turnBlend) : 0) + (lookX * 0.42 * turnBlend);
+    const hPitch = lookY * 0.26 * turnBlend;
+    const headMat = matMul(root, matMul(matTranslate(0, 6, 0), matMul(matRotY(hYaw), matRotX(hPitch))));
 
     const armX = 4 + (state.slimArms ? 1.5 : 2.0);
-    const swing = Math.sin(t * 1.5) * 0.055;
-    const flap  = 0.045 + Math.cos(t * 1.3) * 0.02;
-    const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(swing))));
-    const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-swing))));
-    const rLegMat = matMul(root, matTranslate(-2, -6, 0));
-    const lLegMat = matMul(root, matTranslate( 2, -6, 0));
+    const idleSwing = Math.sin(t * 1.5) * 0.055 * turnBlend;
+    const flap = 0.045 + Math.cos(t * 1.3) * 0.02;
+
+    const rArmMat = matMul(root, matMul(matTranslate(-armX, 4, 0), matMul(matRotZ(-flap), matRotX(armWalkSwing + idleSwing))));
+    const lArmMat = matMul(root, matMul(matTranslate( armX, 4, 0), matMul(matRotZ( flap), matRotX(-armWalkSwing - idleSwing))));
+    const rLegMat = matMul(root, matMul(matTranslate(-2, -6, 0), matRotX(-legSwing)));
+    const lLegMat = matMul(root, matMul(matTranslate( 2, -6, 0), matRotX( legSwing)));
 
     gl.disable(gl.BLEND);
     gl.enable(gl.CULL_FACE);
@@ -1177,7 +1347,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Menu Buttons & FnH Settings Dialog
+  // 4. Menu Buttons & "FnH" Modal Controls
   // ---------------------------------------------------------------------------
   document.querySelectorAll(".menu-buttons .btn").forEach((btn) => {
     btn.addEventListener("click", () => showToast(btn.getAttribute("data-action")));
@@ -1191,7 +1361,9 @@
   document.getElementById("close-settings-btn").addEventListener("click", closeSettings);
   document.getElementById("done-settings-btn").addEventListener("click", closeSettings);
   backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeSettings(); });
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSettings(); });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSettings();
+  });
 
   const dimSlider = document.getElementById("dim-slider");
   const dimVal = document.getElementById("dim-val");
@@ -1213,17 +1385,17 @@
     document.body.classList.toggle("hide-skin", !state.showSkin);
   });
 
-  const glassBtn = document.getElementById("style-glass-btn");
-  const classicBtn = document.getElementById("style-classic-btn");
-  glassBtn.addEventListener("click", () => {
-    document.body.classList.remove("btn-classic");
-    glassBtn.classList.add("active");
-    classicBtn.classList.remove("active");
+  document.getElementById("replay-intro-btn").addEventListener("click", () => {
+    closeSettings();
+    state.introStart = performance.now();
   });
-  classicBtn.addEventListener("click", () => {
-    document.body.classList.add("btn-classic");
-    classicBtn.classList.add("active");
-    glassBtn.classList.remove("active");
+
+  document.getElementById("toggle-fs-btn").addEventListener("click", async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+    } else {
+      await enterFullscreen(false);
+    }
   });
 
   const skinInput = document.getElementById("skin-input");
@@ -1237,11 +1409,12 @@
   applyBgDim();
   setDefaultBackground();
   drawFallbackSkin();
+  syncSkinCanvasResolution();
   initWebGL();
   loadPlayerSkin("BufferClick");
 
   function loop(now) {
-    renderSkin(now * 0.001);
+    renderSkin(now);
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
