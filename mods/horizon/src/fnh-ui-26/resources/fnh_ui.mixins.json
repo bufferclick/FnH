@@ -4,6 +4,8 @@
   "package": "dev.horizonlab.fnh.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "MinecraftMixin",
+    "GameRendererAccessor",
     "GuiMixin",
     "ScreenAccessor",
     "ScreenMixin",

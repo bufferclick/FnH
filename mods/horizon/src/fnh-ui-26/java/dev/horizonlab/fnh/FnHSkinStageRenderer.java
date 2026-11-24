@@ -263,35 +263,11 @@ public final class FnHSkinStageRenderer {
 		stageTexture.upload();
 
 		float drawX = drawCenterX - stageSizeGui * 0.5F;
-
-		// Smooth multi-tap walk-in motion blur when enabled
-		if (introP < 0.84F && FnHConfig.motionBlurPercent > 15) {
-			float blurScale = FnHConfig.motionBlurPercent / 100.0F;
-			float speed = 1.0F - smoothstep(0.45F, 0.84F, introP);
-			for (int tap = 2; tap >= 1; tap--) {
-				float trailDx = tap * 2.4F * blurScale * speed;
-				float tapAlpha = (tap == 1 ? 0.24F : 0.12F) * speed;
-				graphics.pose().pushMatrix();
-				graphics.pose().translate(drawX + trailDx, stageTopY);
-				graphics.blit(
-					RenderPipelines.GUI_TEXTURED,
-					stageTextureId,
-					0,
-					0,
-					0.0F,
-					0.0F,
-					stageSizeGui,
-					stageSizeGui,
-					OUT_SIZE,
-					OUT_SIZE,
-					ARGB.white(tapAlpha)
-				);
-				graphics.pose().popMatrix();
-			}
-		}
+		float quadScale = stageSizeGui / (float) OUT_SIZE;
 
 		graphics.pose().pushMatrix();
 		graphics.pose().translate(drawX, stageTopY);
+		graphics.pose().scale(quadScale, quadScale);
 		graphics.blit(
 			RenderPipelines.GUI_TEXTURED,
 			stageTextureId,
@@ -299,8 +275,8 @@ public final class FnHSkinStageRenderer {
 			0,
 			0.0F,
 			0.0F,
-			stageSizeGui,
-			stageSizeGui,
+			OUT_SIZE,
+			OUT_SIZE,
 			OUT_SIZE,
 			OUT_SIZE,
 			ARGB.white(1.0F)

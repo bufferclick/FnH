@@ -1,9 +1,10 @@
 name: fh
-# Builds FNH (fh/ v1.9) + Universal Dark-Glass Resource Pack + Multi-Version Fabric UI Mods:
-#   1. `menu-mod` compiles BOTH `fnh-menu-1.21.11-1.9.0.jar` (Fabric 1.21.11) AND
-#      `fnh-menu-26.3-1.9.0.jar` (Fabric 26.x unobfuscated) via Gradle + Loom.
-#   2. `windows` embeds `FnH-Dark-Glass.zip` + both Fabric UI jars directly inside `FH.exe`,
-#      packages `FnHLauncher.zip`, and publishes `fnh-v<VERSION>` on GitHub Releases.
+# Builds FNH (fh/ v1.9.1) + FnHSetup.exe Installer + Universal Motion Blur & Dark-Glass Packs:
+#   1. `menu-mod` compiles BOTH `fnh-menu-1.21.11-1.9.1.jar` (Fabric 1.21.11) AND
+#      `fnh-menu-26.3-1.9.1.jar` (Fabric 26.x unobfuscated) via Gradle + Loom.
+#   2. `windows` builds BOTH `FH.exe` and `FnHSetup.exe`, embeds `FnH-Dark-Glass.zip`,
+#      `FnH-Motion-Blur.hshader`, and both Fabric UI jars inside `FH.exe`, packages
+#      `FnHLauncher.zip`, and publishes `fnh-v<VERSION>` on GitHub Releases.
 
 on:
   push:
@@ -56,15 +57,15 @@ jobs:
         with:
           gradle-version: '9.8.2'
 
-      - name: Build fnh-menu-1.21.11-1.9.0.jar (Fabric 1.21.11)
+      - name: Build fnh-menu-1.21.11-1.9.1.jar (Fabric 1.21.11)
         working-directory: mods/horizon
         run: |
           if gradle build --no-daemon --stacktrace > gradle-12111.log 2>&1; then
             ls -lh build/libs/
-            test -f build/libs/fnh-menu-1.21.11-1.9.0.jar
+            test -f build/libs/fnh-menu-1.21.11-1.9.1.jar
             python3 -c '
           import zipfile
-          with zipfile.ZipFile("build/libs/fnh-menu-1.21.11-1.9.0.jar") as z:
+          with zipfile.ZipFile("build/libs/fnh-menu-1.21.11-1.9.1.jar") as z:
               names = set(z.namelist())
               print("1.21.11 Jar entries:", len(names))
               assert "fabric.mod.json" in names
@@ -76,15 +77,15 @@ jobs:
           tail -n 120 gradle-12111.log
           exit 1
 
-      - name: Build fnh-menu-26.3-1.9.0.jar (Fabric 26.x)
+      - name: Build fnh-menu-26.3-1.9.1.jar (Fabric 26.x)
         working-directory: mods/fnh-ui-26
         run: |
           if gradle build --no-daemon --stacktrace > gradle-26.log 2>&1; then
             ls -lh build/libs/
-            test -f build/libs/fnh-menu-26.3-1.9.0.jar
+            test -f build/libs/fnh-menu-26.3-1.9.1.jar
             python3 -c '
           import zipfile
-          with zipfile.ZipFile("build/libs/fnh-menu-26.3-1.9.0.jar") as z:
+          with zipfile.ZipFile("build/libs/fnh-menu-26.3-1.9.1.jar") as z:
               names = set(z.namelist())
               print("26.x Jar entries:", len(names))
               assert "fabric.mod.json" in names
@@ -111,17 +112,18 @@ jobs:
           printf '%s' "$body" > comment.md
           gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md > /dev/null
 
-      - name: Stage multi-version UI bundles
+      - name: Stage multi-version UI & shader bundles
         run: |
           mkdir -p dist-bundles
-          cp mods/horizon/build/libs/fnh-menu-1.21.11-1.9.0.jar dist-bundles/
-          cp mods/fnh-ui-26/build/libs/fnh-menu-26.3-1.9.0.jar dist-bundles/
+          cp mods/horizon/build/libs/fnh-menu-1.21.11-1.9.1.jar dist-bundles/
+          cp mods/fnh-ui-26/build/libs/fnh-menu-26.3-1.9.1.jar dist-bundles/
           cp fh/assets/FnH-Dark-Glass.zip dist-bundles/
+          cp fh/assets/FnH-Motion-Blur.hshader dist-bundles/
           ls -lh dist-bundles/
 
       - uses: actions/upload-artifact@v7
         with:
-          name: fnh-menu-bundles-1.9.0
+          name: fnh-menu-bundles-1.9.1
           path: dist-bundles/*
           if-no-files-found: error
 
@@ -140,7 +142,7 @@ jobs:
           clean: true
       - uses: actions/download-artifact@v8
         with:
-          name: fnh-menu-bundles-1.9.0
+          name: fnh-menu-bundles-1.9.1
           path: fh/assets
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
         with:
@@ -174,11 +176,11 @@ jobs:
           done < errors.txt
           exit 1
 
-      - name: Build
+      - name: Build FH.exe and FnHSetup.exe
         env:
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
-          if cargo build --release > cargo-build.log 2>&1; then
+          if cargo build --release --bins > cargo-build.log 2>&1; then
             exit 0
           fi
           echo "::error::cargo build failed; cargo-build.log has $(wc -l < cargo-build.log) lines"
@@ -191,43 +193,58 @@ jobs:
           done < errors.txt
           exit 1
 
-      - name: The version is the file's, and only the system's libraries are linked
+      - name: Verify FH.exe and FnHSetup.exe versions, arch, and imports
         run: |
           set -euo pipefail
           out=$(./target/release/FH.exe --version)
           echo "$out"
           [[ "$out" == "FNH v$VERSION" ]] || { echo "::error::expected FNH v$VERSION"; exit 1; }
+          sout=$(./target/release/FnHSetup.exe --version)
+          echo "$sout"
+          [[ "$sout" == "FnHSetup v$VERSION" ]] || { echo "::error::expected FnHSetup v$VERSION"; exit 1; }
           python ../tools/check_pe_arch.py x64 ./target/release/FH.exe
           python ../tools/check_imports.py ./target/release/FH.exe
-      - name: A double-click opens no console
+          python ../tools/check_pe_arch.py x64 ./target/release/FnHSetup.exe
+          python ../tools/check_imports.py ./target/release/FnHSetup.exe
+
+      - name: Both FH.exe and FnHSetup.exe open without a console
         run: |
           set -euo pipefail
-          python -c "
+          for bin in target/release/FH.exe target/release/FnHSetup.exe; do
+            python -c "
           import struct, sys
           data = open(sys.argv[1], 'rb').read()
           pe = struct.unpack_from('<I', data, 0x3C)[0]
           optional = pe + 24
           subsystem = struct.unpack_from('<H', data, optional + 68)[0]
-          print('subsystem', subsystem)
+          print(sys.argv[1], 'subsystem', subsystem)
           raise SystemExit(0 if subsystem == 2 else 1)
-          " target/release/FH.exe
-      - name: Package FnHLauncher.zip and UI bundles
+          " "$bin"
+          done
+
+      - name: Package FnHSetup.exe, FnHLauncher.zip, and UI bundles
         run: |
           set -euo pipefail
           rm -rf dist && mkdir -p dist/fnh
           cp target/release/FH.exe dist/fnh/
+          cp target/release/FnHSetup.exe dist/FnHSetup.exe
           cp assets/FnH-Dark-Glass.zip dist/FnH-Dark-Glass.zip
-          cp assets/fnh-menu-1.21.11-1.9.0.jar dist/fnh-menu-1.21.11-1.9.0.jar
-          cp assets/fnh-menu-26.3-1.9.0.jar dist/fnh-menu-26.3-1.9.0.jar
+          cp assets/FnH-Motion-Blur.hshader dist/FnH-Motion-Blur.hshader
+          cp assets/fnh-menu-1.21.11-1.9.1.jar dist/fnh-menu-1.21.11-1.9.1.jar
+          cp assets/fnh-menu-26.3-1.9.1.jar dist/fnh-menu-26.3-1.9.1.jar
           sed "s/@VERSION@/$VERSION/" pack/README.txt > dist/fnh/README.txt
           cd dist
           powershell -NoProfile -Command "Compress-Archive -Path 'fnh/*' -DestinationPath 'FnHLauncher.zip' -Force"
-          ls -lh "FnHLauncher.zip" "FnH-Dark-Glass.zip" "fnh-menu-1.21.11-1.9.0.jar" "fnh-menu-26.3-1.9.0.jar"
+          ls -lh "FnHSetup.exe" "FnHLauncher.zip" "FnH-Dark-Glass.zip" "FnH-Motion-Blur.hshader" "fnh-menu-1.21.11-1.9.1.jar" "fnh-menu-26.3-1.9.1.jar"
+
       - uses: actions/upload-artifact@v7
         with:
           name: FnHLauncher-${{ env.VERSION }}
-          path: fh/dist/FnHLauncher.zip
+          path: |
+            fh/dist/FnHSetup.exe
+            fh/dist/FnHLauncher.zip
           if-no-files-found: error
+
       - name: What failed, as a comment the failure can be read from
         if: failure()
         env:
@@ -256,17 +273,23 @@ jobs:
             exit 0
           fi
           gh release create "$tag" \
+            "dist/FnHSetup.exe" \
             "dist/FnHLauncher.zip" \
-            "dist/fnh-menu-1.21.11-1.9.0.jar" \
-            "dist/fnh-menu-26.3-1.9.0.jar" \
+            "dist/fnh-menu-1.21.11-1.9.1.jar" \
+            "dist/fnh-menu-26.3-1.9.1.jar" \
             "dist/FnH-Dark-Glass.zip" \
-            --title "FNH v$VERSION — Universal Dark-Glass UI (1.21.11, 26.3 & Horizon)" \
+            "dist/FnH-Motion-Blur.hshader" \
+            --title "FNH v$VERSION — FnHSetup Installer, Universal Motion Blur & UI Fixes" \
             --latest \
-            --notes "FNH (Fabric n Horizon) v$VERSION — **Universal Dark-Glass UI Update** — made by Buffer.
+            --notes "FNH (Fabric n Horizon) v$VERSION — **Setup Installer, Universal Motion Blur & Quality Polish** — made by Buffer.
 
-          ### Highlights
-          - **Universal Cross-Version & Horizon Support**: \`FH.exe\` now embeds and auto-activates \`FnH-Dark-Glass.zip\` across **all** Minecraft Java versions and **Horizon 26.3 (Rust)**, plus auto-installs version-matched dynamic Fabric mods for **Minecraft 1.21.11** (\`fnh-menu-1.21.11-1.9.0.jar\`) and **Minecraft 26.x / 26.3** (\`fnh-menu-26.3-1.9.0.jar\`).
-          - **Crisp Anti-Aliased 3D Skin from Live Microsoft Account**: Pulls directly from Mojang's live \`sessionserver.mojang.com\` / \`textures.minecraft.net\` (never stale third-party caches) and renders via a 2×2 supersampled GPU \`DynamicTexture\` with dark-suit rim shading.
-          - **Directional Motion-Blur Menu Transitions (Menus Only)**: Menus slide **up** when opening and **down** when closing with multi-sample vertical motion blur; **all** in-game screen/item animations are disabled so server containers (\`/ah\`) stay crisp and static.
-          - **Dark-Glass In-Game HUD, Containers & Smooth Hotbar Glide**: Sleek dark-glass Inventory, Chests/\`/ah\`, Crafting, Furnace & Hotbar with sub-pixel smooth hotbar slot switching.
-          - **GUI Scale Layout Lock & First-Launch Fix**: Logo, \`[FnH] EDITION\`, 3D skin, and buttons stay cohesively grouped at every GUI scale, and first-launch onboarding/fade glitches are fixed."
+          ### What's New & Fixed in v$VERSION
+          - **New \`FnHSetup.exe\` Windows Installer**: Standalone 1-click installer that downloads the latest FnH release straight from GitHub and lets you choose whether to add a **Desktop shortcut** and/or a **Start Menu shortcut** before launching FnH.
+          - **Universal In-Game Motion Blur Across All Versions**:
+            - **Horizon (\`26.3\` Stable & Nightly)**: Ships & auto-enables \`FnH-Motion-Blur.hshader\` (Shader API 0.2 per-pixel 3D camera velocity motion blur).
+            - **Fabric \`1.21.11\` & \`26.x\`**: Built-in GPU \`PostChain\` frame-blend motion blur driven live by the \`Motion Blur\` slider in \`FnH UI...\`.
+            - **Fabric \`1.16\`–\`1.21.10\`**: Automatically provisions & caches a matching Fabric Motion Blur mod from Modrinth on launch.
+          - **Fixed Horizon Instance Creation & Nightly vs Stable Channels**: Fixed Nightly tag resolution (\`nightly-YYYY-MM-DD-*\` vs \`nightly\`), restored \`v0.2.*\` Stable Release discovery so Stable never falls back to Nightly, and auto-deduplicated default Horizon instance names.
+          - **Fixed 3D Player Skin Rendering**: Fixed the \`GuiGraphics.blit\` UV-crop bug so your full 256×256 supersampled 3D skin renders cleanly across \`1.21.11\` and \`26.x\`.
+          - **Fixed Custom Backgrounds**: Fixed \`Open Backgrounds Folder\`, added live auto-detection for images (\`.png\`, \`.jpg\`, \`.gif\`, \`.bmp\`, \`.webp\`) dropped into \`fnh-backgrounds\`/\`backgrounds\`, and fixed aspect-ratio \`cover\` scaling.
+          - **Clean Menu Transitions & Minimal Hotbar**: Removed the glitchy closing overlay and rectangular blur trails, and redesigned the Dark-Glass hotbar into a sleek, minimal smoked-obsidian bar with a crisp 1px white slot frame."

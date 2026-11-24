@@ -243,4 +243,25 @@ mod tests {
             "Cargo.toml's {pkg} and VERSION's {VERSION} are the same release"
         );
     }
+
+    #[test]
+    fn embedded_horizon_motion_blur_shader_pack_is_recognized() {
+        let dir = std::env::temp_dir().join(format!("fnh-hshader-test-{}", std::process::id()));
+        let sp = dir.join("shaderpacks");
+        std::fs::create_dir_all(&sp).unwrap();
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Motion-Blur.hshader"));
+        assert!(bytes.len() > 256, "FnH-Motion-Blur.hshader must be built");
+        std::fs::write(sp.join("FnH-Motion-Blur.hshader"), bytes).unwrap();
+        let found = horizon_launcher::packs::find(
+            &dir,
+            horizon_launcher::packs::Kind::Shader,
+            "FnH-Motion-Blur.hshader",
+        )
+        .expect("Horizon shader pack manifest should parse cleanly");
+        assert_eq!(found.name, "horizon:fnh_motion_blur");
+        horizon_launcher::packs::set_enabled(&dir, &found, true).unwrap();
+        let gfx = std::fs::read_to_string(dir.join("horizon-graphics.txt")).unwrap();
+        assert!(gfx.contains("pickedShaderPack:horizon:fnh_motion_blur"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

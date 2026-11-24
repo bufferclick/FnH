@@ -45,26 +45,30 @@
       and Horizon instances — clean WinUI 3 layout, per-instance mods, worlds, logs and loader control.</p>
 
     <p class="actions">
-      <a class="button" id="download" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">
-        Download FnHLauncher.zip
+      <a class="button" id="download" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHSetup.exe" rel="noopener">
+        Download FnHSetup.exe
       </a>
-      <a class="button quiet" id="download-mod-26" href="https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.0.jar" rel="noopener">
+      <a class="button quiet" id="download-zip" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">
+        Portable ZIP
+      </a>
+      <a class="button quiet" id="download-mod-26" href="https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.1.jar" rel="noopener">
         FnH UI Mod (26.x)
       </a>
-      <a class="button quiet" id="download-mod" href="https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.0.jar" rel="noopener">
+      <a class="button quiet" id="download-mod" href="https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.1.jar" rel="noopener">
         FnH UI Mod (1.21.11)
       </a>
       <a class="button quiet" href="/menupreview">Menu Preview</a>
       <a class="button quiet" href="https://github.com/bufferclick/FnH" rel="noopener">View on GitHub</a>
     </p>
-    <p class="meta" id="release">Windows 10 or 11 · x64 · MIT licence</p>
+    <p class="meta" id="release">v1.9.1 · Windows 10 or 11 · x64 · MIT licence</p>
   </section>
 
   <section id="what">
     <h2>What it is</h2>
-    <p>FNH is a single native desktop program by <strong>Buffer</strong>, not an installer and not a web page.
-      Unzip it, double-click <code>FH.exe</code>, and manage isolated Fabric, Minecraft: Java Edition, and
-      Horizon instances from a multi-window Windows 11 shell modelled on JLac.</p>
+    <p>FNH is a native Windows 11 launcher by <strong>Buffer</strong>. Run <code>FnHSetup.exe</code> (which
+      fetches the newest release and lets you choose Desktop &amp; Start Menu shortcuts) or grab the portable
+      <code>FnHLauncher.zip</code>, and manage isolated Fabric, Minecraft: Java Edition, and Horizon instances
+      from a multi-window Windows 11 shell modelled on JLac.</p>
     <p>Every instance lives under its own isolated folder inside <code>%APPDATA%\FnH</code> with dedicated
       mods, resource packs, shader packs, worlds, servers, screenshots, <code>options.txt</code> settings, and
       live game console window.</p>
@@ -111,12 +115,12 @@
   <section id="install">
     <h2>Install</h2>
     <ol class="steps">
-      <li><span>Download <a id="download-link" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHLauncher.zip" rel="noopener">FnHLauncher.zip</a> from Releases.</span></li>
-      <li><span>Unzip it anywhere you can write to — <code>%LOCALAPPDATA%\FNH</code>, your desktop, a USB stick.</span></li>
-      <li><span>Double-click <code>FH.exe</code> (future updates install automatically right inside FnH).</span></li>
+      <li><span>Download <a id="download-link" href="https://github.com/bufferclick/FnH/releases/latest/download/FnHSetup.exe" rel="noopener">FnHSetup.exe</a> from Releases.</span></li>
+      <li><span>Run <code>FnHSetup.exe</code> and pick whether you want a <strong>Desktop shortcut</strong> and/or a <strong>Start Menu shortcut</strong>.</span></li>
+      <li><span>Click <strong>Install &amp; Launch FnH</strong> — future updates install automatically right inside FnH.</span></li>
     </ol>
-    <p class="note">Nothing else is needed: no .NET, no Visual C++ redistributable, no Java until a Minecraft:
-      Java Edition instance needs it, and FNH offers to fetch one then.</p>
+    <p class="note">Nothing else is needed: no .NET, no Visual C++ redistributable, no admin rights, and no Java until a Minecraft:
+      Java Edition instance needs it (FNH fetches one automatically).</p>
   </section>
 
   <section id="requirements">
@@ -124,7 +128,7 @@
     <table class="spec">
       <tbody>
         <tr><th scope="row">System</th><td>Windows 10 or Windows 11, x64</td></tr>
-        <tr><th scope="row">Download</th><td><span id="size">FnHLauncher.zip</span>, no installer (built-in auto-updater)</td></tr>
+        <tr><th scope="row">Download</th><td><span id="size">FnHSetup.exe</span> installer (or portable <code>FnHLauncher.zip</code>) + built-in auto-updater</td></tr>
         <tr><th scope="row">Storage</th><td>Around 40 MB for the app; instances and games take what they take</td></tr>
         <tr><th scope="row">Licence</th><td>MIT</td></tr>
       </tbody>
@@ -154,7 +158,9 @@
 (function () {
   var repo = "bufferclick/fnh";
   var button = document.getElementById("download");
+  var zipButton = document.getElementById("download-zip");
   var modButton = document.getElementById("download-mod");
+  var mod26Button = document.getElementById("download-mod-26");
   var link = document.getElementById("download-link");
   var meta = document.getElementById("release");
   var size = document.getElementById("size");
@@ -172,25 +178,38 @@
     })
     .then(function (release) {
       var assets = release.assets || [];
-      var asset = assets.filter(function (a) {
+      var setupAsset = assets.filter(function (a) {
+        return /^FnHSetup\.exe$/i.test(a.name);
+      })[0];
+      var zipAsset = assets.filter(function (a) {
         return /^FnHLauncher\.zip$/i.test(a.name);
       })[0] || assets.filter(function (a) {
         return /\.zip$/i.test(a.name);
       })[0];
-      var modAsset = assets.filter(function (a) {
-        return /^fnh-menu-.*\.jar$/i.test(a.name);
+      var mod121 = assets.filter(function (a) {
+        return /^fnh-menu-1\.21\.11-.*\.jar$/i.test(a.name);
       })[0];
-      if (modAsset && modButton) {
-        modButton.href = modAsset.browser_download_url;
-        modButton.textContent = "Download " + modAsset.name;
+      var mod26 = assets.filter(function (a) {
+        return /^fnh-menu-26\..*\.jar$/i.test(a.name);
+      })[0];
+      if (mod121 && modButton) {
+        modButton.href = mod121.browser_download_url;
       }
-      if (!asset) return;
+      if (mod26 && mod26Button) {
+        mod26Button.href = mod26.browser_download_url;
+      }
+      if (zipAsset && zipButton) {
+        zipButton.href = zipAsset.browser_download_url;
+      }
+      var primary = setupAsset || zipAsset;
+      if (!primary) return;
       var ver = (release.tag_name || "").replace(/^fnh-/i, "");
-      button.href = asset.browser_download_url;
-      link.href = asset.browser_download_url;
-      link.textContent = asset.name;
-      meta.textContent = (ver ? ver + " · " : "") + asset.name + " · " + megabytes(asset.size) + " · Windows 10 or 11 · x64 · MIT licence";
-      size.textContent = asset.name + " (" + megabytes(asset.size) + ")";
+      button.href = primary.browser_download_url;
+      button.textContent = "Download " + primary.name;
+      link.href = primary.browser_download_url;
+      link.textContent = primary.name;
+      meta.textContent = (ver ? ver + " · " : "") + primary.name + " · " + megabytes(primary.size) + " · Windows 10 or 11 · x64 · MIT licence";
+      size.textContent = primary.name + " (" + megabytes(primary.size) + ")";
     })
     .catch(function () { /* the releases page is the fallback the markup already links to */ });
 })();

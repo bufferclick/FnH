@@ -669,10 +669,51 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Every published release of the repository, both kinds, as GitHub's JSON (kept on disk with its
 /// ETag, and read through Kira's mirror past GitHub's rate limit: [`crate::github`]).
+///
+/// `launcher@` and `sdk-*` tags can push stable `v0.2.*` game releases off page 1 (`per_page=100`),
+/// so when page 1 has no stable game tag we also merge `/releases/latest` and page 2.
 fn release_list() -> Result<serde_json::Value, String> {
-    crate::github::json(&format!(
+    let mut first = crate::github::json(&format!(
         "https://api.github.com/repos/{REPO}/releases?per_page=100"
-    ))
+    ))?;
+    let has_stable_game = first
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|r| {
+            !r["draft"].as_bool().unwrap_or(false)
+                && !r["prerelease"].as_bool().unwrap_or(false)
+                && is_game_tag(r["tag_name"].as_str().unwrap_or_default())
+        });
+    if !has_stable_game {
+        if let Some(arr) = first.as_array_mut() {
+            let mut seen: std::collections::HashSet<String> = arr
+                .iter()
+                .filter_map(|r| r["tag_name"].as_str().map(str::to_owned))
+                .collect();
+            if let Ok(latest) = crate::github::json(&format!(
+                "https://api.github.com/repos/{REPO}/releases/latest"
+            )) {
+                if let Some(tag) = latest["tag_name"].as_str() {
+                    if seen.insert(tag.to_owned()) {
+                        arr.push(latest);
+                    }
+                }
+            }
+            if let Ok(page2) = crate::github::json(&format!(
+                "https://api.github.com/repos/{REPO}/releases?per_page=100&page=2"
+            )) {
+                for item in page2.as_array().into_iter().flatten() {
+                    if let Some(tag) = item["tag_name"].as_str() {
+                        if seen.insert(tag.to_owned()) {
+                            arr.push(item.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(first)
 }
 
 /// The releases in `list` whose tag passes `keep`, newest first, with the asset named `asset`.
@@ -3441,6 +3482,7 @@ pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result
         releases
             .iter()
             .find(|r| r.tag == tag)
+            .or_else(|| releases.iter().find(|r| r.nightly.as_deref() == Some(tag)))
             .ok_or_else(|| format!("No Horizon release is tagged {tag}."))?
     };
     if release.asset.is_none() {

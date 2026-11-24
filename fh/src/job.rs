@@ -11,7 +11,7 @@ use horizon_launcher::account::{self, SignIn, SignInState};
 use horizon_launcher::instances::{self as inst, Instance};
 use horizon_launcher::{backend, launch, process};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -666,20 +666,24 @@ const FNH_PACK_FILE_NAME: &str = "FnH-Dark-Glass.zip";
 const EMBEDDED_DARK_GLASS_PACK: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Dark-Glass.zip"));
 
-const FNH_MOD_12111_NAME: &str = "fnh-menu-1.21.11-1.9.0.jar";
+const FNH_HORIZON_SHADER_FILE_NAME: &str = "FnH-Motion-Blur.hshader";
+const EMBEDDED_HORIZON_MOTION_BLUR: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Motion-Blur.hshader"));
+
+const FNH_MOD_12111_NAME: &str = "fnh-menu-1.21.11-1.9.1.jar";
 const EMBEDDED_MOD_12111: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-1.21.11-1.9.0.jar"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-1.21.11-1.9.1.jar"));
 const FNH_MOD_12111_URLS: &[&str] = &[
-    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9/fnh-menu-1.21.11-1.9.0.jar",
-    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.0.jar",
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.1/fnh-menu-1.21.11-1.9.1.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.1.jar",
 ];
 
-const FNH_MOD_26_NAME: &str = "fnh-menu-26.3-1.9.0.jar";
+const FNH_MOD_26_NAME: &str = "fnh-menu-26.3-1.9.1.jar";
 const EMBEDDED_MOD_26: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-26.3-1.9.0.jar"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-26.3-1.9.1.jar"));
 const FNH_MOD_26_URLS: &[&str] = &[
-    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9/fnh-menu-26.3-1.9.0.jar",
-    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.0.jar",
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.1/fnh-menu-26.3-1.9.1.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.1.jar",
 ];
 
 /// Provisions (or removes, when disabled) the universal `FnH-Dark-Glass.zip` resource pack and
@@ -776,7 +780,8 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
     let mods_dir = instance.home.join("mods");
     let wanted_name = desired_spec.map(|(n, _, _)| n);
 
-    // Always sweep any stale or wrong-MC-version `fnh-menu-*.jar` first!
+    // Always sweep any stale or wrong-MC-version `fnh-menu-*.jar` or `fnh-auto-motionblur-*.jar` first!
+    let expected_auto_mb = format!("fnh-auto-motionblur-{mc}.jar");
     if let Ok(entries) = std::fs::read_dir(&mods_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
@@ -784,10 +789,18 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
             if s.starts_with("fnh-menu-") && s.ends_with(".jar") && Some(s.as_ref()) != wanted_name {
                 let _ = std::fs::remove_file(entry.path());
             }
+            if s.starts_with("fnh-auto-motionblur-") && s.ends_with(".jar") {
+                if !prefs.install_fnh_menu_ui || !is_fabric || desired_spec.is_some() || s.as_ref() != expected_auto_mb {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
         }
     }
 
     let Some((jar_name, embedded_bytes, release_urls)) = desired_spec else {
+        if prefs.install_fnh_menu_ui && is_fabric && !mc.is_empty() {
+            sync_modrinth_fabric_motion_blur(&instance.home, mc, emit);
+        }
         return;
     };
 
@@ -917,6 +930,7 @@ fn build_horizon_command(
     std::fs::create_dir_all(&instance.home)
         .map_err(|e| format!("{}: {e}", instance.home.display()))?;
     sync_fnh_dark_glass_pack(&instance.home, prefs, emit);
+    sync_fnh_horizon_motion_blur(&instance.home, prefs, emit);
     let chosen_offline = if !cfg.offline_name.trim().is_empty() {
         Some(cfg.offline_name.trim())
     } else if !prefs.offline_player_name.trim().is_empty() {
@@ -1340,17 +1354,29 @@ pub fn prefetch_instance(instance: Instance, prefs: Prefs, cfg: InstanceCfg) {
             push_console(&instance.id, msg.clone(), max_lines, stop_ovf);
             step(&format!("Downloading {}", instance.name), msg);
         };
-        let res = sign_in(false, Some(&emit)).and_then(|()| {
-            if instance.java.is_some() {
+        let res = if instance.java.is_some() {
+            sign_in(false, Some(&emit)).and_then(|()| {
                 build_java_command(&instance, &prefs, &cfg, None, None, None, false, &emit)
                     .map(|_| format!("{} files are downloaded and ready.", instance.name))
-            } else {
-                let tag = resolve_horizon_version(&instance, &prefs, &cfg, &emit)?;
-                prepare_horizon_version(&instance, &tag, &emit)?;
-                backend::complete_assets(&tag);
-                Ok(format!("{} ({tag}) is downloaded and prepared.", instance.name))
-            }
-        });
+            })
+        } else {
+            resolve_horizon_version(&instance, &prefs, &cfg, &emit).and_then(|tag| {
+                sync_fnh_dark_glass_pack(&instance.home, &prefs, &emit);
+                sync_fnh_horizon_motion_blur(&instance.home, &prefs, &emit);
+                match prepare_horizon_version(&instance, &tag, &emit) {
+                    Ok(()) => {
+                        backend::complete_assets(&tag);
+                        Ok(format!("{} ({tag}) is downloaded and prepared.", instance.name))
+                    }
+                    Err(prep_err) => {
+                        emit(format!(
+                            "Horizon {tag} downloaded; Minecraft asset extraction will finish on first Play ({prep_err})."
+                        ));
+                        Ok(format!("{} ({tag}) is downloaded and ready.", instance.name))
+                    }
+                }
+            })
+        };
         match res {
             Ok(msg) => {
                 push_console(&instance.id, format!("[FNH] {msg}"), max_lines, stop_ovf);
