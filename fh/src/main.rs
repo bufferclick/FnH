@@ -258,7 +258,8 @@ mod tests {
             "FnH-Motion-Blur.hshader",
         )
         .expect("Horizon shader pack manifest should parse cleanly");
-        assert_eq!(found.name, "horizon:fnh_motion_blur");
+        assert_eq!(found.file, "FnH-Motion-Blur.hshader");
+        assert_eq!(found.title, "FnH Motion Blur");
         horizon_launcher::packs::set_enabled(&dir, &found, true).unwrap();
         let gfx = std::fs::read_to_string(dir.join("horizon-graphics.txt")).unwrap();
         assert!(gfx.contains("pickedShaderPack:horizon:fnh_motion_blur"));

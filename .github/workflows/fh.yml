@@ -152,6 +152,7 @@ jobs:
         with:
           workspaces: fh
           shared-key: fh-windows
+          cache-on-failure: true
       - name: The version this build is
         run: |
           ls -lh assets/
