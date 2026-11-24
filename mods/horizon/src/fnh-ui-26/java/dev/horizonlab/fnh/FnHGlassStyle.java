@@ -1,9 +1,10 @@
 package dev.horizonlab.fnh;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-
-import dev.horizonlab.fnh.mixin.GameRendererAccessor;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -17,6 +18,13 @@ public final class FnHGlassStyle {
 	private static final Identifier BLUR_LOW = Identifier.withDefaultNamespace("fnh_motion_blur_low");
 	private static final Identifier BLUR_MED = Identifier.withDefaultNamespace("fnh_motion_blur_med");
 	private static final Identifier BLUR_HIGH = Identifier.withDefaultNamespace("fnh_motion_blur_high");
+	private static final Set<Identifier> MAIN_TARGETS = Set.of(Identifier.withDefaultNamespace("main"));
+
+	private static boolean postBridgeResolved = false;
+	private static Method getPostChainMethod = null;
+	private static Method processChainMethod = null;
+	private static Method mainTargetGetter = null;
+	private static Field mainTargetField = null;
 
 	private static int mouseX = -9999;
 	private static int mouseY = -9999;
@@ -38,21 +46,72 @@ public final class FnHGlassStyle {
 		return mc != null && mc.level != null;
 	}
 
-	public static void applyInGameMotionBlur(GraphicsResourceAllocator resourceAllocator) {
-		if (FnHConfig.motionBlurPercent <= 0) {
+	private static void ensurePostBridge(Minecraft mc) {
+		if (postBridgeResolved) {
+			return;
+		}
+		postBridgeResolved = true;
+		try {
+			Object shaderMgr = mc.getShaderManager();
+			for (Method m : shaderMgr.getClass().getMethods()) {
+				if ("getPostChain".equals(m.getName()) && m.getParameterCount() == 2) {
+					getPostChainMethod = m;
+					Class<?> postChainCls = m.getReturnType();
+					for (Method pm : postChainCls.getMethods()) {
+						if ("process".equals(pm.getName()) && pm.getParameterCount() == 2) {
+							processChainMethod = pm;
+							break;
+						}
+					}
+					break;
+				}
+			}
+			for (String mName : new String[] { "mainRenderTarget", "getMainRenderTarget" }) {
+				try {
+					mainTargetGetter = Minecraft.class.getMethod(mName);
+					break;
+				} catch (NoSuchMethodException ignored) {
+				}
+			}
+			if (mainTargetGetter == null && processChainMethod != null) {
+				Class<?> targetCls = processChainMethod.getParameterTypes()[0];
+				for (Field f : Minecraft.class.getDeclaredFields()) {
+					if (targetCls.isAssignableFrom(f.getType())) {
+						f.setAccessible(true);
+						mainTargetField = f;
+						break;
+					}
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+	}
+
+	public static void applyInGameMotionBlur(Object resourceAllocator) {
+		if (FnHConfig.motionBlurPercent <= 0 || resourceAllocator == null) {
 			return;
 		}
 		Minecraft mc = Minecraft.getInstance();
 		if (mc == null || mc.level == null) {
 			return;
 		}
+		ensurePostBridge(mc);
+		if (getPostChainMethod == null || processChainMethod == null) {
+			return;
+		}
 		Identifier wanted = FnHConfig.motionBlurPercent <= 55
 			? BLUR_LOW
 			: (FnHConfig.motionBlurPercent <= 105 ? BLUR_MED : BLUR_HIGH);
 		try {
-			PostChain chain = mc.getShaderManager().getPostChain(wanted, LevelTargetBundle.MAIN_TARGETS);
+			Object target = mainTargetGetter != null
+				? mainTargetGetter.invoke(mc)
+				: (mainTargetField != null ? mainTargetField.get(mc) : null);
+			if (target == null) {
+				return;
+			}
+			Object chain = getPostChainMethod.invoke(mc.getShaderManager(), wanted, MAIN_TARGETS);
 			if (chain != null) {
-				chain.process(mc.getMainRenderTarget(), resourceAllocator);
+				processChainMethod.invoke(chain, target, resourceAllocator);
 			}
 		} catch (Throwable ignored) {
 		}
