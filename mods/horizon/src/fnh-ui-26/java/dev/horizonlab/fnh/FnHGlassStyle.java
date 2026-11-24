@@ -38,32 +38,23 @@ public final class FnHGlassStyle {
 		return mc != null && mc.level != null;
 	}
 
-	private static boolean isFnHBlurId(Identifier id) {
-		if (id == null) {
-			return false;
+	public static void applyInGameMotionBlur(GraphicsResourceAllocator resourceAllocator) {
+		if (FnHConfig.motionBlurPercent <= 0) {
+			return;
 		}
-		String p = id.getPath();
-		return p.startsWith("fnh_motion_blur_");
-	}
-
-	public static void tickInGameMotionBlur() {
 		Minecraft mc = Minecraft.getInstance();
-		if (mc == null || mc.gameRenderer == null) {
+		if (mc == null || mc.level == null) {
 			return;
 		}
-		Identifier current = mc.gameRenderer.currentPostEffect();
-		if (mc.level == null || FnHConfig.motionBlurPercent <= 0) {
-			if (isFnHBlurId(current)) {
-				mc.gameRenderer.clearPostEffect();
-			}
-			return;
-		}
-
 		Identifier wanted = FnHConfig.motionBlurPercent <= 55
 			? BLUR_LOW
 			: (FnHConfig.motionBlurPercent <= 105 ? BLUR_MED : BLUR_HIGH);
-		if (current == null || (isFnHBlurId(current) && !wanted.equals(current))) {
-			((GameRendererAccessor) mc.gameRenderer).fnh_setPostEffect(wanted);
+		try {
+			PostChain chain = mc.getShaderManager().getPostChain(wanted, LevelTargetBundle.MAIN_TARGETS);
+			if (chain != null) {
+				chain.process(mc.getMainRenderTarget(), resourceAllocator);
+			}
+		} catch (Throwable ignored) {
 		}
 	}
 
