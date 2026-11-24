@@ -45,13 +45,11 @@ public abstract class ScreenMixin {
 		if (FnHGlassStyle.isInGame() || self instanceof TitleScreen || self instanceof AbstractContainerScreen<?>) {
 			return;
 		}
-		float slideUpY = FnHGlassStyle.currentOpenSlideUpY(self);
-		if (slideUpY > 0.25F) {
+		float slideY = FnHGlassStyle.currentOpenSlideUpY(self);
+		if (Math.abs(slideY) > 0.15F) {
 			graphics.pose().pushMatrix();
-			graphics.pose().translate(0.0F, slideUpY);
+			graphics.pose().translate(0.0F, slideY);
 			this.fnh_pushedSlide = true;
-			float speed01 = Math.min(1.0F, slideUpY / 42.0F);
-			FnHGlassStyle.renderMenuMotionBlur(graphics, self, speed01, 1.0F);
 		}
 	}
 
@@ -60,9 +58,6 @@ public abstract class ScreenMixin {
 		if (this.fnh_pushedSlide) {
 			graphics.pose().popMatrix();
 			this.fnh_pushedSlide = false;
-		}
-		if (!FnHGlassStyle.isInGame()) {
-			FnHGlassStyle.renderClosingMenuOverlay(graphics, deltaTicks);
 		}
 	}
 

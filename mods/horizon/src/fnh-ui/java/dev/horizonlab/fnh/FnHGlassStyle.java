@@ -3,13 +3,10 @@ package dev.horizonlab.fnh;
 import java.util.ArrayList;
 import java.util.List;
 
-import dev.horizonlab.fnh.mixin.ScreenAccessor;
+import dev.horizonlab.fnh.mixin.GameRendererAccessor;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -17,18 +14,18 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 
 public final class FnHGlassStyle {
+	private static final Identifier BLUR_LOW = Identifier.withDefaultNamespace("fnh_motion_blur_low");
+	private static final Identifier BLUR_MED = Identifier.withDefaultNamespace("fnh_motion_blur_med");
+	private static final Identifier BLUR_HIGH = Identifier.withDefaultNamespace("fnh_motion_blur_high");
+
 	private static int mouseX = -9999;
 	private static int mouseY = -9999;
 
-	// Front-end ONLY menu open (slide UP) & close (slide DOWN) state
 	private static final List<Class<?>> menuHistory = new ArrayList<>();
-	private static long openAnimStartMs = 0L;
-	private static Screen closingScreen = null;
-	private static long closeAnimStartMs = 0L;
-	private static boolean renderingClosingOverlay = false;
-	private static float activeOverlayAlpha = 1.0F;
+	private static long animStartMs = 0L;
+	private static float animInitialOffsetY = 0.0F;
+	private static long animDurationMs = 165L;
 
-	// Smooth sub-pixel hotbar slot glide state
 	private static float smoothHotbarX = Float.NaN;
 	private static int lastHotbarY = -9999;
 	private static long lastHotbarNs = 0L;
@@ -41,15 +38,40 @@ public final class FnHGlassStyle {
 		return mc != null && mc.level != null;
 	}
 
-	/**
-	 * Called from `MinecraftMixin` right before `Minecraft.setScreen` transitions `oldScreen -> newScreen`.
-	 * Strictly disabled in-game (`mc.level != null`) so `/ah`, chests, and inventory have ZERO animations.
-	 */
+	private static boolean isFnHBlurId(Identifier id) {
+		if (id == null) {
+			return false;
+		}
+		String p = id.getPath();
+		return p.startsWith("fnh_motion_blur_");
+	}
+
+	public static void tickInGameMotionBlur() {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc == null || mc.gameRenderer == null) {
+			return;
+		}
+		Identifier current = mc.gameRenderer.currentPostEffect();
+		if (mc.level == null || FnHConfig.motionBlurPercent <= 0) {
+			if (isFnHBlurId(current)) {
+				mc.gameRenderer.clearPostEffect();
+			}
+			return;
+		}
+
+		Identifier wanted = FnHConfig.motionBlurPercent <= 55
+			? BLUR_LOW
+			: (FnHConfig.motionBlurPercent <= 105 ? BLUR_MED : BLUR_HIGH);
+		if (current == null || (isFnHBlurId(current) && !wanted.equals(current))) {
+			((GameRendererAccessor) mc.gameRenderer).fnh_setPostEffect(wanted);
+		}
+	}
+
 	public static void onSetScreen(Screen oldScreen, Screen newScreen) {
 		if (isInGame() || newScreen == null || newScreen instanceof AbstractContainerScreen<?>) {
 			menuHistory.clear();
-			openAnimStartMs = 0L;
-			closingScreen = null;
+			animStartMs = 0L;
+			animInitialOffsetY = 0.0F;
 			return;
 		}
 		if (oldScreen == null || oldScreen == newScreen || oldScreen.getClass() == newScreen.getClass()) {
@@ -58,150 +80,53 @@ public final class FnHGlassStyle {
 
 		if (newScreen instanceof TitleScreen) {
 			menuHistory.clear();
-			openAnimStartMs = 0L;
-			if (!(oldScreen instanceof AbstractContainerScreen<?>)) {
-				closingScreen = oldScreen;
-				closeAnimStartMs = Util.getMillis();
-			}
+			animStartMs = 0L;
+			animInitialOffsetY = 0.0F;
 			return;
 		}
 
 		int existingIdx = menuHistory.indexOf(newScreen.getClass());
 		if (existingIdx >= 0) {
-			// Returning back to a parent menu (e.g. VideoSettings -> Options): slide closing menu DOWN!
 			while (menuHistory.size() > existingIdx + 1) {
 				menuHistory.remove(menuHistory.size() - 1);
 			}
-			openAnimStartMs = 0L;
-			closingScreen = oldScreen;
-			closeAnimStartMs = Util.getMillis();
+			animStartMs = Util.getMillis();
+			animInitialOffsetY = -10.0F;
+			animDurationMs = 150L;
 		} else {
-			// Opening a menu deeper (e.g. TitleScreen -> Multiplayer / Options): slide opening menu UP!
 			menuHistory.add(newScreen.getClass());
-			openAnimStartMs = Util.getMillis();
-			closingScreen = null;
+			animStartMs = Util.getMillis();
+			animInitialOffsetY = 14.0F;
+			animDurationMs = 165L;
 		}
 	}
 
 	public static void beginScreenFrame(Screen screen, int mx, int my) {
-		if (!renderingClosingOverlay) {
-			mouseX = mx;
-			mouseY = my;
-		}
+		mouseX = mx;
+		mouseY = my;
 		if (isInGame() || screen instanceof AbstractContainerScreen<?>) {
-			openAnimStartMs = 0L;
-			closingScreen = null;
+			animStartMs = 0L;
+			animInitialOffsetY = 0.0F;
 		}
 	}
 
-	/**
-	 * Positive Y offset during menu open (`+54px -> 0px`), making the menu glide UP into place.
-	 * Always returns `0.0F` in-game (`mc.level != null`).
-	 */
 	public static float currentOpenSlideUpY(Screen screen) {
-		if (renderingClosingOverlay || isInGame() || screen == null
+		if (isInGame() || screen == null
 			|| screen instanceof TitleScreen || screen instanceof AbstractContainerScreen<?>) {
 			return 0.0F;
 		}
-		if (FnHConfig.motionBlurPercent <= 0 || openAnimStartMs == 0L) {
+		if (animStartMs == 0L || animInitialOffsetY == 0.0F || animDurationMs <= 0L) {
 			return 0.0F;
 		}
-		long elapsed = Util.getMillis() - openAnimStartMs;
-		if (elapsed < 0L || elapsed >= 255L) {
+		long elapsed = Util.getMillis() - animStartMs;
+		if (elapsed < 0L || elapsed >= animDurationMs) {
 			return 0.0F;
 		}
-		float p = elapsed / 255.0F;
+		float p = (float) elapsed / (float) animDurationMs;
 		float easeOut = 1.0F - (float) Math.pow(1.0F - p, 3.0);
-		float mult = Math.max(0.45F, Math.min(1.5F, FnHConfig.motionBlurPercent / 100.0F));
-		return (1.0F - easeOut) * 54.0F * mult;
+		return (1.0F - easeOut) * animInitialOffsetY;
 	}
 
-	/**
-	 * Draws multi-sample vertical motion-blur streaks behind moving menu widgets.
-	 * `trailSign = +1.0F` when menu moves UP (streaks trail below), `-1.0F` when menu moves DOWN (streaks trail above).
-	 */
-	public static void renderMenuMotionBlur(GuiGraphics g, Screen screen, float speed01, float trailSign) {
-		if (FnHConfig.motionBlurPercent <= 0 || speed01 <= 0.03F || isInGame()) {
-			return;
-		}
-		float blurScale = Math.min(1.5F, FnHConfig.motionBlurPercent / 100.0F);
-		float maxStreak = 22.0F * speed01 * blurScale;
-		if (maxStreak < 1.2F) {
-			return;
-		}
-
-		List<GuiEventListener> kids = ((ScreenAccessor) screen).fnh_getChildren();
-		for (GuiEventListener listener : kids) {
-			if (!(listener instanceof AbstractWidget w) || !w.visible) {
-				continue;
-			}
-			int wx = w.getX();
-			int wy = w.getY();
-			int ww = w.getWidth();
-			int wh = w.getHeight();
-			for (int tap = 1; tap <= 4; tap++) {
-				float frac = tap / 4.0F;
-				int dy = Math.round(trailSign * maxStreak * frac);
-				float a = (1.0F - frac * 0.72F) * 0.16F * speed01 * activeOverlayAlpha;
-				g.fill(wx, wy + dy, wx + ww, wy + wh + dy, withAlpha(0x161D2E, a));
-				g.fill(wx, wy + dy, wx + ww, wy + 1 + dy, withAlpha(0xDCE6FF, a * 0.65F));
-			}
-		}
-	}
-
-	/**
-	 * Renders the outgoing menu sliding DOWN (`0px -> +72px`) with vertical motion blur and smooth fade-out.
-	 */
-	public static void renderClosingMenuOverlay(GuiGraphics g, float deltaTicks) {
-		if (closingScreen == null || renderingClosingOverlay || isInGame()) {
-			closingScreen = null;
-			return;
-		}
-		if (FnHConfig.motionBlurPercent <= 0) {
-			closingScreen = null;
-			return;
-		}
-		long elapsed = Util.getMillis() - closeAnimStartMs;
-		if (elapsed < 0L || elapsed >= 220L) {
-			closingScreen = null;
-			return;
-		}
-
-		float p = elapsed / 220.0F;
-		float easeIn = p * p * (2.1F - 1.1F * p);
-		float mult = Math.max(0.45F, Math.min(1.5F, FnHConfig.motionBlurPercent / 100.0F));
-		float slideDownY = easeIn * 72.0F * mult;
-		float fade = Math.max(0.0F, 1.0F - p * 1.08F);
-		if (fade <= 0.02F) {
-			closingScreen = null;
-			return;
-		}
-
-		Screen outgoing = closingScreen;
-		renderingClosingOverlay = true;
-		activeOverlayAlpha = fade;
-		try {
-			g.pose().pushMatrix();
-			g.pose().translate(0.0F, slideDownY);
-			// Upward-trailing motion blur streaks as the menu accelerates DOWN
-			float instSpeed = Math.min(1.0F, 0.35F + p * 0.95F);
-			renderMenuMotionBlur(g, outgoing, instSpeed, -1.0F);
-			for (Renderable r : ((ScreenAccessor) outgoing).fnh_getRenderables()) {
-				r.render(g, -9999, -9999, deltaTicks);
-			}
-			g.pose().popMatrix();
-		} catch (Throwable ignored) {
-			closingScreen = null;
-		} finally {
-			activeOverlayAlpha = 1.0F;
-			renderingClosingOverlay = false;
-		}
-	}
-
-	/**
-	 * Converts hardcoded dark charcoal `0x404040` container labels (like DonutSMP's `"Auction (Page 1)"`,
-	 * `"Crafting"`, and `"Inventory"`) into crisp luminous white-silver on our Dark-Glass containers!
-	 */
 	public static int upgradeContainerLabelColor(int color) {
 		if ((color & 0x00FFFFFF) == 0x404040) {
 			Minecraft mc = Minecraft.getInstance();
@@ -231,13 +156,12 @@ public final class FnHGlassStyle {
 		}
 		String path = sprite.getPath();
 
-		float rawAlpha = hasExplicitAlpha ? (((tintColor >>> 24) & 0xFF) / 255.0F) : 1.0F;
-		float extAlpha = rawAlpha * activeOverlayAlpha;
+		float extAlpha = hasExplicitAlpha ? (((tintColor >>> 24) & 0xFF) / 255.0F) : 1.0F;
 		if (extAlpha <= 0.004F) {
 			return true;
 		}
 
-		// 1. In-game HUD: Smooth sub-pixel sliding Hotbar Selection Frame!
+		// Clean, minimal sliding white slot frame
 		if (path.equals("hud/hotbar_selection")) {
 			long nowNs = System.nanoTime();
 			float dt = lastHotbarNs == 0L ? 0.016F : Math.min(0.1F, Math.max(0.0005F, (nowNs - lastHotbarNs) * 1.0e-9F));
@@ -248,7 +172,7 @@ public final class FnHGlassStyle {
 				lastHotbarY = y;
 			} else {
 				lastHotbarY = y;
-				float k = 1.0F - (float) Math.exp(-dt * 28.0F);
+				float k = 1.0F - (float) Math.exp(-dt * 30.0F);
 				smoothHotbarX += (x - smoothHotbarX) * k;
 				if (Math.abs(x - smoothHotbarX) < 0.05F) {
 					smoothHotbarX = x;
@@ -257,41 +181,39 @@ public final class FnHGlassStyle {
 
 			g.pose().pushMatrix();
 			g.pose().translate(smoothHotbarX - x, 0.0F);
-			// Outer luminous frost halo + crisp 2px glass selection frame
-			drawRectBorder(g, x, y, w, h, withAlpha(0x9CB8FF, 0.42F * extAlpha));
-			g.fill(x + 2, y + 2, x + w - 2, y + h - 2, withAlpha(0xDCE8FF, 0.12F * extAlpha));
-			drawRectBorder(g, x + 1, y + 1, w - 2, h - 2, withAlpha(0xF6F9FF, 0.96F * extAlpha));
-			drawRectBorder(g, x + 2, y + 2, w - 4, h - 4, withAlpha(0xDCE8FF, 0.72F * extAlpha));
+			int sx = x + 2;
+			int sy = y + 1;
+			int sw = Math.max(18, w - 4);
+			int sh = Math.max(18, h - 3);
+			g.fill(sx + 1, sy + 1, sx + sw - 1, sy + sh - 1, withAlpha(0xFFFFFF, 0.07F * extAlpha));
+			drawRectBorder(g, sx, sy, sw, sh, withAlpha(0xFFFFFF, 0.88F * extAlpha));
 			g.pose().popMatrix();
 			return true;
 		}
 
-		// 2. In-game HUD: Sleek Dark-Glass Hotbar & Offhand
+		// Clean, minimal smoked-obsidian pill hotbar (no cluttered 9-box grid)
 		if (path.equals("hud/hotbar")) {
-			g.fill(x, y, x + w, y + h, withAlpha(0x0B0E17, 0.82F * extAlpha));
-			g.fill(x + 1, y + 1, x + w - 1, y + 2, withAlpha(0xDCE8FF, 0.14F * extAlpha));
-			drawRectBorder(g, x, y, w, h, withAlpha(0x6C7B9E, 0.72F * extAlpha));
-			for (int slot = 0; slot < 9; slot++) {
-				int sx = x + 3 + slot * 20;
-				int sy = y + 3;
-				g.fill(sx, sy, sx + 16, sy + 16, withAlpha(0x05070C, 0.62F * extAlpha));
-				drawRectBorder(g, sx, sy, 16, 16, withAlpha(0xFFFFFF, 0.07F * extAlpha));
+			g.fill(x, y, x + w, y + h, withAlpha(0x0A0C12, 0.58F * extAlpha));
+			g.fill(x + 1, y + 1, x + w - 1, y + 2, withAlpha(0xFFFFFF, 0.06F * extAlpha));
+			drawRectBorder(g, x, y, w, h, withAlpha(0xFFFFFF, 0.15F * extAlpha));
+			for (int div = 1; div < 9; div++) {
+				int dx = x + 1 + div * 20;
+				g.fill(dx, y + 5, dx + 1, y + h - 5, withAlpha(0xFFFFFF, 0.07F * extAlpha));
 			}
 			return true;
 		}
 
 		if (path.equals("hud/hotbar_offhand_left") || path.equals("hud/hotbar_offhand_right")) {
 			int ox = path.endsWith("_left") ? x : (x + w - 22);
-			g.fill(ox, y + 1, ox + 22, y + h - 1, withAlpha(0x0B0E17, 0.82F * extAlpha));
-			drawRectBorder(g, ox, y + 1, 22, h - 2, withAlpha(0x6C7B9E, 0.72F * extAlpha));
-			g.fill(ox + 3, y + 4, ox + 19, y + 20, withAlpha(0x05070C, 0.62F * extAlpha));
+			g.fill(ox, y + 1, ox + 22, y + h - 1, withAlpha(0x0A0C12, 0.58F * extAlpha));
+			g.fill(ox + 1, y + 2, ox + 21, y + 3, withAlpha(0xFFFFFF, 0.06F * extAlpha));
+			drawRectBorder(g, ox, y + 1, 22, h - 2, withAlpha(0xFFFFFF, 0.15F * extAlpha));
 			return true;
 		}
 
-		// 3. Standard Dark-Glass Buttons, Sliders, Text Fields, Tabs
 		if (path.equals("widget/button") || path.equals("widget/button_highlighted") || path.equals("widget/button_disabled")) {
 			boolean disabled = path.endsWith("_disabled");
-			boolean hovered = path.endsWith("_highlighted") && !renderingClosingOverlay;
+			boolean hovered = path.endsWith("_highlighted");
 			int bg = disabled
 				? withAlpha(0x0A0C12, 0.42F * extAlpha)
 				: hovered
@@ -307,21 +229,21 @@ public final class FnHGlassStyle {
 			if (!disabled && h >= 6) {
 				g.fill(x + 1, y + 1, x + w - 1, y + 2, withAlpha(0xFFFFFF, (hovered ? 0.12F : 0.05F) * extAlpha));
 			}
-			drawGlassBorderWithCursorRim(g, x, y, w, h, border, !disabled && !renderingClosingOverlay, extAlpha);
+			drawGlassBorderWithCursorRim(g, x, y, w, h, border, !disabled, extAlpha);
 			return true;
 		}
 
 		if (path.equals("widget/slider") || path.equals("widget/slider_highlighted")) {
-			boolean hovered = path.endsWith("_highlighted") && !renderingClosingOverlay;
+			boolean hovered = path.endsWith("_highlighted");
 			int bg = withAlpha(0x070911, (hovered ? 0.82F : 0.75F) * extAlpha);
 			int border = withAlpha(0xDCE6FF, (hovered ? 0.34F : 0.18F) * extAlpha);
 			g.fill(x, y, x + w, y + h, bg);
-			drawGlassBorderWithCursorRim(g, x, y, w, h, border, !renderingClosingOverlay, extAlpha);
+			drawGlassBorderWithCursorRim(g, x, y, w, h, border, true, extAlpha);
 			return true;
 		}
 
 		if (path.equals("widget/slider_handle") || path.equals("widget/slider_handle_highlighted")) {
-			boolean hovered = path.endsWith("_highlighted") && !renderingClosingOverlay;
+			boolean hovered = path.endsWith("_highlighted");
 			int fill = withAlpha(0xE6ECF8, (hovered ? 0.62F : 0.44F) * extAlpha);
 			int border = withAlpha(0xFFFFFF, (hovered ? 0.84F : 0.60F) * extAlpha);
 			g.fill(x, y + 1, x + w, y + h - 1, fill);
@@ -334,7 +256,7 @@ public final class FnHGlassStyle {
 			int bg = withAlpha(0x05070E, 0.86F * extAlpha);
 			int border = withAlpha(0xDCE8FF, (focused ? 0.66F : 0.24F) * extAlpha);
 			g.fill(x, y, x + w, y + h, bg);
-			drawGlassBorderWithCursorRim(g, x, y, w, h, border, !renderingClosingOverlay, extAlpha);
+			drawGlassBorderWithCursorRim(g, x, y, w, h, border, true, extAlpha);
 			return true;
 		}
 

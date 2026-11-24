@@ -7,17 +7,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Stream;
 
 import net.fabricmc.loader.api.FabricLoader;
 
 public final class FnHConfig {
+	public static final String DEFAULT_SENTINEL = "__default__";
+
+	/**
+	 * `""` = auto (uses the first image dropped into any backgrounds folder, else Default Milky Way).
+	 * `"__default__"` = user explicitly selected Default Milky Way.
+	 * Otherwise = filename or path of the selected custom background.
+	 */
 	public static String customBgFile = "";
 	public static int bgDimPercent = 8;
-	public static int motionBlurPercent = 100;
+	public static int motionBlurPercent = 85;
 	public static boolean showPlayerSkin = true;
 	public static String skinOverrideUser = "";
 
@@ -37,20 +46,71 @@ public final class FnHConfig {
 		return dir;
 	}
 
-	public static List<Path> availableCustomBackgrounds() {
-		Path dir = backgroundsDir();
-		List<Path> out = new ArrayList<>();
-		try (Stream<Path> s = Files.list(dir)) {
-			s.filter(Files::isRegularFile)
-				.filter(p -> {
-					String n = p.getFileName().toString().toLowerCase(Locale.ROOT);
-					return n.endsWith(".gif") || n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg");
-				})
-				.sorted(Comparator.comparing(p -> p.getFileName().toString().toLowerCase(Locale.ROOT)))
-				.forEach(out::add);
-		} catch (IOException ignored) {
+	public static List<Path> backgroundSearchDirs() {
+		List<Path> dirs = new ArrayList<>();
+		Path gameDir = FabricLoader.getInstance().getGameDir();
+		dirs.add(backgroundsDir());
+		dirs.add(gameDir.resolve("fnh-backgrounds"));
+		dirs.add(gameDir.resolve("backgrounds"));
+		String appData = System.getenv("APPDATA");
+		if (appData != null && !appData.isBlank()) {
+			dirs.add(Path.of(appData, "FnH", "backgrounds"));
 		}
-		return out;
+		return dirs;
+	}
+
+	private static boolean isSupportedImageName(String name) {
+		String n = name.toLowerCase(Locale.ROOT);
+		return n.endsWith(".png")
+			|| n.endsWith(".jpg")
+			|| n.endsWith(".jpeg")
+			|| n.endsWith(".gif")
+			|| n.endsWith(".bmp")
+			|| n.endsWith(".webp");
+	}
+
+	public static List<Path> availableCustomBackgrounds() {
+		Map<String, Path> unique = new LinkedHashMap<>();
+		for (Path dir : backgroundSearchDirs()) {
+			if (!Files.isDirectory(dir)) {
+				continue;
+			}
+			try (Stream<Path> s = Files.list(dir)) {
+				s.filter(Files::isRegularFile)
+					.filter(p -> isSupportedImageName(p.getFileName().toString()))
+					.sorted(Comparator.comparing(p -> p.getFileName().toString().toLowerCase(Locale.ROOT)))
+					.forEach(p -> unique.putIfAbsent(p.getFileName().toString().toLowerCase(Locale.ROOT), p));
+			} catch (IOException ignored) {
+			}
+		}
+		return new ArrayList<>(unique.values());
+	}
+
+	/**
+	 * Resolves the active custom background `Path`, or `null` when Default Milky Way should render.
+	 */
+	public static Path resolveActiveBackgroundPath() {
+		String pref = customBgFile == null ? "" : customBgFile.trim();
+		if (DEFAULT_SENTINEL.equalsIgnoreCase(pref)) {
+			return null;
+		}
+		List<Path> available = availableCustomBackgrounds();
+		if (pref.isEmpty()) {
+			return available.isEmpty() ? null : available.get(0);
+		}
+		for (Path p : available) {
+			if (p.getFileName().toString().equalsIgnoreCase(pref) || p.toString().equalsIgnoreCase(pref)) {
+				return p;
+			}
+		}
+		try {
+			Path direct = Path.of(pref);
+			if (Files.isRegularFile(direct)) {
+				return direct;
+			}
+		} catch (Exception ignored) {
+		}
+		return available.isEmpty() ? null : available.get(0);
 	}
 
 	public static void load() {
@@ -65,7 +125,7 @@ public final class FnHConfig {
 			props.load(in);
 			customBgFile = props.getProperty("customBgFile", "").trim();
 			bgDimPercent = clamp(parseInt(props.getProperty("bgDimPercent"), 8), 0, 65);
-			motionBlurPercent = clamp(parseInt(props.getProperty("motionBlurPercent"), 100), 0, 150);
+			motionBlurPercent = clamp(parseInt(props.getProperty("motionBlurPercent"), 85), 0, 150);
 			showPlayerSkin = Boolean.parseBoolean(props.getProperty("showPlayerSkin", "true"));
 			skinOverrideUser = props.getProperty("skinOverrideUser", "").trim();
 		} catch (IOException ignored) {
@@ -83,7 +143,7 @@ public final class FnHConfig {
 		try {
 			Files.createDirectories(file.getParent());
 			try (OutputStream out = Files.newOutputStream(file)) {
-				props.store(out, "FnH 1.8 Menu UI Configuration");
+				props.store(out, "FnH 1.9.1 UI & Motion Blur Configuration");
 			}
 		} catch (IOException ignored) {
 		}

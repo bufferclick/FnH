@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "MinecraftMixin",
+    "GameRendererAccessor",
     "ScreenAccessor",
     "ScreenMixin",
     "TitleScreenMixin",

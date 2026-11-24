@@ -2,7 +2,7 @@
 # Fabric n Horizon (FNH) — made by Buffer. JLac's Windows 11 launcher for Fabric and Horizon.
 # The version here and fh/VERSION move together (a test checks it).
 name = "horizon-fh"
-version = "1.9.0"
+version = "1.9.1"
 edition = "2021"
 authors = ["Buffer"]
 license = "MIT"
@@ -16,6 +16,10 @@ publish = false
 [[bin]]
 name = "FH"
 path = "src/main.rs"
+
+[[bin]]
+name = "FnHSetup"
+path = "src/setup_main.rs"
 
 [dependencies]
 # `xbox-sign-in`: Microsoft's own Xbox Live client, so sign-in needs no custom Azure app.

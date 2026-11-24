@@ -124,12 +124,20 @@ public final class FnHSettingsScreen extends Screen {
 
 	private static void openFolderSafe(Path dir) {
 		try {
+			if (java.awt.Desktop.isDesktopSupported()) {
+				java.awt.Desktop.getDesktop().open(dir.toFile());
+				return;
+			}
+		} catch (Throwable ignored) {
+		}
+		try {
+			new ProcessBuilder("explorer.exe", dir.toAbsolutePath().toString()).start();
+			return;
+		} catch (Throwable ignored) {
+		}
+		try {
 			Blaze3D.openUri(dir.toUri());
 		} catch (Throwable ignored) {
-			try {
-				new ProcessBuilder("explorer.exe", dir.toAbsolutePath().toString()).start();
-			} catch (Exception ignored2) {
-			}
 		}
 	}
 
@@ -138,19 +146,20 @@ public final class FnHSettingsScreen extends Screen {
 		if (custom.isEmpty()) {
 			FnHConfig.customBgFile = "";
 		} else {
-			String cur = FnHConfig.customBgFile == null ? "" : FnHConfig.customBgFile.trim();
-			if (cur.isEmpty()) {
+			Path currentResolved = FnHConfig.resolveActiveBackgroundPath();
+			if (currentResolved == null) {
 				FnHConfig.customBgFile = custom.get(0).getFileName().toString();
 			} else {
 				int idx = -1;
+				String activeName = currentResolved.getFileName().toString();
 				for (int i = 0; i < custom.size(); i++) {
-					if (custom.get(i).getFileName().toString().equalsIgnoreCase(cur)) {
+					if (custom.get(i).getFileName().toString().equalsIgnoreCase(activeName)) {
 						idx = i;
 						break;
 					}
 				}
 				if (idx < 0 || idx + 1 >= custom.size()) {
-					FnHConfig.customBgFile = "";
+					FnHConfig.customBgFile = FnHConfig.DEFAULT_SENTINEL;
 				} else {
 					FnHConfig.customBgFile = custom.get(idx + 1).getFileName().toString();
 				}
@@ -161,11 +170,12 @@ public final class FnHSettingsScreen extends Screen {
 	}
 
 	private static Component currentBgLabel() {
-		String cur = FnHConfig.customBgFile == null ? "" : FnHConfig.customBgFile.trim();
-		if (cur.isEmpty()) {
+		Path resolved = FnHConfig.resolveActiveBackgroundPath();
+		if (resolved == null) {
 			return Component.literal("BG: Default Milky Way");
 		}
-		String shortName = cur.length() > 16 ? cur.substring(0, 14) + ".." : cur;
+		String name = resolved.getFileName().toString();
+		String shortName = name.length() > 16 ? name.substring(0, 14) + ".." : name;
 		return Component.literal("BG: " + shortName);
 	}
 

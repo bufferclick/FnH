@@ -4,6 +4,7 @@
   "package": "dev.horizonlab.fnh.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "LevelRendererMixin",
     "GuiMixin",
     "ScreenAccessor",
     "ScreenMixin",

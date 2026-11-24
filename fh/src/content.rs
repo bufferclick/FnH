@@ -36,28 +36,44 @@ pub fn user_instances() -> Vec<Instance> {
 }
 
 /// Creates a strictly isolated Horizon instance, allowing even the name `"Horizon"` (which
-/// `instances::create` normally reserves for the hidden `Kind::Default` slot).
+/// `instances::create` normally reserves for the hidden `Kind::Default` slot) and automatically
+/// deduplicating default names so creating multiple Horizon instances never collides.
 pub fn create_horizon_instance(name: &str) -> Result<Instance, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err("An instance needs a name.".into());
     }
-    if user_instances()
-        .iter()
-        .any(|i| i.name.eq_ignore_ascii_case(trimmed))
+    let existing = user_instances();
+    let base = if trimmed.eq_ignore_ascii_case("horizon") {
+        "Horizon Instance"
+    } else {
+        trimmed
+    };
+
+    let final_name = if !existing.iter().any(|i| i.name.eq_ignore_ascii_case(base)) {
+        base.to_owned()
+    } else if trimmed.eq_ignore_ascii_case("horizon")
+        || trimmed.eq_ignore_ascii_case("horizon instance")
     {
+        let mut n = 2usize;
+        loop {
+            let candidate = format!("Horizon Instance {n}");
+            if !existing.iter().any(|i| i.name.eq_ignore_ascii_case(&candidate)) {
+                break candidate;
+            }
+            n += 1;
+        }
+    } else {
         return Err(format!(
             "There is already an instance called {trimmed}. Choose another name."
         ));
-    }
-    if trimmed.eq_ignore_ascii_case("horizon") {
-        let created = inst::create("Horizon Instance", None)?;
-        let _ = fs::create_dir_all(created.home.join(hjava::MODS_DIR));
-        return inst::find(&created.id);
-    }
-    let created = inst::create(trimmed, None)?;
+    };
+
+    let created = inst::create(&final_name, None)?;
     let _ = fs::create_dir_all(created.home.join(hjava::MODS_DIR));
-    Ok(created)
+    let _ = fs::create_dir_all(created.home.join("resourcepacks"));
+    let _ = fs::create_dir_all(created.home.join("shaderpacks"));
+    inst::find(&created.id)
 }
 
 /// Creates a strictly isolated Java/Fabric instance, allowing even the name `"Horizon"`.

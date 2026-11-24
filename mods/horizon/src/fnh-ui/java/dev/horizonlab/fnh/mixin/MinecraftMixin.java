@@ -19,4 +19,9 @@ public abstract class MinecraftMixin {
 	private void fnh_beforeSetScreen(Screen nextScreen, CallbackInfo ci) {
 		FnHGlassStyle.onSetScreen(this.screen, nextScreen);
 	}
+
+	@Inject(method = "tick", at = @At("RETURN"))
+	private void fnh_afterTick(CallbackInfo ci) {
+		FnHGlassStyle.tickInGameMotionBlur();
+	}
 }
