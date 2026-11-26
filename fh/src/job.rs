@@ -1832,7 +1832,7 @@ pub fn prefetch_instance(instance: Instance, prefs: Prefs, cfg: InstanceCfg) {
         } else {
             resolve_horizon_version(&instance, &prefs, &cfg, &emit).and_then(|tag| {
                 sync_fnh_dark_glass_pack(&instance.home, &prefs, &emit);
-                sync_fnh_horizon_motion_blur(&instance.home, &prefs, &emit);
+                cleanup_legacy_horizon_motion_blur(&instance.home, &emit);
                 match prepare_horizon_version(&instance, &tag, &emit) {
                     Ok(()) => {
                         backend::complete_assets(&tag);

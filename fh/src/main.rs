@@ -307,14 +307,14 @@ mod tests {
                 ]
             }
         ]);
-        let parsed = job::parse_horizon_release_array_for_test(&sample);
+        let parsed = crate::job::parse_horizon_release_array_for_test(&sample);
         assert_eq!(parsed.len(), 2, "launcher@0.3.19 must be ignored, leaving v0.3.5 and snapshot");
         assert_eq!(
-            job::pick_horizon_tag_for_test(&parsed, false).as_deref(),
+            crate::job::pick_horizon_tag_for_test(&parsed, false).as_deref(),
             Some("v0.3.5")
         );
         assert_eq!(
-            job::pick_horizon_tag_for_test(&parsed, true).as_deref(),
+            crate::job::pick_horizon_tag_for_test(&parsed, true).as_deref(),
             Some("snapshot-2026-11-26-fd841ab")
         );
     }
