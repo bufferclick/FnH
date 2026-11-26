@@ -4,6 +4,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.Minecraft;
@@ -25,6 +26,13 @@ public final class FnHGlassStyle {
 	private static Method processChainMethod = null;
 	private static Method mainTargetGetter = null;
 	private static Field mainTargetField = null;
+	private static Field allocatorField = null;
+	private static int allocatorOwnerKind = 0; // 1 = gameRenderer, 2 = mc, 3 = levelRenderer
+	private static Field persistentTargetsField = null;
+	private static Method destroyBuffersMethod = null;
+
+	private static boolean wasUiBlurActive = false;
+	private static Identifier activeChainId = null;
 
 	private static int mouseX = -9999;
 	private static int mouseY = -9999;
@@ -63,23 +71,67 @@ public final class FnHGlassStyle {
 							break;
 						}
 					}
+					for (Field pf : postChainCls.getDeclaredFields()) {
+						if (Map.class.isAssignableFrom(pf.getType()) && "persistentTargets".equals(pf.getName())) {
+							pf.setAccessible(true);
+							persistentTargetsField = pf;
+							break;
+						}
+					}
 					break;
 				}
 			}
-			for (String mName : new String[] { "mainRenderTarget", "getMainRenderTarget" }) {
+			if (processChainMethod != null) {
+				Class<?> targetCls = processChainMethod.getParameterTypes()[0];
+				Class<?> allocCls = processChainMethod.getParameterTypes()[1];
 				try {
-					mainTargetGetter = Minecraft.class.getMethod(mName);
-					break;
+					destroyBuffersMethod = targetCls.getMethod("destroyBuffers");
 				} catch (NoSuchMethodException ignored) {
 				}
-			}
-			if (mainTargetGetter == null && processChainMethod != null) {
-				Class<?> targetCls = processChainMethod.getParameterTypes()[0];
-				for (Field f : Minecraft.class.getDeclaredFields()) {
-					if (targetCls.isAssignableFrom(f.getType())) {
-						f.setAccessible(true);
-						mainTargetField = f;
+				for (String mName : new String[] { "mainRenderTarget", "getMainRenderTarget" }) {
+					try {
+						mainTargetGetter = Minecraft.class.getMethod(mName);
 						break;
+					} catch (NoSuchMethodException ignored) {
+					}
+				}
+				if (mainTargetGetter == null) {
+					for (Field f : Minecraft.class.getDeclaredFields()) {
+						if (targetCls.isAssignableFrom(f.getType())) {
+							f.setAccessible(true);
+							mainTargetField = f;
+							break;
+						}
+					}
+				}
+				if (mc.gameRenderer != null) {
+					for (Field f : mc.gameRenderer.getClass().getDeclaredFields()) {
+						if (allocCls.isAssignableFrom(f.getType())) {
+							f.setAccessible(true);
+							allocatorField = f;
+							allocatorOwnerKind = 1;
+							break;
+						}
+					}
+				}
+				if (allocatorField == null) {
+					for (Field f : Minecraft.class.getDeclaredFields()) {
+						if (allocCls.isAssignableFrom(f.getType())) {
+							f.setAccessible(true);
+							allocatorField = f;
+							allocatorOwnerKind = 2;
+							break;
+						}
+					}
+				}
+				if (allocatorField == null && mc.levelRenderer != null) {
+					for (Field f : mc.levelRenderer.getClass().getDeclaredFields()) {
+						if (allocCls.isAssignableFrom(f.getType())) {
+							f.setAccessible(true);
+							allocatorField = f;
+							allocatorOwnerKind = 3;
+							break;
+						}
 					}
 				}
 			}
@@ -87,31 +139,80 @@ public final class FnHGlassStyle {
 		}
 	}
 
-	public static void applyInGameMotionBlur(Object resourceAllocator) {
-		if (FnHConfig.motionBlurPercent <= 0 || resourceAllocator == null) {
+	private static void resetChainHistory(Minecraft mc, Identifier id) {
+		if (mc == null || id == null || getPostChainMethod == null || persistentTargetsField == null) {
 			return;
 		}
+		try {
+			Object chain = getPostChainMethod.invoke(mc.getShaderManager(), id, MAIN_TARGETS);
+			if (chain == null) {
+				return;
+			}
+			Object rawMap = persistentTargetsField.get(chain);
+			if (rawMap instanceof Map<?, ?> map && !map.isEmpty()) {
+				if (destroyBuffersMethod != null) {
+					for (Object rt : map.values()) {
+						if (rt != null) {
+							destroyBuffersMethod.invoke(rt);
+						}
+					}
+				}
+				map.clear();
+			}
+		} catch (Throwable ignored) {
+		}
+	}
+
+	/**
+	 * Applies GPU motion blur strictly to UI screens (Title Screen, menus, and paused in-game menus),
+	 * NEVER during live in-game gameplay (`mc.gui.screen() == null` or unpaused world).
+	 */
+	public static void applyUiMotionBlur() {
 		Minecraft mc = Minecraft.getInstance();
-		if (mc == null || mc.level == null) {
+		if (mc == null || mc.gui == null) {
 			return;
 		}
+		boolean uiEligible = mc.gui.screen() != null && (mc.level == null || mc.isPaused());
+		if (!uiEligible || FnHConfig.motionBlurPercent <= 0) {
+			if (wasUiBlurActive) {
+				wasUiBlurActive = false;
+				resetChainHistory(mc, activeChainId);
+				activeChainId = null;
+			}
+			return;
+		}
+
 		ensurePostBridge(mc);
-		if (getPostChainMethod == null || processChainMethod == null) {
+		if (getPostChainMethod == null || processChainMethod == null || allocatorField == null) {
 			return;
 		}
+
 		Identifier wanted = FnHConfig.motionBlurPercent <= 55
 			? BLUR_LOW
 			: (FnHConfig.motionBlurPercent <= 105 ? BLUR_MED : BLUR_HIGH);
+		if (!wasUiBlurActive || !wanted.equals(activeChainId)) {
+			resetChainHistory(mc, activeChainId);
+			resetChainHistory(mc, wanted);
+			wasUiBlurActive = true;
+			activeChainId = wanted;
+		}
 		try {
 			Object target = mainTargetGetter != null
 				? mainTargetGetter.invoke(mc)
 				: (mainTargetField != null ? mainTargetField.get(mc) : null);
-			if (target == null) {
+			Object owner = allocatorOwnerKind == 1
+				? mc.gameRenderer
+				: (allocatorOwnerKind == 2 ? mc : mc.levelRenderer);
+			if (target == null || owner == null) {
+				return;
+			}
+			Object allocator = allocatorField.get(owner);
+			if (allocator == null) {
 				return;
 			}
 			Object chain = getPostChainMethod.invoke(mc.getShaderManager(), wanted, MAIN_TARGETS);
 			if (chain != null) {
-				processChainMethod.invoke(chain, target, resourceAllocator);
+				processChainMethod.invoke(chain, target, allocator);
 			}
 		} catch (Throwable ignored) {
 		}

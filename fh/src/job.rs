@@ -666,24 +666,22 @@ const FNH_PACK_FILE_NAME: &str = "FnH-Dark-Glass.zip";
 const EMBEDDED_DARK_GLASS_PACK: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Dark-Glass.zip"));
 
-const FNH_HORIZON_SHADER_FILE_NAME: &str = "FnH-Motion-Blur.hshader";
-const EMBEDDED_HORIZON_MOTION_BLUR: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Motion-Blur.hshader"));
+const LEGACY_HORIZON_SHADER_FILE_NAME: &str = "FnH-Motion-Blur.hshader";
 
-const FNH_MOD_12111_NAME: &str = "fnh-menu-1.21.11-1.9.1.jar";
+const FNH_MOD_12111_NAME: &str = "fnh-menu-1.21.11-1.9.2.jar";
 const EMBEDDED_MOD_12111: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-1.21.11-1.9.1.jar"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-1.21.11-1.9.2.jar"));
 const FNH_MOD_12111_URLS: &[&str] = &[
-    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.1/fnh-menu-1.21.11-1.9.1.jar",
-    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.1.jar",
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.2/fnh-menu-1.21.11-1.9.2.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-1.21.11-1.9.2.jar",
 ];
 
-const FNH_MOD_26_NAME: &str = "fnh-menu-26.3-1.9.1.jar";
+const FNH_MOD_26_NAME: &str = "fnh-menu-26.3-1.9.2.jar";
 const EMBEDDED_MOD_26: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-26.3-1.9.1.jar"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/fnh-menu-26.3-1.9.2.jar"));
 const FNH_MOD_26_URLS: &[&str] = &[
-    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.1/fnh-menu-26.3-1.9.1.jar",
-    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.1.jar",
+    "https://github.com/bufferclick/FnH/releases/download/fnh-v1.9.2/fnh-menu-26.3-1.9.2.jar",
+    "https://github.com/bufferclick/FnH/releases/latest/download/fnh-menu-26.3-1.9.2.jar",
 ];
 
 /// Provisions (or removes, when disabled) the universal `FnH-Dark-Glass.zip` resource pack and
@@ -745,18 +743,27 @@ fn ensure_clean_first_boot_options(home: &Path) {
     let has_onboard = existing
         .lines()
         .any(|l| l.starts_with("onboardAccessibility:"));
-    if !has_onboard {
+    let has_menu_blur = existing
+        .lines()
+        .any(|l| l.starts_with("menuBackgroundBlurriness:"));
+    if !has_onboard || !has_menu_blur {
         let mut out = existing;
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }
-        out.push_str("onboardAccessibility:false\n");
+        if !has_onboard {
+            out.push_str("onboardAccessibility:false\n");
+        }
+        if !has_menu_blur {
+            out.push_str("menuBackgroundBlurriness:8\n");
+        }
         let _ = std::fs::write(&options, out);
     }
 }
 
-/// Provisions the exact matching Fabric dynamic UI mod (`1.21.11` or `26.x`) and removes any
-/// mismatched `fnh-menu-*.jar` so switching versions never triggers Fabric's incompatible-mod dialog!
+/// Provisions the exact matching Fabric dynamic UI mod (`1.21.11` or `26.x`), removes any
+/// mismatched `fnh-menu-*.jar`, and cleans up any legacy `fnh-auto-motionblur-*.jar` gameplay mods
+/// so motion blur is strictly UI-only (never during gameplay)!
 fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) {
     let Some(java) = instance.java.as_ref() else {
         return;
@@ -780,8 +787,7 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
     let mods_dir = instance.home.join("mods");
     let wanted_name = desired_spec.map(|(n, _, _)| n);
 
-    // Always sweep any stale or wrong-MC-version `fnh-menu-*.jar` or `fnh-auto-motionblur-*.jar` first!
-    let expected_auto_mb = format!("fnh-auto-motionblur-{mc}.jar");
+    // Always sweep any stale `fnh-menu-*.jar` or legacy in-game `fnh-auto-motionblur-*.jar`!
     if let Ok(entries) = std::fs::read_dir(&mods_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
@@ -790,17 +796,12 @@ fn sync_fnh_menu_mod(instance: &Instance, prefs: &Prefs, emit: &dyn Fn(String)) 
                 let _ = std::fs::remove_file(entry.path());
             }
             if s.starts_with("fnh-auto-motionblur-") && s.ends_with(".jar") {
-                if !prefs.install_fnh_menu_ui || !is_fabric || desired_spec.is_some() || s.as_ref() != expected_auto_mb {
-                    let _ = std::fs::remove_file(entry.path());
-                }
+                let _ = std::fs::remove_file(entry.path());
             }
         }
     }
 
     let Some((jar_name, embedded_bytes, release_urls)) = desired_spec else {
-        if prefs.install_fnh_menu_ui && is_fabric && !mc.is_empty() {
-            sync_modrinth_fabric_motion_blur(&instance.home, mc, emit);
-        }
         return;
     };
 
@@ -930,7 +931,7 @@ fn build_horizon_command(
     std::fs::create_dir_all(&instance.home)
         .map_err(|e| format!("{}: {e}", instance.home.display()))?;
     sync_fnh_dark_glass_pack(&instance.home, prefs, emit);
-    sync_fnh_horizon_motion_blur(&instance.home, prefs, emit);
+    cleanup_legacy_horizon_motion_blur(&instance.home, emit);
     let chosen_offline = if !cfg.offline_name.trim().is_empty() {
         Some(cfg.offline_name.trim())
     } else if !prefs.offline_player_name.trim().is_empty() {
@@ -1126,9 +1127,11 @@ fn resolve_horizon_version(
         HorizonTrack::Default | HorizonTrack::Pinned => prefs.horizon_prefer_nightly,
     };
 
+    let is_nightly_tag = |t: &str| t.starts_with("nightly") || t.starts_with("snapshot-");
+
     if let Some(matching) = installed
         .iter()
-        .find(|t| !t.starts_with("native-") && (t.starts_with("nightly") == want_nightly))
+        .find(|t| !t.starts_with("native-") && (is_nightly_tag(t) == want_nightly))
     {
         emit(format!("Using installed Horizon build {matching}."));
         return Ok(matching.clone());
@@ -1164,380 +1167,475 @@ fn resolve_horizon_version(
     install_horizon_release(picked, emit)
 }
 
-fn fetch_all_horizon_releases() -> Result<Vec<backend::Release>, String> {
-    let mut list = backend::releases()?;
-    let has_stable = list
-        .iter()
-        .any(|r| r.asset.is_some() && r.nightly.is_none() && !r.prerelease);
-    if !has_stable {
-        let Some(asset_name) = backend::ASSET else {
-            return Ok(list);
-        };
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(8))
-            .timeout_read(Duration::from_secs(15))
-            .user_agent(&format!("bufferclick-FnH/{}", crate::VERSION))
-            .build();
-        let mut seen: std::collections::HashSet<String> =
-            list.iter().map(|r| r.tag.clone()).collect();
+const HORIZON_RELEASE_REPOS: &[&str] = &[
+    "eltanschauung/horizon",
+    "bufferclick/FnH",
+    "horizon-rust/horizon",
+];
 
-        let parse_one = |r: &serde_json::Value| -> Option<backend::Release> {
-            if r["draft"].as_bool().unwrap_or(false) {
-                return None;
-            }
-            let tag = r["tag_name"].as_str().unwrap_or_default();
-            if !backend::is_game_tag(tag) {
-                return None;
-            }
-            let found = r["assets"].as_array().into_iter().flatten().find_map(|a| {
-                (a["name"].as_str()? == asset_name).then(|| {
-                    Some((
-                        a["browser_download_url"].as_str()?.to_string(),
-                        a["size"].as_u64()?,
-                    ))
-                })?
-            });
-            Some(backend::Release {
-                tag: tag.to_owned(),
-                name: r["name"].as_str().unwrap_or_default().to_owned(),
-                body: r["body"].as_str().unwrap_or_default().replace("\r\n", "\n"),
-                date: r["published_at"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .chars()
-                    .take(10)
-                    .collect(),
-                time: r["published_at"]
-                    .as_str()
-                    .and_then(|d| d.get(11..16))
-                    .unwrap_or_default()
-                    .to_owned(),
-                asset: found,
-                prerelease: r["prerelease"].as_bool().unwrap_or(false),
-                nightly: None,
-            })
-        };
+#[derive(Clone, Debug)]
+pub(crate) struct HorizonRemoteRelease {
+    pub tag: String,
+    pub is_nightly: bool,
+    pub prerelease: bool,
+    pub asset_name: String,
+    pub asset_url: String,
+    pub asset_size: u64,
+    pub sums_url: Option<String>,
+}
 
-        let latest_url = format!("https://api.github.com/repos/{}/releases/latest", backend::REPO);
-        if let Ok(resp) = agent.get(&latest_url).set("Accept", "application/vnd.github+json").call() {
+fn horizon_platform_asset_candidates() -> &'static [&'static str] {
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    {
+        &["horizon-windows-arm64.zip", "horizon-windows-x64.zip"]
+    }
+    #[cfg(all(target_os = "windows", not(target_arch = "aarch64")))]
+    {
+        &["horizon-windows-x64.zip"]
+    }
+    #[cfg(target_os = "macos")]
+    {
+        &["horizon-macos-arm64.tar.gz"]
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        &["horizon-linux-x86_64.tar.gz"]
+    }
+}
+
+fn classify_horizon_tag(tag: &str) -> Option<bool> {
+    if tag.starts_with("nightly") || tag.starts_with("snapshot-") {
+        Some(true)
+    } else if backend::is_game_tag(tag) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn parse_horizon_release_item(
+    r: &serde_json::Value,
+    candidates: &[&str],
+) -> Option<HorizonRemoteRelease> {
+    if r["draft"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let tag = r["tag_name"].as_str()?.trim();
+    let is_nightly = classify_horizon_tag(tag)?;
+    let assets = r["assets"].as_array()?;
+
+    let mut chosen_asset: Option<(String, String, u64)> = None;
+    for &want in candidates {
+        if let Some(found) = assets.iter().find_map(|a| {
+            let name = a["name"].as_str()?;
+            if name == want {
+                Some((
+                    name.to_owned(),
+                    a["browser_download_url"].as_str()?.to_owned(),
+                    a["size"].as_u64().unwrap_or(0),
+                ))
+            } else {
+                None
+            }
+        }) {
+            chosen_asset = Some(found);
+            break;
+        }
+    }
+    let (asset_name, asset_url, asset_size) = chosen_asset?;
+    let sums_url = assets.iter().find_map(|a| {
+        (a["name"].as_str()? == "SHA256SUMS")
+            .then(|| a["browser_download_url"].as_str().map(str::to_owned))?
+    });
+
+    Some(HorizonRemoteRelease {
+        tag: tag.to_owned(),
+        is_nightly,
+        prerelease: r["prerelease"].as_bool().unwrap_or(is_nightly),
+        asset_name,
+        asset_url,
+        asset_size,
+        sums_url,
+    })
+}
+
+fn fetch_all_horizon_releases() -> Result<Vec<HorizonRemoteRelease>, String> {
+    let candidates = horizon_platform_asset_candidates();
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(20))
+        .user_agent(&format!("bufferclick-FnH/{}", crate::VERSION))
+        .build();
+
+    let mut last_err = String::from("No upstream Horizon release repository responded.");
+
+    for &repo in HORIZON_RELEASE_REPOS {
+        let mut found: Vec<HorizonRemoteRelease> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 1. `/releases/latest` guarantees discovering the latest Stable Release (`v0.3.5`, etc.)
+        //    even when `launcher@*`, `sdk-*`, or `snapshot-*` releases fill page 1.
+        let latest_url = format!("https://api.github.com/repos/{repo}/releases/latest");
+        if let Ok(resp) = agent
+            .get(&latest_url)
+            .set("Accept", "application/vnd.github+json")
+            .call()
+        {
             if let Ok(val) = resp.into_json::<serde_json::Value>() {
-                if let Some(rel) = parse_one(&val) {
+                if let Some(rel) = parse_horizon_release_item(&val, candidates) {
                     if seen.insert(rel.tag.clone()) {
-                        list.push(rel);
+                        found.push(rel);
                     }
                 }
             }
         }
 
-        let page2_url = format!(
-            "https://api.github.com/repos/{}/releases?per_page=100&page=2",
-            backend::REPO
-        );
-        if let Ok(resp) = agent.get(&page2_url).set("Accept", "application/vnd.github+json").call() {
-            if let Ok(val) = resp.into_json::<serde_json::Value>() {
-                for item in val.as_array().into_iter().flatten() {
-                    if let Some(rel) = parse_one(item) {
-                        if seen.insert(rel.tag.clone()) {
-                            list.push(rel);
+        // 2. `/releases?per_page=100` discovers Nightly/Snapshot builds (`snapshot-*`, `nightly-*`)
+        //    as well as recent Stable releases.
+        let list_url = format!("https://api.github.com/repos/{repo}/releases?per_page=100");
+        match agent
+            .get(&list_url)
+            .set("Accept", "application/vnd.github+json")
+            .call()
+        {
+            Ok(resp) => {
+                if let Ok(val) = resp.into_json::<serde_json::Value>() {
+                    for item in val.as_array().into_iter().flatten() {
+                        if let Some(rel) = parse_horizon_release_item(item, candidates) {
+                            if seen.insert(rel.tag.clone()) {
+                                found.push(rel);
+                            }
                         }
                     }
                 }
             }
+            Err(ureq::Error::Status(code, _)) => {
+                last_err = format!("{list_url} answered {code}");
+            }
+            Err(ureq::Error::Transport(t)) => {
+                last_err = format!("Network error reaching GitHub: {t}");
+            }
         }
 
-        list.sort_by(|a, b| {
-            backend::compare_versions(&b.tag, &a.tag).then(a.prerelease.cmp(&b.prerelease))
-        });
+        if !found.is_empty() {
+            // Keep GitHub's newest-first ordering within Nightly/Snapshot tags while sorting `vX.Y.Z`
+            // semantic tags newest-first.
+            found.sort_by(|a, b| match (a.is_nightly, b.is_nightly) {
+                (false, false) => backend::compare_versions(&b.tag, &a.tag),
+                (true, true) => b.tag.cmp(&a.tag),
+                (false, true) => std::cmp::Ordering::Less,
+                (true, false) => std::cmp::Ordering::Greater,
+            });
+            return Ok(found);
+        }
     }
-    Ok(list)
+
+    Err(last_err)
 }
 
-fn pick_horizon_release(releases: &[backend::Release], want_nightly: bool) -> Option<&backend::Release> {
+fn pick_horizon_release(
+    releases: &[HorizonRemoteRelease],
+    want_nightly: bool,
+) -> Option<&HorizonRemoteRelease> {
     if want_nightly {
         releases
             .iter()
-            .find(|r| {
-                r.asset.is_some()
-                    && r.nightly
-                        .as_deref()
-                        .is_some_and(|n| n.eq_ignore_ascii_case("nightly"))
-            })
-            .or_else(|| releases.iter().find(|r| r.asset.is_some() && r.nightly.is_some()))
+            .find(|r| r.is_nightly)
+            .or_else(|| releases.iter().find(|r| !r.is_nightly))
     } else {
         releases
             .iter()
-            .find(|r| r.asset.is_some() && r.nightly.is_none() && !r.prerelease)
-            .or_else(|| releases.iter().find(|r| r.asset.is_some() && r.nightly.is_none()))
+            .find(|r| !r.is_nightly && !r.prerelease)
+            .or_else(|| releases.iter().find(|r| !r.is_nightly))
+            .or_else(|| releases.first())
     }
 }
 
-fn install_horizon_release(release: &backend::Release, emit: &dyn Fn(String)) -> Result<String, String> {
-    emit(format!("Downloading Horizon {}…", release.tag));
-    backend::install(release, fraction)?;
+fn expected_sha256_from_sums(sums_text: &str, asset_name: &str) -> Option<String> {
+    for line in sums_text.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(hash) = parts.next() else {
+            continue;
+        };
+        let Some(raw_name) = parts.next() else {
+            continue;
+        };
+        let clean_name = raw_name.trim_start_matches('*').rsplit('/').next().unwrap_or(raw_name);
+        if clean_name == asset_name
+            && hash.len() == 64
+            && hash.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn install_horizon_release(
+    release: &HorizonRemoteRelease,
+    emit: &dyn Fn(String),
+) -> Result<String, String> {
+    use sha2::Digest;
+    use std::io::Write;
+
+    let tag = release.tag.as_str();
+    emit(format!("Downloading Horizon {tag} ({})…", release.asset_name));
+    fraction(0.02);
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(120))
+        .user_agent(&format!("bufferclick-FnH/{}", crate::VERSION))
+        .build();
+
+    let expected_sha = if let Some(ref sums_url) = release.sums_url {
+        match agent.get(sums_url).call() {
+            Ok(resp) => {
+                let mut txt = String::new();
+                let _ = resp.into_reader().take(256 * 1024).read_to_string(&mut txt);
+                expected_sha256_from_sums(&txt, &release.asset_name)
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let versions_root = backend::data_dir().join("versions");
+    let partial = versions_root.join(format!(".{tag}.partial"));
+    let _ = std::fs::remove_dir_all(&partial);
+    std::fs::create_dir_all(&partial)
+        .map_err(|e| format!("Creating {}: {e}", partial.display()))?;
+
+    let archive_path = partial.join(&release.asset_name);
+    let resp = agent
+        .get(&release.asset_url)
+        .call()
+        .map_err(|e| format!("Downloading {}: {e}", release.asset_url))?;
+
+    let total_bytes = resp
+        .header("Content-Length")
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(|| (release.asset_size > 0).then_some(release.asset_size))
+        .unwrap_or(140 * 1024 * 1024);
+
+    let mut out_file = std::fs::File::create(&archive_path)
+        .map_err(|e| format!("Creating {}: {e}", archive_path.display()))?;
+    let mut reader = resp.into_reader().take(600 * 1024 * 1024);
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = [0u8; 65536];
+    let mut downloaded: u64 = 0;
+    let mut last_logged_step: u64 = 0;
+
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("Download interrupted for {tag}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        out_file
+            .write_all(&buf[..n])
+            .map_err(|e| format!("Writing {}: {e}", archive_path.display()))?;
+        hasher.update(&buf[..n]);
+        downloaded += n as u64;
+
+        let ratio = (downloaded as f32 / total_bytes.max(1) as f32).clamp(0.0, 1.0);
+        fraction(0.04 + ratio * 0.84);
+        let pct_bucket = ((ratio * 100.0) as u64) / 10;
+        if pct_bucket > last_logged_step && pct_bucket <= 10 {
+            last_logged_step = pct_bucket;
+            emit(format!(
+                "Downloading Horizon {tag}: {:.1} / {:.1} MB ({:.0}%)",
+                downloaded as f64 / (1024.0 * 1024.0),
+                total_bytes as f64 / (1024.0 * 1024.0),
+                ratio * 100.0
+            ));
+        }
+    }
+    drop(out_file);
+
+    if downloaded < 65536 {
+        let _ = std::fs::remove_dir_all(&partial);
+        return Err(format!("Downloaded archive for {tag} was unexpectedly small ({downloaded} B)."));
+    }
+
+    if let Some(ref want_hex) = expected_sha {
+        let got_bytes = hasher.finalize();
+        let mut got_hex = String::with_capacity(64);
+        for b in got_bytes {
+            use std::fmt::Write as _;
+            let _ = write!(&mut got_hex, "{b:02x}");
+        }
+        if &got_hex != want_hex {
+            let _ = std::fs::remove_dir_all(&partial);
+            return Err(format!(
+                "SHA-256 mismatch for {}: expected {want_hex}, got {got_hex}",
+                release.asset_name
+            ));
+        }
+    }
+
+    emit(format!("Extracting Horizon {tag}…"));
+    fraction(0.90);
+    let unpacked = partial.join("unpacked");
+    std::fs::create_dir_all(&unpacked)
+        .map_err(|e| format!("Creating {}: {e}", unpacked.display()))?;
+
+    if release.asset_name.ends_with(".zip") {
+        let zip_file = std::fs::File::open(&archive_path)
+            .map_err(|e| format!("Opening {}: {e}", archive_path.display()))?;
+        let mut archive = zip::ZipArchive::new(zip_file)
+            .map_err(|e| format!("Reading zip {}: {e}", release.asset_name))?;
+        for idx in 0..archive.len() {
+            let mut entry = archive
+                .by_index(idx)
+                .map_err(|e| format!("Zip entry #{idx}: {e}"))?;
+            let Some(safe_rel) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
+                continue;
+            };
+            let dst = unpacked.join(&safe_rel);
+            if entry.is_dir() {
+                std::fs::create_dir_all(&dst)
+                    .map_err(|e| format!("Creating {}: {e}", dst.display()))?;
+            } else {
+                if let Some(parent) = dst.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("Creating {}: {e}", parent.display()))?;
+                }
+                let mut f = std::fs::File::create(&dst)
+                    .map_err(|e| format!("Extracting {}: {e}", dst.display()))?;
+                std::io::copy(&mut entry, &mut f)
+                    .map_err(|e| format!("Writing {}: {e}", dst.display()))?;
+            }
+        }
+    } else {
+        let status = Command::new("tar")
+            .args([
+                "-xzf",
+                &archive_path.to_string_lossy(),
+                "-C",
+                &unpacked.to_string_lossy(),
+            ])
+            .status()
+            .map_err(|e| format!("Running tar to extract {}: {e}", release.asset_name))?;
+        if !status.success() {
+            let _ = std::fs::remove_dir_all(&partial);
+            return Err(format!("tar failed extracting {}", release.asset_name));
+        }
+    }
+
+    fraction(0.97);
+    let entries: Vec<_> = std::fs::read_dir(&unpacked)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .collect();
+    let top = match entries.as_slice() {
+        [only] if only.path().is_dir() => only.path(),
+        _ => unpacked.clone(),
+    };
+
+    let client_bin = if cfg!(windows) {
+        "horizon-client.exe"
+    } else {
+        "horizon-client"
+    };
+    if !top.join(client_bin).is_file() {
+        let _ = std::fs::remove_dir_all(&partial);
+        return Err(format!(
+            "Archive {} did not contain {client_bin}.",
+            release.asset_name
+        ));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            top.join(client_bin),
+            std::fs::Permissions::from_mode(0o755),
+        );
+    }
+
+    let target = backend::version_dir(tag);
+    let _ = std::fs::remove_dir_all(&target);
+    if let Some(parent) = target.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::rename(&top, &target).map_err(|e| format!("Moving into {}: {e}", target.display()))?;
+    std::fs::write(target.join(".installed"), "")
+        .map_err(|e| format!("Marking {tag} installed: {e}"))?;
+    let _ = std::fs::remove_dir_all(&partial);
+
+    backend::complete_assets(tag);
+    backend::forget_prepared();
+
     let mut settings = backend::Settings::load();
-    settings.selected = Some(release.tag.clone());
+    settings.selected = Some(tag.to_owned());
     let _ = settings.save();
+
     fraction(1.0);
-    emit(format!("Installed Horizon {}.", release.tag));
-    Ok(release.tag.clone())
+    emit(format!("Installed Horizon {tag}."));
+    Ok(tag.to_owned())
 }
 
 fn install_horizon_tag(tag: &str, emit: &dyn Fn(String)) -> Result<String, String> {
     let releases = fetch_all_horizon_releases()?;
-    if let Some(rel) = releases
-        .iter()
-        .find(|r| r.tag == tag || r.nightly.as_deref() == Some(tag))
-    {
+    if let Some(rel) = releases.iter().find(|r| r.tag == tag) {
         return install_horizon_release(rel, emit);
     }
-    emit(format!("Downloading Horizon {tag}…"));
-    let installed = backend::install_tag(tag, false, fraction)?;
-    fraction(1.0);
-    emit(format!("Installed Horizon {installed}."));
-    Ok(installed)
+    Err(format!(
+        "Horizon build '{tag}' was not found in published releases."
+    ))
 }
 
-/// Provisions Horizon's native Shader API 0.2 per-pixel velocity Motion Blur (`FnH-Motion-Blur.hshader`)
-/// into `<home>/shaderpacks/` and enables it when no other shader pack is already selected.
-fn sync_fnh_horizon_motion_blur(home: &Path, prefs: &Prefs, emit: &dyn Fn(String)) {
-    let sp_dir = home.join("shaderpacks");
-    let _ = std::fs::create_dir_all(&sp_dir);
-    let shader_path = sp_dir.join(FNH_HORIZON_SHADER_FILE_NAME);
-
-    if !prefs.install_fnh_menu_ui {
-        if shader_path.exists() {
-            if let Ok(pack) = horizon_launcher::packs::find(
-                home,
-                horizon_launcher::packs::Kind::Shader,
-                FNH_HORIZON_SHADER_FILE_NAME,
-            ) {
-                let _ = horizon_launcher::packs::set_enabled(home, &pack, false);
-            }
-            let _ = std::fs::remove_file(&shader_path);
-        }
-        return;
-    }
-
-    if EMBEDDED_HORIZON_MOTION_BLUR.len() > 256 && EMBEDDED_HORIZON_MOTION_BLUR.starts_with(b"PK") {
-        let same_len = std::fs::metadata(&shader_path)
-            .map(|m| m.len() == EMBEDDED_HORIZON_MOTION_BLUR.len() as u64)
-            .unwrap_or(false);
-        if !same_len {
-            let _ = std::fs::write(&shader_path, EMBEDDED_HORIZON_MOTION_BLUR);
+#[cfg(test)]
+pub(crate) fn parse_horizon_release_array_for_test(
+    arr_val: &serde_json::Value,
+) -> Vec<HorizonRemoteRelease> {
+    let candidates = &["horizon-windows-x64.zip"];
+    let mut out = Vec::new();
+    for item in arr_val.as_array().into_iter().flatten() {
+        if let Some(rel) = parse_horizon_release_item(item, candidates) {
+            out.push(rel);
         }
     }
+    out
+}
 
-    if !shader_path.is_file() {
-        return;
-    }
+#[cfg(test)]
+pub(crate) fn pick_horizon_tag_for_test(
+    releases: &[HorizonRemoteRelease],
+    want_nightly: bool,
+) -> Option<String> {
+    pick_horizon_release(releases, want_nightly).map(|r| r.tag.clone())
+}
 
-    let gfx_file = home.join("horizon-graphics.txt");
-    let already_has_shader_choice = std::fs::read_to_string(&gfx_file)
-        .map(|txt| txt.lines().any(|l| l.starts_with("pickedShaderPack:")))
-        .unwrap_or(false);
-    if !already_has_shader_choice {
+/// Removes any legacy in-game `FnH-Motion-Blur.hshader` pack from `<home>/shaderpacks/` and clears
+/// `pickedShaderPack:horizon:fnh_motion_blur` from `horizon-graphics.txt` so Horizon gameplay is
+/// crisp and motion blur only applies to UI menus (`menuBackgroundBlurriness`).
+fn cleanup_legacy_horizon_motion_blur(home: &Path, emit: &dyn Fn(String)) {
+    let sp_path = home.join("shaderpacks").join(LEGACY_HORIZON_SHADER_FILE_NAME);
+    if sp_path.exists() {
         if let Ok(pack) = horizon_launcher::packs::find(
             home,
             horizon_launcher::packs::Kind::Shader,
-            FNH_HORIZON_SHADER_FILE_NAME,
+            LEGACY_HORIZON_SHADER_FILE_NAME,
         ) {
-            if !pack.enabled && horizon_launcher::packs::set_enabled(home, &pack, true).is_ok() {
-                emit(format!("Activated {FNH_HORIZON_SHADER_FILE_NAME} velocity motion blur."));
-            }
+            let _ = horizon_launcher::packs::set_enabled(home, &pack, false);
         }
+        let _ = std::fs::remove_file(&sp_path);
     }
-}
-
-/// Automatically provisions a compatible Fabric Motion Blur mod from Modrinth (`api.modrinth.com/v2`)
-/// for any Minecraft version outside `1.21.11` / `26.x` (e.g. `1.16.5`..`1.21.10`), plus `fabric-api`
-/// when required by that mod, so Motion Blur works across ALL Fabric versions!
-fn sync_modrinth_fabric_motion_blur(home: &Path, mc: &str, emit: &dyn Fn(String)) {
-    let mods_dir = home.join("mods");
-    let _ = std::fs::create_dir_all(&mods_dir);
-    let target_name = format!("fnh-auto-motionblur-{mc}.jar");
-    let target_path = mods_dir.join(&target_name);
-    if std::fs::metadata(&target_path).map(|m| m.len() > 2048).unwrap_or(false) {
-        return;
-    }
-
-    let mut has_fabric_api = false;
-    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
-        for e in entries.flatten() {
-            let lower = e.file_name().to_string_lossy().to_ascii_lowercase();
-            if lower.ends_with(".jar")
-                && (lower.contains("motionblur")
-                    || lower.contains("motion-blur")
-                    || lower.contains("motion_blur"))
-            {
-                return;
-            }
-            if lower.ends_with(".jar")
-                && (lower.contains("fabric-api") || lower.contains("fabric_api"))
-            {
-                has_fabric_api = true;
-            }
-        }
-    }
-
-    let cache_dir = crate::paths::root().join("cache").join("motionblur");
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let cached_mb = cache_dir.join(&target_name);
-    if std::fs::metadata(&cached_mb).map(|m| m.len() > 2048).unwrap_or(false) {
-        if std::fs::copy(&cached_mb, &target_path).is_ok() {
-            emit(format!("Activated cached Motion Blur mod for Minecraft {mc}."));
-        }
-        return;
-    }
-
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(15))
-        .user_agent(&format!("bufferclick-FnH/{}", crate::VERSION))
-        .build();
-
-    let facets = format!("[[\"categories:fabric\"],[\"versions:{mc}\"],[\"project_type:mod\"]]");
-    let encoded_facets: String = facets
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect();
-    let search_url = format!(
-        "https://api.modrinth.com/v2/search?query=motion%20blur&facets={encoded_facets}&limit=8"
-    );
-    let Ok(resp) = agent.get(&search_url).call() else {
-        return;
-    };
-    let Ok(search_json) = resp.into_json::<serde_json::Value>() else {
-        return;
-    };
-    let Some(hits) = search_json["hits"].as_array() else {
-        return;
-    };
-
-    for hit in hits {
-        let title = hit["title"].as_str().unwrap_or_default().to_ascii_lowercase();
-        let slug = hit["slug"].as_str().unwrap_or_default().to_ascii_lowercase();
-        if !title.contains("motion") && !slug.contains("motion") {
-            continue;
-        }
-        let Some(pid) = hit["project_id"].as_str().filter(|s| !s.is_empty()) else {
-            continue;
-        };
-        let ver_url = format!(
-            "https://api.modrinth.com/v2/project/{pid}/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22{mc}%22%5D"
-        );
-        let Ok(vresp) = agent.get(&ver_url).call() else {
-            continue;
-        };
-        let Ok(vers) = vresp.into_json::<serde_json::Value>() else {
-            continue;
-        };
-        let Some(ver_obj) = vers.as_array().and_then(|a| a.first()) else {
-            continue;
-        };
-        let Some(dl_url) = ver_obj["files"]
-            .as_array()
-            .and_then(|files| {
-                files
-                    .iter()
-                    .find(|f| f["primary"].as_bool().unwrap_or(false))
-                    .or_else(|| files.first())
-            })
-            .and_then(|f| f["url"].as_str())
-        else {
-            continue;
-        };
-
-        let needs_fapi = ver_obj["dependencies"]
-            .as_array()
-            .map(|deps| {
-                deps.iter().any(|d| {
-                    d["dependency_type"].as_str() == Some("required")
-                        && d["project_id"].as_str() == Some("P7dR8mSH")
-                })
-            })
-            .unwrap_or(false);
-
-        if let Ok(dl_resp) = agent.get(dl_url).call() {
-            let mut bytes = Vec::new();
-            if dl_resp
-                .into_reader()
-                .take(16 * 1024 * 1024)
-                .read_to_end(&mut bytes)
-                .is_ok()
-                && bytes.len() > 2048
-                && bytes.starts_with(b"PK")
-            {
-                let _ = std::fs::write(&cached_mb, &bytes);
-                if std::fs::write(&target_path, &bytes).is_ok() {
-                    emit(format!("Installed Motion Blur for Minecraft {mc}."));
-                    if needs_fapi && !has_fabric_api {
-                        provision_fabric_api_for_mc(&agent, &mods_dir, &cache_dir, mc, emit);
-                    }
-                    return;
-                }
-            }
-        }
-    }
-}
-
-fn provision_fabric_api_for_mc(
-    agent: &ureq::Agent,
-    mods_dir: &Path,
-    cache_dir: &Path,
-    mc: &str,
-    emit: &dyn Fn(String),
-) {
-    let fapi_name = format!("fabric-api-auto-{mc}.jar");
-    let dst = mods_dir.join(&fapi_name);
-    if dst.is_file() {
-        return;
-    }
-    let cached = cache_dir.join(&fapi_name);
-    if std::fs::metadata(&cached).map(|m| m.len() > 8192).unwrap_or(false) {
-        let _ = std::fs::copy(&cached, &dst);
-        return;
-    }
-    let url = format!(
-        "https://api.modrinth.com/v2/project/P7dR8mSH/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22{mc}%22%5D"
-    );
-    let Ok(resp) = agent.get(&url).call() else {
-        return;
-    };
-    let Ok(vers) = resp.into_json::<serde_json::Value>() else {
-        return;
-    };
-    let Some(dl_url) = vers
-        .as_array()
-        .and_then(|a| a.first())
-        .and_then(|v| v["files"].as_array())
-        .and_then(|files| {
-            files
-                .iter()
-                .find(|f| f["primary"].as_bool().unwrap_or(false))
-                .or_else(|| files.first())
-        })
-        .and_then(|f| f["url"].as_str())
-    else {
-        return;
-    };
-    if let Ok(dl_resp) = agent.get(dl_url).call() {
-        let mut bytes = Vec::new();
-        if dl_resp
-            .into_reader()
-            .take(24 * 1024 * 1024)
-            .read_to_end(&mut bytes)
-            .is_ok()
-            && bytes.len() > 8192
-            && bytes.starts_with(b"PK")
-        {
-            let _ = std::fs::write(&cached, &bytes);
-            if std::fs::write(&dst, &bytes).is_ok() {
-                emit(format!("Installed required Fabric API for Minecraft {mc}."));
+    let gfx_file = home.join("horizon-graphics.txt");
+    if let Ok(txt) = std::fs::read_to_string(&gfx_file) {
+        if txt.contains("pickedShaderPack:horizon:fnh_motion_blur") {
+            let cleaned: String = txt
+                .lines()
+                .filter(|l| l.trim() != "pickedShaderPack:horizon:fnh_motion_blur")
+                .map(|l| format!("{l}\n"))
+                .collect();
+            if std::fs::write(&gfx_file, cleaned).is_ok() {
+                emit("Disabled legacy in-game Horizon motion blur shader (UI-only blur active).".into());
             }
         }
     }
@@ -1734,7 +1832,7 @@ pub fn prefetch_instance(instance: Instance, prefs: Prefs, cfg: InstanceCfg) {
         } else {
             resolve_horizon_version(&instance, &prefs, &cfg, &emit).and_then(|tag| {
                 sync_fnh_dark_glass_pack(&instance.home, &prefs, &emit);
-                sync_fnh_horizon_motion_blur(&instance.home, &prefs, &emit);
+                cleanup_legacy_horizon_motion_blur(&instance.home, &emit);
                 match prepare_horizon_version(&instance, &tag, &emit) {
                     Ok(()) => {
                         backend::complete_assets(&tag);

@@ -1,13 +1,13 @@
 package dev.horizonlab.fnh.mixin;
 
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.gen.Invoker;
+import org.spongepowered.asm.mixin.gen.Accessor;
 
 import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.resources.Identifier;
 
 @Mixin(GameRenderer.class)
 public interface GameRendererAccessor {
-	@Invoker("setPostEffect")
-	void fnh_setPostEffect(Identifier id);
+	@Accessor("resourcePool")
+	CrossFrameResourcePool fnh_getResourcePool();
 }

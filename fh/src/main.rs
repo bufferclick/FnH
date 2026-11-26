@@ -245,24 +245,77 @@ mod tests {
     }
 
     #[test]
-    fn embedded_horizon_motion_blur_shader_pack_is_recognized() {
-        let dir = std::env::temp_dir().join(format!("fnh-hshader-test-{}", std::process::id()));
-        let sp = dir.join("shaderpacks");
-        std::fs::create_dir_all(&sp).unwrap();
-        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/FnH-Motion-Blur.hshader"));
-        assert!(bytes.len() > 256, "FnH-Motion-Blur.hshader must be built");
-        std::fs::write(sp.join("FnH-Motion-Blur.hshader"), bytes).unwrap();
-        let found = horizon_launcher::packs::find(
-            &dir,
-            horizon_launcher::packs::Kind::Shader,
-            "FnH-Motion-Blur.hshader",
-        )
-        .expect("Horizon shader pack manifest should parse cleanly");
-        assert_eq!(found.file, "FnH-Motion-Blur.hshader");
-        assert_eq!(found.title, "FnH Motion Blur");
-        horizon_launcher::packs::set_enabled(&dir, &found, true).unwrap();
-        let gfx = std::fs::read_to_string(dir.join("horizon-graphics.txt")).unwrap();
-        assert!(gfx.contains("pickedShaderPack:horizon:fnh_motion_blur"));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn horizon_release_parser_resolves_stable_and_snapshot_channels() {
+        let sample = serde_json::json!([
+            {
+                "tag_name": "launcher@0.3.19",
+                "name": "Horizon Launcher 0.3.19",
+                "draft": false,
+                "prerelease": false,
+                "assets": [
+                    {
+                        "name": "horizon-launcher-windows-x64.zip",
+                        "size": 34057547,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/launcher@0.3.19/horizon-launcher-windows-x64.zip"
+                    }
+                ]
+            },
+            {
+                "tag_name": "snapshot-2026-11-26-fd841ab",
+                "name": "Snapshot 2026-11-26 · fd841ab",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                    {
+                        "name": "horizon-windows-x64.zip",
+                        "size": 135020222,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/snapshot-2026-11-26-fd841ab/horizon-windows-x64.zip"
+                    },
+                    {
+                        "name": "horizon-linux-x86_64.tar.gz",
+                        "size": 133348997,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/snapshot-2026-11-26-fd841ab/horizon-linux-x86_64.tar.gz"
+                    },
+                    {
+                        "name": "SHA256SUMS",
+                        "size": 259,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/snapshot-2026-11-26-fd841ab/SHA256SUMS"
+                    }
+                ]
+            },
+            {
+                "tag_name": "v0.3.5",
+                "name": "Horizon 0.3.5",
+                "draft": false,
+                "prerelease": false,
+                "assets": [
+                    {
+                        "name": "horizon-windows-x64.zip",
+                        "size": 143849419,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/v0.3.5/horizon-windows-x64.zip"
+                    },
+                    {
+                        "name": "horizon-linux-x86_64.tar.gz",
+                        "size": 95238123,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/v0.3.5/horizon-linux-x86_64.tar.gz"
+                    },
+                    {
+                        "name": "SHA256SUMS",
+                        "size": 475,
+                        "browser_download_url": "https://github.com/eltanschauung/horizon/releases/download/v0.3.5/SHA256SUMS"
+                    }
+                ]
+            }
+        ]);
+        let parsed = crate::job::parse_horizon_release_array_for_test(&sample);
+        assert_eq!(parsed.len(), 2, "launcher@0.3.19 must be ignored, leaving v0.3.5 and snapshot");
+        assert_eq!(
+            crate::job::pick_horizon_tag_for_test(&parsed, false).as_deref(),
+            Some("v0.3.5")
+        );
+        assert_eq!(
+            crate::job::pick_horizon_tag_for_test(&parsed, true).as_deref(),
+            Some("snapshot-2026-11-26-fd841ab")
+        );
     }
 }

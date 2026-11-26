@@ -6,6 +6,8 @@
   "client": [
     "MinecraftMixin",
     "GameRendererAccessor",
+    "PostChainAccessor",
+    "GuiRendererMixin",
     "ScreenAccessor",
     "ScreenMixin",
     "TitleScreenMixin",

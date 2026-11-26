@@ -2,14 +2,20 @@ package dev.horizonlab.fnh;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
 import dev.horizonlab.fnh.mixin.GameRendererAccessor;
+import dev.horizonlab.fnh.mixin.PostChainAccessor;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.renderer.LevelTargetBundle;
+import net.minecraft.client.renderer.PostChain;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 
@@ -17,6 +23,9 @@ public final class FnHGlassStyle {
 	private static final Identifier BLUR_LOW = Identifier.withDefaultNamespace("fnh_motion_blur_low");
 	private static final Identifier BLUR_MED = Identifier.withDefaultNamespace("fnh_motion_blur_med");
 	private static final Identifier BLUR_HIGH = Identifier.withDefaultNamespace("fnh_motion_blur_high");
+
+	private static boolean wasUiBlurActive = false;
+	private static Identifier activeChainId = null;
 
 	private static int mouseX = -9999;
 	private static int mouseY = -9999;
@@ -38,23 +47,42 @@ public final class FnHGlassStyle {
 		return mc != null && mc.level != null;
 	}
 
-	private static boolean isFnHBlurId(Identifier id) {
-		if (id == null) {
-			return false;
+	private static void resetChainHistory(Minecraft mc, Identifier id) {
+		if (mc == null || id == null) {
+			return;
 		}
-		String p = id.getPath();
-		return p.startsWith("fnh_motion_blur_");
+		try {
+			PostChain chain = mc.getShaderManager().getPostChain(id, LevelTargetBundle.MAIN_TARGETS);
+			if (chain instanceof PostChainAccessor acc) {
+				Map<Identifier, RenderTarget> map = acc.fnh_getPersistentTargets();
+				if (map != null && !map.isEmpty()) {
+					for (RenderTarget rt : map.values()) {
+						if (rt != null) {
+							rt.destroyBuffers();
+						}
+					}
+					map.clear();
+				}
+			}
+		} catch (Throwable ignored) {
+		}
 	}
 
-	public static void tickInGameMotionBlur() {
+	/**
+	 * Applies GPU motion blur strictly to UI screens (Title Screen, menus, and paused in-game menus),
+	 * NEVER during live in-game gameplay (`mc.screen == null` or unpaused world).
+	 */
+	public static void applyUiMotionBlur() {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc == null || mc.gameRenderer == null) {
 			return;
 		}
-		Identifier current = mc.gameRenderer.currentPostEffect();
-		if (mc.level == null || FnHConfig.motionBlurPercent <= 0) {
-			if (isFnHBlurId(current)) {
-				mc.gameRenderer.clearPostEffect();
+		boolean uiEligible = mc.screen != null && (mc.level == null || mc.isPaused());
+		if (!uiEligible || FnHConfig.motionBlurPercent <= 0) {
+			if (wasUiBlurActive) {
+				wasUiBlurActive = false;
+				resetChainHistory(mc, activeChainId);
+				activeChainId = null;
 			}
 			return;
 		}
@@ -62,8 +90,22 @@ public final class FnHGlassStyle {
 		Identifier wanted = FnHConfig.motionBlurPercent <= 55
 			? BLUR_LOW
 			: (FnHConfig.motionBlurPercent <= 105 ? BLUR_MED : BLUR_HIGH);
-		if (current == null || (isFnHBlurId(current) && !wanted.equals(current))) {
-			((GameRendererAccessor) mc.gameRenderer).fnh_setPostEffect(wanted);
+		if (!wasUiBlurActive || !wanted.equals(activeChainId)) {
+			resetChainHistory(mc, activeChainId);
+			resetChainHistory(mc, wanted);
+			wasUiBlurActive = true;
+			activeChainId = wanted;
+		}
+		try {
+			CrossFrameResourcePool pool = ((GameRendererAccessor) mc.gameRenderer).fnh_getResourcePool();
+			if (pool == null) {
+				return;
+			}
+			PostChain chain = mc.getShaderManager().getPostChain(wanted, LevelTargetBundle.MAIN_TARGETS);
+			if (chain != null) {
+				chain.process(mc.getMainRenderTarget(), pool);
+			}
+		} catch (Throwable ignored) {
 		}
 	}
 

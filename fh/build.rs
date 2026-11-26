@@ -16,9 +16,8 @@ fn main() {
 
     for asset in [
         "FnH-Dark-Glass.zip",
-        "FnH-Motion-Blur.hshader",
-        "fnh-menu-1.21.11-1.9.1.jar",
-        "fnh-menu-26.3-1.9.1.jar",
+        "fnh-menu-1.21.11-1.9.2.jar",
+        "fnh-menu-26.3-1.9.2.jar",
     ] {
         let src = std::path::PathBuf::from(&dir).join("assets").join(asset);
         println!("cargo:rerun-if-changed={}", src.display());

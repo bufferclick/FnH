@@ -34,9 +34,9 @@ use std::time::{Duration, Instant};
 
 /// Live Horizon Mod Registry index URL (`horizon-rust/horizon-mods` GitHub Pages).
 pub const REGISTRY_INDEX_URL: &str = "https://horizon-rust.github.io/horizon-mods/index.json";
-/// Releases API for upstream `horizon-rust/horizon` (used to fetch `horizon-launcher` for Native Mod SDK builds).
+/// Releases API for upstream Horizon (`eltanschauung/horizon`, used to fetch `horizon-launcher` for Native Mod SDK builds).
 pub const HORIZON_RELEASES_API: &str =
-    "https://api.github.com/repos/horizon-rust/horizon/releases?per_page=25";
+    "https://api.github.com/repos/eltanschauung/horizon/releases?per_page=25";
 
 /// Runtime execution model of a Horizon mod package.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
