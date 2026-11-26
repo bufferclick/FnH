@@ -60,12 +60,12 @@ public final class FnHSettingsScreen extends Screen {
 
 		this.addRenderableWidget(new AbstractSliderButton(
 			colRight, y, 150, 20,
-			Component.literal("Motion Blur: " + FnHConfig.motionBlurPercent + "%"),
+			Component.literal("UI Motion Blur: " + (FnHConfig.motionBlurPercent == 0 ? "OFF" : FnHConfig.motionBlurPercent + "%")),
 			FnHConfig.motionBlurPercent / 150.0
 		) {
 			@Override
 			protected void updateMessage() {
-				this.setMessage(Component.literal("Motion Blur: " + FnHConfig.motionBlurPercent + "%"));
+				this.setMessage(Component.literal("UI Motion Blur: " + (FnHConfig.motionBlurPercent == 0 ? "OFF" : FnHConfig.motionBlurPercent + "%")));
 			}
 
 			@Override

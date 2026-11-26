@@ -189,7 +189,7 @@ public abstract class TitleScreenMixin extends Screen {
 		drawInlineFnHIcon(graphics, this.fnh_bgBtnX, this.fnh_bgBtnY);
 
 		// Clean matching frosted footer line on the bottom-left (mirrors bottom-right copyright baseline y = height - 10)
-		String ver = "FnH 1.9.1  ·  Minecraft " + SharedConstants.getCurrentVersion().name();
+		String ver = "FnH 1.9.2  ·  Minecraft " + SharedConstants.getCurrentVersion().name();
 		graphics.drawString(this.font, ver, 4, this.height - 10, 0xB8E4EAF6);
 
 		ci.cancel();

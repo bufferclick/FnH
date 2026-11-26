@@ -143,7 +143,7 @@ public final class FnHConfig {
 		try {
 			Files.createDirectories(file.getParent());
 			try (OutputStream out = Files.newOutputStream(file)) {
-				props.store(out, "FnH 1.9.1 UI & Motion Blur Configuration");
+				props.store(out, "FnH 1.9.2 UI Motion Blur & Glass Configuration");
 			}
 		} catch (IOException ignored) {
 		}

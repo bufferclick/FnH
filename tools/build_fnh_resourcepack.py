@@ -698,12 +698,12 @@ out vec4 fragColor;
 void main() {
     vec4 curr = texture(InSampler, texCoord);
     vec4 prev = texture(PrevSampler, texCoord);
-    vec3 mixed = prev.a < 0.01 ? curr.rgb : mix(curr.rgb, prev.rgb, BlendFactor);
+    vec3 mixed = prev.a < 0.5 ? curr.rgb : mix(curr.rgb, prev.rgb, BlendFactor);
     fragColor = vec4(mixed, 1.0);
 }
 """
         zf.writestr("assets/minecraft/shaders/post/fnh_motion_blur.fsh", fsh)
-        for preset_name, factor in (("low", 0.42), ("med", 0.60), ("high", 0.74)):
+        for preset_name, factor in (("low", 0.34), ("med", 0.48), ("high", 0.62)):
             post_cfg = {
                 "targets": {
                     "prev": {"persistent": True},
@@ -754,70 +754,6 @@ void main() {
             )
 
     print(f"Built {OUT_ZIP} ({OUT_ZIP.stat().st_size / 1024:.1f} KB)")
-
-    # Also build native Horizon Shader API 0.2 per-pixel velocity Motion Blur pack (`FnH-Motion-Blur.hshader`)
-    out_hshader = ROOT / "fh" / "assets" / "FnH-Motion-Blur.hshader"
-    hshader_toml = """schema = 1
-id = "fnh_motion_blur"
-name = "FnH Motion Blur"
-version = "1.9.1"
-api = "0.2"
-description = "Clean per-pixel camera velocity motion blur for Horizon. Made by Buffer."
-authors = ["Buffer"]
-license = "MIT"
-
-[[post]]
-file = "motion_blur.wgsl"
-name = "Velocity motion blur"
-
-[[options]]
-id = "strength"
-name = "Motion Blur Strength"
-description = "Camera motion blur shutter strength."
-type = "float"
-default = 0.70
-min = 0.0
-max = 1.5
-step = 0.05
-
-[budget]
-gpu_ms = 1.0
-"""
-    hshader_wgsl = """override strength: f32 = 0.70;
-
-fn post(input: PostInput) -> vec4<f32> {
-    if strength <= 0.01 || frame.delta_time <= 0.0 {
-        return input.color;
-    }
-    let d = max(input.depth, 0.0002);
-    let p_cam = view_position(input.uv, d);
-    let prev_world = select(p_cam + frame.camera_motion, p_cam, input.depth == 0.0);
-    let prev_clip = frame.previous_view_projection * vec4<f32>(prev_world, 1.0);
-    if prev_clip.w <= 0.0001 {
-        return input.color;
-    }
-    let ndc = prev_clip.xy / prev_clip.w;
-    let prev_uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    let raw_vel = (prev_uv - input.uv) * (strength * 0.62);
-    let vel = clamp(raw_vel, vec2<f32>(-0.038), vec2<f32>(0.038));
-    if dot(vel, vel) < 0.00000025 {
-        return input.color;
-    }
-    var acc = input.color.rgb * 1.5;
-    var weight_sum = 1.5;
-    for (var i = 1; i <= 6; i++) {
-        let t = (f32(i) / 6.0) - 0.5;
-        let sample_uv = clamp(input.uv + vel * t, vec2<f32>(0.001), vec2<f32>(0.999));
-        acc += textureSampleLevel(previous, linear_sampler, sample_uv, 0.0).rgb;
-        weight_sum += 1.0;
-    }
-    return vec4<f32>(acc / weight_sum, 1.0);
-}
-"""
-    with zipfile.ZipFile(out_hshader, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as hzf:
-        hzf.writestr("horizon-shaders.toml", hshader_toml)
-        hzf.writestr("motion_blur.wgsl", hshader_wgsl)
-    print(f"Built {out_hshader} ({out_hshader.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
